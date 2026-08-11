@@ -13,7 +13,7 @@ git add .
 git diff --cached --name-only
 
 4.提交
-git commit -m "release v0.1.6"
+git commit -m "release v0.1.7"
 
 5.发布
-npm run release:publish -- v0.1.6
+npm run release:publish -- v0.1.7

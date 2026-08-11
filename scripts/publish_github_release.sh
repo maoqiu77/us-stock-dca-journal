@@ -6,7 +6,7 @@ REMOTE="${2:-origin}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 if [[ -z "$VERSION" || ! "$VERSION" =~ ^v[0-9]+(\.[0-9]+){2}(-[A-Za-z0-9._-]+)?$ ]]; then
-  echo "Usage: npm run release:publish -- v0.1.6 [remote]" >&2
+  echo "Usage: npm run release:publish -- v0.1.7 [remote]" >&2
   exit 2
 fi
 

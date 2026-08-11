@@ -444,9 +444,67 @@ export function parseTradeNumberInput(value: string) {
   return cleanNumber(value);
 }
 
-export function formatTradeNumberInput(value: number) {
+export function formatTradeNumberInput(value: number, digits = 4) {
   const number = cleanNumber(value);
-  return number > 0 ? String(roundNumber(number, 4)) : "";
+  return number > 0 ? String(roundNumber(number, digits)) : "";
+}
+
+export type TradeCalculationField = "amount" | "unitPrice" | "shares";
+export type TradeCalculationDraft = Record<TradeCalculationField, string>;
+
+export function updateTradeCalculation(
+  draft: TradeCalculationDraft,
+  editedField: TradeCalculationField,
+  editedValue: string,
+  recentFields: TradeCalculationField[]
+) {
+  const nextDraft = { ...draft, [editedField]: editedValue };
+  const nextRecentFields = [
+    ...recentFields.filter((field) => field !== editedField),
+    editedField,
+  ].slice(-2);
+  const validFields = (
+    ["amount", "unitPrice", "shares"] as TradeCalculationField[]
+  ).filter((field) => parseTradeNumberInput(nextDraft[field]) > 0);
+
+  let sourceFields: TradeCalculationField[] = [];
+  if (validFields.length === 2) {
+    sourceFields = validFields;
+  } else if (
+    validFields.length === 3 &&
+    nextRecentFields.length === 2 &&
+    nextRecentFields.every((field) => validFields.includes(field))
+  ) {
+    sourceFields = nextRecentFields;
+  }
+
+  if (sourceFields.length === 2) {
+    const targetField = (
+      ["amount", "unitPrice", "shares"] as TradeCalculationField[]
+    ).find((field) => !sourceFields.includes(field));
+    const amount = parseTradeNumberInput(nextDraft.amount);
+    const unitPrice = parseTradeNumberInput(nextDraft.unitPrice);
+    const shares = parseTradeNumberInput(nextDraft.shares);
+    const calculatedValue =
+      targetField === "amount"
+        ? unitPrice * shares
+        : targetField === "unitPrice"
+          ? amount / shares
+          : amount / unitPrice;
+
+    if (targetField && Number.isFinite(calculatedValue) && calculatedValue > 0) {
+      nextDraft[targetField] = formatCalculatedTradeValue(
+        calculatedValue,
+        targetField === "shares" ? 6 : 4
+      );
+    }
+  }
+
+  return { draft: nextDraft, recentFields: nextRecentFields };
+}
+
+function formatCalculatedTradeValue(value: number, digits: number) {
+  return String(roundNumber(value, digits));
 }
 
 export function derivePositions(state: TradingDataState): DerivedPosition[] {

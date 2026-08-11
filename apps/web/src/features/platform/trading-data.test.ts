@@ -9,6 +9,7 @@ import {
   parseTradeNumberInput,
   removeTrackedTicker,
   replaceStockPool,
+  updateTradeCalculation,
   upsertPositionPlan,
   type TradingDataState,
 } from "./trading-data.ts";
@@ -142,6 +143,103 @@ test("derivePositions removes sold shares from oldest lots first", () => {
 test("trade number input helpers show empty values for zero and parse blanks as zero", () => {
   assert.equal(formatTradeNumberInput(0), "");
   assert.equal(formatTradeNumberInput(12.34567), "12.3457");
+  assert.equal(formatTradeNumberInput(0.123456, 6), "0.123456");
   assert.equal(parseTradeNumberInput(""), 0);
   assert.equal(parseTradeNumberInput("0.1234"), 0.1234);
+});
+
+test("trade calculation derives the missing value from any two fields", () => {
+  const cases = [
+    {
+      edits: [
+        ["amount", "100"],
+        ["unitPrice", "40"],
+      ],
+      expected: { amount: "100", unitPrice: "40", shares: "2.5" },
+    },
+    {
+      edits: [
+        ["amount", "100"],
+        ["shares", "2.5"],
+      ],
+      expected: { amount: "100", unitPrice: "40", shares: "2.5" },
+    },
+    {
+      edits: [
+        ["unitPrice", "40"],
+        ["shares", "2.5"],
+      ],
+      expected: { amount: "100", unitPrice: "40", shares: "2.5" },
+    },
+  ] as const;
+
+  for (const testCase of cases) {
+    let draft = { amount: "", unitPrice: "", shares: "" };
+    let recentFields: Array<"amount" | "unitPrice" | "shares"> = [];
+    for (const [field, value] of testCase.edits) {
+      ({ draft, recentFields } = updateTradeCalculation(
+        draft,
+        field,
+        value,
+        recentFields
+      ));
+    }
+    assert.deepEqual(draft, testCase.expected);
+  }
+});
+
+test("trade calculation uses the two most recently edited fields", () => {
+  let draft = { amount: "", unitPrice: "", shares: "" };
+  let recentFields: Array<"amount" | "unitPrice" | "shares"> = [];
+
+  ({ draft, recentFields } = updateTradeCalculation(
+    draft,
+    "amount",
+    "100",
+    recentFields
+  ));
+  ({ draft, recentFields } = updateTradeCalculation(
+    draft,
+    "unitPrice",
+    "40",
+    recentFields
+  ));
+  ({ draft, recentFields } = updateTradeCalculation(
+    draft,
+    "shares",
+    "4",
+    recentFields
+  ));
+
+  assert.deepEqual(draft, { amount: "160", unitPrice: "40", shares: "4" });
+  assert.deepEqual(recentFields, ["unitPrice", "shares"]);
+});
+
+test("trade calculation rounds fractional shares and avoids non-finite results", () => {
+  let draft = { amount: "", unitPrice: "", shares: "" };
+  let recentFields: Array<"amount" | "unitPrice" | "shares"> = [];
+
+  ({ draft, recentFields } = updateTradeCalculation(
+    draft,
+    "amount",
+    "1",
+    recentFields
+  ));
+  ({ draft, recentFields } = updateTradeCalculation(
+    draft,
+    "unitPrice",
+    "3",
+    recentFields
+  ));
+  assert.equal(draft.shares, "0.333333");
+
+  ({ draft } = updateTradeCalculation(
+    draft,
+    "unitPrice",
+    "",
+    recentFields
+  ));
+  assert.equal(draft.unitPrice, "3");
+  assert.equal(Object.values(draft).includes("NaN"), false);
+  assert.equal(Object.values(draft).includes("Infinity"), false);
 });

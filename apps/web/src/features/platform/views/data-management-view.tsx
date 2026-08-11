@@ -69,13 +69,16 @@ import {
   parseTradeNumberInput,
   parseStockPoolText,
   todayIsoDate,
+  updateTradeCalculation,
   type PositionPlan,
+  type TradeCalculationField,
   type TradeAction,
   type TradeRecord,
 } from "@/features/platform/trading-data";
 import { useTradingData } from "@/features/platform/trading-data-context";
 
 type TradeDraft = Omit<TradeRecord, "id" | "shares" | "unitPrice" | "amount"> & {
+  shares: string;
   unitPrice: string;
   amount: string;
 };
@@ -101,6 +104,7 @@ const initialTradeDraft: TradeDraft = {
   date: todayIsoDate(),
   ticker: "",
   action: "买入" as TradeAction,
+  shares: "",
   unitPrice: "",
   amount: "",
   note: "",
@@ -116,6 +120,9 @@ export function DataManagementView() {
   const [positionDraft, setPositionDraft] =
     React.useState<PositionPlan>(emptyPosition);
   const [tradeDraft, setTradeDraft] = React.useState(initialTradeDraft);
+  const [recentTradeFields, setRecentTradeFields] = React.useState<
+    TradeCalculationField[]
+  >([]);
   const [editingTradeId, setEditingTradeId] = React.useState<string | null>(null);
   const {
     state,
@@ -171,8 +178,7 @@ export function DataManagementView() {
   });
   const tradeAmount = parseTradeNumberInput(tradeDraft.amount);
   const tradeUnitPrice = parseTradeNumberInput(tradeDraft.unitPrice);
-  const estimatedShares =
-    tradeUnitPrice > 0 ? tradeAmount / tradeUnitPrice : 0;
+  const tradeShares = parseTradeNumberInput(tradeDraft.shares);
   const isEditingTrade = Boolean(editingTradeId);
   const stockPoolText = state.stockPool.join("\n");
   const stockPoolPreview = parseStockPoolText(stockPoolText);
@@ -186,6 +192,19 @@ export function DataManagementView() {
     () => tradeImportPreview.flatMap((preview) => preview.errors),
     [tradeImportPreview]
   );
+  const handleTradeCalculationChange = (
+    field: TradeCalculationField,
+    value: string
+  ) => {
+    const result = updateTradeCalculation(
+      tradeDraft,
+      field,
+      value,
+      recentTradeFields
+    );
+    setTradeDraft((current) => ({ ...current, ...result.draft }));
+    setRecentTradeFields(result.recentFields);
+  };
   const handleTradeFiles = React.useCallback(async (fileList: FileList | null) => {
     const selectedFiles = Array.from(fileList ?? []);
     setFiles(selectedFiles.map((file) => file.name));
@@ -412,7 +431,7 @@ export function DataManagementView() {
               交易录入
             </CardTitle>
             <CardDescription>
-              按交易金额和单支成本自动折算碎股，并用于重算持仓成本
+              交易金额、单支成本和股数任填两项，自动计算第三项
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -479,10 +498,7 @@ export function DataManagementView() {
                     step="0.0001"
                     value={tradeDraft.amount}
                     onChange={(event) =>
-                      setTradeDraft((current) => ({
-                        ...current,
-                        amount: event.target.value,
-                      }))
+                      handleTradeCalculationChange("amount", event.target.value)
                     }
                   />
                 </Field>
@@ -495,10 +511,23 @@ export function DataManagementView() {
                     step="0.0001"
                     value={tradeDraft.unitPrice}
                     onChange={(event) =>
-                      setTradeDraft((current) => ({
-                        ...current,
-                        unitPrice: event.target.value,
-                      }))
+                      handleTradeCalculationChange(
+                        "unitPrice",
+                        event.target.value
+                      )
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="trade-shares">股数</FieldLabel>
+                  <Input
+                    id="trade-shares"
+                    type="number"
+                    min="0"
+                    step="0.000001"
+                    value={tradeDraft.shares}
+                    onChange={(event) =>
+                      handleTradeCalculationChange("shares", event.target.value)
                     }
                   />
                 </Field>
@@ -516,13 +545,7 @@ export function DataManagementView() {
                   />
                 </Field>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/50 p-3">
-                <div className="text-sm text-muted-foreground">
-                  预计股数{" "}
-                  <span className="font-medium tabular-nums text-foreground">
-                    {formatShares(estimatedShares)}
-                  </span>
-                </div>
+              <div className="flex flex-wrap items-center justify-end gap-3 rounded-lg bg-muted/50 p-3">
                 <div className="flex flex-wrap gap-2">
                   <Button
                     onClick={() => {
@@ -530,6 +553,7 @@ export function DataManagementView() {
                         ...tradeDraft,
                         amount: tradeAmount,
                         unitPrice: tradeUnitPrice,
+                        shares: tradeShares,
                       };
                       if (editingTradeId) {
                         updateTrade(editingTradeId, normalizedTradeDraft);
@@ -537,12 +561,14 @@ export function DataManagementView() {
                         addTrade(normalizedTradeDraft);
                       }
                       setTradeDraft(initialTradeDraft);
+                      setRecentTradeFields([]);
                       setEditingTradeId(null);
                     }}
                     disabled={
                       !tradeDraft.ticker.trim() ||
                       tradeAmount <= 0 ||
-                      tradeUnitPrice <= 0
+                      tradeUnitPrice <= 0 ||
+                      tradeShares <= 0
                     }
                   >
                     <PlusIcon data-icon="inline-start" />
@@ -553,6 +579,7 @@ export function DataManagementView() {
                       variant="outline"
                       onClick={() => {
                         setTradeDraft(initialTradeDraft);
+                        setRecentTradeFields([]);
                         setEditingTradeId(null);
                       }}
                     >
@@ -618,10 +645,12 @@ export function DataManagementView() {
                               date: trade.date,
                               ticker: trade.ticker,
                               action: trade.action,
+                              shares: formatTradeNumberInput(trade.shares, 6),
                               unitPrice: formatTradeNumberInput(trade.unitPrice),
                               amount: formatTradeNumberInput(trade.amount),
                               note: trade.note,
                             });
+                            setRecentTradeFields([]);
                             setEditingTradeId(trade.id);
                           }}
                         >
@@ -635,6 +664,7 @@ export function DataManagementView() {
                             removeTrade(trade.id);
                             if (editingTradeId === trade.id) {
                               setTradeDraft(initialTradeDraft);
+                              setRecentTradeFields([]);
                               setEditingTradeId(null);
                             }
                           }}
