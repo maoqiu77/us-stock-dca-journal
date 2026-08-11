@@ -126,3 +126,25 @@ npm run check:release-readiness
 npm --prefix apps/web run lint
 npm --prefix apps/web run build
 ```
+
+## Contributing
+
+Contributions are welcome. Before opening a pull request, read
+[CONTRIBUTING.md](CONTRIBUTING.md) and run the required test and release checks.
+Never include real account data, portfolio data, trade records, API keys, logs,
+or local databases in an issue or contribution.
+
+## Security
+
+Do not report vulnerabilities or sensitive data in public issues. Follow the
+private reporting instructions in [SECURITY.md](SECURITY.md).
+
+## Maintainer
+
+This repository is created and primarily maintained by
+[@maoqiu77](https://github.com/maoqiu77), including architecture, releases,
+public-data checks, and ongoing maintenance.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
