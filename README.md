@@ -1,4 +1,177 @@
+<a id="english"></a>
+
+# Stock Trading Platform Next
+
+[English](#english) | [中文](#中文)
+
+Stock Trading Platform Next is a local stock research and trading-assistance
+tool. It opens a web interface on your computer for viewing watchlists,
+candlestick charts, account summaries, strategy signals, backtest results, and
+AI-generated advice.
+
+Data is stored on your computer by default and is not automatically uploaded to
+the cloud. Public releases contain sample data only and do not include the
+author's real accounts, positions, trade records, or API keys.
+
+## Who it is for
+
+- People who want to manage watchlists and trade records through a web interface.
+- People who want daily, weekly, monthly, one-day intraday, and five-day intraday charts.
+- People who prefer to keep private trading data on their own computer.
+- People who do not use the command line: download the correct archive, extract it, and double-click the launcher.
+
+## Download
+
+Download a package from the
+[Releases page](https://github.com/maoqiu77/stock-trading-platform-next/releases):
+
+- Windows: `stock-trading-platform-next-v0.1.6-windows-x64.zip`
+- Apple Silicon Mac (M1/M2/M3/M4): `stock-trading-platform-next-v0.1.6-macos-arm64.zip`
+- Intel Mac: `stock-trading-platform-next-v0.1.6-macos-x64.zip`
+
+Do not download GitHub's automatically generated `Source code (zip)` archive.
+It contains source code for developers, not the ready-to-run application.
+
+## Windows
+
+1. Download `stock-trading-platform-next-v0.1.6-windows-x64.zip`.
+2. Right-click the archive and select **Extract All**.
+3. Open the extracted folder.
+4. Double-click `启动股票交易平台.exe`.
+5. Wait for the browser to open `http://127.0.0.1:3000/`.
+
+Keep the console window open while using the application. Closing it stops the
+local services.
+
+## macOS
+
+1. Download the package for your Mac's processor.
+2. Double-click the archive to extract it.
+3. Open the extracted folder.
+4. Double-click `启动股票交易平台.command`.
+5. Wait for the browser to open `http://127.0.0.1:3000/`.
+
+If macOS prevents the launcher from opening:
+
+1. Right-click `启动股票交易平台.command`.
+2. Select **Open**.
+3. Select **Open** again in the confirmation dialog.
+
+Keep the Terminal window open while using the application. Closing it stops the
+local services.
+
+## Phone or tablet access
+
+After starting the application, connect the computer and mobile device to the
+same Wi-Fi network. Open the computer's local network address in the mobile
+browser:
+
+```text
+http://<computer-local-IP>:3000
+```
+
+For example, if the computer's IP address is `192.168.1.20`, open:
+
+```text
+http://192.168.1.20:3000
+```
+
+This is a responsive web interface, not a native iOS or Android application.
+
+## Data storage
+
+Local runtime data is stored inside the extracted application folder at:
+
+```text
+storage/local/
+```
+
+This directory may contain account balances, positions, trade records, and AI
+settings. Do not share `storage/local/` when backing up or distributing the
+project.
+
+Public sample data is stored at:
+
+```text
+storage/templates/
+```
+
+## Troubleshooting
+
+### The browser does not open after launching
+
+Wait up to one minute. If it still does not open, visit:
+
+```text
+http://127.0.0.1:3000/
+```
+
+### A port is already in use
+
+Another process is using port `3000` or `8000`. Close the previous application
+window, or restart the computer and try again.
+
+### Windows displays a security warning
+
+The launcher is not distributed through an app store and is not code-signed.
+Confirm that the file came from this project's Releases page before running it.
+
+### macOS cannot verify the developer
+
+The launcher is not signed by an Apple Developer certificate. Use
+**Right-click → Open** to start it.
+
+## Development
+
+To run from source:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r apps/api/requirements.txt
+npm --prefix apps/web install
+npm run dev:api
+npm run dev:web
+```
+
+Before a release, run:
+
+```bash
+npm run check:public-safety
+npm run check:release-readiness
+npm --prefix apps/web run lint
+npm --prefix apps/web run build
+```
+
+## Contributing
+
+Contributions are welcome. Before opening a pull request, read
+[CONTRIBUTING.md](CONTRIBUTING.md) and run the required test and release checks.
+Never include real account data, portfolio data, trade records, API keys, logs,
+or local databases in an issue or contribution.
+
+## Security
+
+Do not report vulnerabilities or sensitive data in public issues. Follow the
+private reporting instructions in [SECURITY.md](SECURITY.md).
+
+## Maintainer
+
+This repository is created and primarily maintained by
+[@maoqiu77](https://github.com/maoqiu77), including architecture, releases,
+public-data checks, and ongoing maintenance.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
+
+---
+
+<a id="中文"></a>
+
 # 股票交易平台 Next
+
+[English](#english) | [中文](#中文)
 
 这是一个本地运行的股票研究和交易辅助工具。它会在你的电脑上打开一个网页界面，用来查看自选股、K 线图、账户概览、策略信号、回测结果和 AI 建议。
 
@@ -127,24 +300,22 @@ npm --prefix apps/web run lint
 npm --prefix apps/web run build
 ```
 
-## Contributing
+## 参与贡献
 
-Contributions are welcome. Before opening a pull request, read
-[CONTRIBUTING.md](CONTRIBUTING.md) and run the required test and release checks.
-Never include real account data, portfolio data, trade records, API keys, logs,
-or local databases in an issue or contribution.
+欢迎参与贡献。提交 Pull Request 前，请阅读
+[CONTRIBUTING.md](CONTRIBUTING.md)，并运行其中要求的测试和发布检查。
+不要在 Issue 或贡献内容中包含真实账户、投资组合、交易记录、API 密钥、日志或本地数据库。
 
-## Security
+## 安全问题
 
-Do not report vulnerabilities or sensitive data in public issues. Follow the
-private reporting instructions in [SECURITY.md](SECURITY.md).
+不要在公开 Issue 中报告漏洞或敏感数据。请按照
+[SECURITY.md](SECURITY.md) 中的说明进行私密报告。
 
-## Maintainer
+## 维护者
 
-This repository is created and primarily maintained by
-[@maoqiu77](https://github.com/maoqiu77), including architecture, releases,
-public-data checks, and ongoing maintenance.
+本仓库由 [@maoqiu77](https://github.com/maoqiu77) 创建并主要维护，
+包括架构、版本发布、公开数据检查和持续维护。
 
-## License
+## 许可证
 
-Licensed under the [Apache License 2.0](LICENSE).
+本项目采用 [Apache License 2.0](LICENSE) 许可证。
