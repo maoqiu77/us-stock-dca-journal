@@ -29,7 +29,34 @@ from app.modules.trading_data import (
 
 APP_STATE_KEY = "ai_advice_v1"
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
+NEW_YORK_TZ = ZoneInfo("America/New_York")
 AI_TIMEOUT_SECONDS = 120
+AI_CONTEXT_VERSION = "AIContext v2"
+AI_CONTEXT_RECENT_TRADE_LIMIT = 20
+CHAT_HISTORY_MAX_CHARS = 12_000
+CHAT_MESSAGE_MAX_CHARS = 4_000
+
+TRADE_ACTIONS = {"买入": "buy", "卖出": "sell", "buy": "buy", "sell": "sell"}
+SIGNAL_ACTIONS = {
+    "允许加仓": "allow_add",
+    "允许建仓": "allow_open",
+    "允许分批加仓": "allow_batch_add",
+    "建议减仓": "reduce",
+    "风险减仓": "risk_reduce",
+    "不加仓": "do_not_add",
+}
+SIGNAL_STATUSES = {
+    **SIGNAL_ACTIONS,
+    "观察等待": "observe",
+    "风险暂停": "risk_pause",
+    "禁止加仓": "add_blocked",
+}
+ENTRY_TIMINGS = {
+    "小额分批": "small_batch",
+    "等待回踩": "wait_for_pullback",
+    "暂不动": "hold",
+    "分批观察": "observe_in_batches",
+}
 
 
 def load_ai_advice_state() -> dict[str, Any]:
@@ -134,14 +161,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
         [
             {
                 "role": "system",
-                "content": (
-                    "你是一个谨慎的美股半自动量化加减仓助手。你不能下单，不能承诺收益，"
-                    "不能建议融资、期权、做空或杠杆。平台量化信号是重要输入，但你可以覆盖平台信号，"
-                    "前提是必须解释依据。必须纳入账户、持仓、交易记录、止盈止损、趋势、均线、RSI、回撤、"
-                    "日内走势摘要和北京时间交易时段。若行情报价、日内走势或量化信号的"
-                    "source 为 sample，必须明确说明实时行情不可用，不得把 sample 价格、MA、RSI 或信号当作真实依据。"
-                    "输出中文，简洁清楚，适合用户手动确认。"
-                ),
+                "content": daily_advice_system_prompt(),
             },
             {
                 "role": "user",
@@ -204,17 +224,12 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     chat_history = normalize_conversation_messages(
         [*current_record.get("messages", []), user_message]
     )
+    provider_history = budget_conversation_messages(chat_history)
     reply = call_ai_response(
         [
             {
                 "role": "system",
-                "content": (
-                    "你是一个谨慎的美股半自动量化加减仓聊天助手。你不能下单，不能承诺收益，"
-                    "不能建议融资、期权、做空或杠杆。优先回答用户最新问题，不要每次重复完整日报。"
-                    "只能基于系统提供的账户、持仓、交易、行情和信号上下文回答。"
-                    "若行情报价、日内走势或量化信号的 source 为 sample，必须说明实时行情不可用，"
-                    "不得把 sample 价格、MA、RSI 或信号当作真实依据。"
-                ),
+                "content": chat_system_prompt(),
             },
             {
                 "role": "user",
@@ -231,7 +246,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
                     context=context,
                 ),
             },
-            *chat_history[-10:],
+            *provider_history,
         ]
     )
     assistant_message = {
@@ -252,13 +267,24 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     return get_ai_advice_calendar(target_date)
 
 
+def clear_today_ai_advice_chat() -> dict[str, Any]:
+    target_date = beijing_now_context()["beijing_date"]
+    advice_state = load_ai_advice_state()
+    current_record = advice_state["records"].get(target_date)
+    if current_record:
+        current_record["messages"] = current_record.get("messages", [])[:1]
+        advice_state["records"][target_date] = sanitize_ai_advice_record(current_record)
+        save_ai_advice_state(advice_state)
+    return get_ai_advice_calendar(target_date)
+
+
 def build_local_advice_content(
     brief: str,
     summary: dict[str, float],
     positions: list[dict[str, Any]],
     settings: dict[str, Any],
     signals: list[dict[str, Any]],
-    context: dict[str, str],
+    context: dict[str, Any],
 ) -> str:
     actionable = [
         signal
@@ -352,6 +378,275 @@ def call_ai_response(messages: list[dict[str, str]]) -> str:
         ) from exc
 
 
+def build_ai_context_v2(
+    *,
+    summary: dict[str, float],
+    state: dict[str, Any],
+    positions: list[dict[str, Any]],
+    settings: dict[str, Any],
+    strategy_config: dict[str, Any],
+    risk_config: dict[str, Any],
+    quotes: list[dict[str, Any]],
+    signals: list[dict[str, Any]],
+    intraday_context: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "meta": {
+            "version": AI_CONTEXT_VERSION,
+            "prompt_language": "en",
+            "response_language": "zh-CN",
+            "beijing_time": context.get("beijing_time"),
+            "new_york_time": context.get("new_york_time"),
+            "is_regular_session": bool(context.get("is_regular_session")),
+            "session_status": "regular_session" if context.get("is_regular_session") else "outside_regular_session",
+            "manual_confirmation_required": True,
+        },
+        "account": {
+            "total_assets": number(summary.get("totalAssets")),
+            "holding_historical_cost": number(summary.get("holdingCost")),
+            "estimated_cash": number(summary.get("cash")),
+            "cash_basis": "estimated_from_historical_cost",
+            "is_broker_realtime_cash": False,
+            "cash_warning": (
+                "Estimated cash equals total assets minus historical holding cost; "
+                "it is not broker-reported buying power."
+            ),
+        },
+        "strategy_policy": build_strategy_policy(settings, strategy_config, risk_config),
+        "positions": build_context_positions(positions, strategy_config),
+        "trade_context": build_trade_context(state.get("trades", [])),
+        "market_decisions": build_market_decisions(quotes, signals, intraday_context),
+    }
+
+
+def build_strategy_policy(
+    settings: dict[str, Any],
+    strategy_config: dict[str, Any],
+    risk_config: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "decision_priority": [
+            "account_and_trade_facts",
+            "cash_position_and_weight_limits",
+            "role_specific_strategy",
+            "platform_signal",
+            "reliable_current_market_data",
+            "ai_override_with_cited_evidence",
+        ],
+        "core_etf": {
+            "purpose": "long_term_core",
+            "buy_rule": "Use the funded 52-week drawdown plan and never exceed its platform allocation.",
+            "ma120_rule": (
+                "MA60, MA120, ordinary RSI, and ordinary stop loss are background context; "
+                "MA120 does not independently block a funded long-term drawdown purchase."
+            ),
+            "sell_rule": "Prioritize target/max-weight excess and extreme take-profit conditions.",
+            "max_weight": number(risk_config.get("max_etf_weight"), 0.60),
+            "recent_funding_amount": number(settings.get("recentEtfInvestmentAmount")),
+            "recent_funding_start_date": str(settings.get("recentEtfInvestmentStartDate", "")),
+        },
+        "core_stock": {
+            "purpose": "long_term_growth",
+            "risk_priority": ["stop_loss", "below_ma120", "over_target_weight", "overheated_rsi"],
+            "add_style": "trend_aligned_and_batched",
+        },
+        "satellite": {
+            "purpose": "higher_volatility_satellite",
+            "risk_priority": ["stop_loss", "below_ma120", "over_target_weight", "overheated_rsi"],
+            "add_style": "smaller_and_slower_than_core_stock",
+            "reduce_style": "earlier_than_core_stock",
+        },
+        "thresholds": {
+            key: strategy_config.get(key)
+            for key in (
+                "single_add_asset_ratio",
+                "single_add_cash_ratio",
+                "take_profit_trim_ratio",
+                "hard_stop_ma_break_ratio",
+                "core_rsi_max",
+                "core_take_profit_rsi",
+                "satellite_rsi_max",
+                "satellite_take_profit_rsi",
+            )
+            if key in strategy_config
+        },
+    }
+
+
+def build_context_positions(
+    positions: list[dict[str, Any]],
+    strategy_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for row in enrich_rows_with_strategy_roles(positions, strategy_config):
+        ticker = context_ticker(row)
+        if not ticker:
+            continue
+        result.append(
+            {
+                "ticker": ticker,
+                "asset_type": "etf" if str(row.get("assetType", "")).upper() == "ETF" else "stock",
+                "strategy_role": str(row.get("strategy_role", "core")).replace(" ", "_"),
+                "shares": number(row.get("shares")),
+                "cost_basis": number(row.get("costBasis")),
+                "holding_historical_cost": number(row.get("holdingCost")),
+                "target_weight": number(row.get("targetWeight")),
+                "take_profit_pct": number(row.get("takeProfitPct")),
+                "stop_loss_pct": number(row.get("stopLossPct")),
+                "purchase_date": str(row.get("purchaseDate", "")),
+            }
+        )
+    return result
+
+
+def build_trade_context(value: Any) -> dict[str, Any]:
+    trades = [row for row in value if isinstance(row, dict)] if isinstance(value, list) else []
+    ordered = sorted(trades, key=lambda row: str(row.get("date", "")))
+    by_ticker: dict[str, dict[str, Any]] = {}
+    normalized: list[dict[str, Any]] = []
+    for row in ordered:
+        ticker = context_ticker(row)
+        action = TRADE_ACTIONS.get(str(row.get("action", "")).strip(), "unknown")
+        amount = number(row.get("amount"))
+        shares = number(row.get("shares"))
+        item = {
+            "date": str(row.get("date", "")),
+            "ticker": ticker,
+            "action": action,
+            "amount": amount,
+            "unit_price": number(row.get("unitPrice")),
+            "shares": shares,
+        }
+        note = str(row.get("note") or row.get("notes") or "").strip()
+        if note:
+            item["note"] = note
+        normalized.append(item)
+        if ticker:
+            aggregate = by_ticker.setdefault(
+                ticker,
+                {"ticker": ticker, "buy_amount": 0.0, "sell_amount": 0.0, "buy_shares": 0.0, "sell_shares": 0.0},
+            )
+            if action in {"buy", "sell"}:
+                aggregate[f"{action}_amount"] += amount
+                aggregate[f"{action}_shares"] += shares
+    summary = [
+        {key: round(value, 6) if isinstance(value, float) else value for key, value in row.items()}
+        for row in sorted(by_ticker.values(), key=lambda row: row["ticker"])
+    ]
+    return {
+        "total_count": len(trades),
+        "summary_by_ticker": summary,
+        "recent_limit": AI_CONTEXT_RECENT_TRADE_LIMIT,
+        "recent": normalized[-AI_CONTEXT_RECENT_TRADE_LIMIT:],
+    }
+
+
+def build_market_decisions(
+    quotes: list[dict[str, Any]],
+    signals: list[dict[str, Any]],
+    intraday_context: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    quote_map = context_row_map(quotes)
+    signal_map = context_row_map(signals)
+    intraday_map = context_row_map(intraday_context)
+    tickers = sorted(set(quote_map) | set(signal_map) | set(intraday_map))
+    decisions = []
+    for ticker in tickers:
+        quote = quote_map.get(ticker, {})
+        signal = signal_map.get(ticker, {})
+        intraday = intraday_map.get(ticker, {})
+        sources = {str(row.get("source", "")).lower() for row in (quote, signal, intraday) if row}
+        is_sample = "sample" in sources
+        decisions.append(
+            {
+                "ticker": ticker,
+                "data_quality": {
+                    "sources": sorted(source for source in sources if source),
+                    "is_sample": is_sample,
+                    "precise_trigger_prices_allowed": not is_sample and bool(sources),
+                },
+                "quote": compact_fields(quote, ("price", "change", "changePct", "updatedAt", "source")),
+                "intraday": {
+                    **compact_fields(
+                        intraday,
+                        (
+                            "latest",
+                            "high",
+                            "low",
+                            "change_pct",
+                            "range_position",
+                            "recent_30m_change_pct",
+                            "support_levels",
+                            "resistance_levels",
+                            "last_bar_time",
+                            "source",
+                        ),
+                    ),
+                    "entry_timing": ENTRY_TIMINGS.get(
+                        str(intraday.get("entry_timing", "")),
+                        str(intraday.get("entry_timing", "")),
+                    ),
+                },
+                "platform_signal": {
+                    **compact_fields(
+                        signal,
+                        (
+                            "suggested_amount",
+                            "suggested_shares",
+                            "current_weight",
+                            "target_weight",
+                            "ma20",
+                            "ma60",
+                            "ma120",
+                            "ma200",
+                            "rsi",
+                            "drawdown",
+                            "drawdown252",
+                            "source",
+                        ),
+                    ),
+                    "action": SIGNAL_ACTIONS.get(
+                        str(signal.get("action", "")),
+                        str(signal.get("action", "")),
+                    ),
+                    "status": SIGNAL_STATUSES.get(
+                        str(signal.get("status", "")),
+                        str(signal.get("status", "")),
+                    ),
+                    **source_text_fields(signal),
+                },
+            }
+        )
+    return decisions
+
+
+def context_row_map(rows: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(rows, list):
+        return {}
+    return {
+        ticker: row
+        for row in rows
+        if isinstance(row, dict) and (ticker := context_ticker(row))
+    }
+
+
+def context_ticker(row: dict[str, Any]) -> str:
+    return str(row.get("ticker") or row.get("symbol") or "").upper().strip()
+
+
+def compact_fields(row: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:
+    return {key: row[key] for key in keys if key in row and row[key] not in (None, "", [])}
+
+
+def source_text_fields(row: dict[str, Any]) -> dict[str, Any]:
+    result = {}
+    for key in ("reasons", "blocked_reasons", "risk_notes"):
+        if row.get(key) not in (None, "", []):
+            result[f"{key}_source_text"] = row[key]
+    return result
+
+
 def build_external_advice_prompt(
     *,
     brief: str,
@@ -364,80 +659,43 @@ def build_external_advice_prompt(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
-    context: dict[str, str],
+    context: dict[str, Any],
 ) -> str:
-    enriched_positions = enrich_rows_with_strategy_roles(positions, strategy_config)
-    enriched_quotes = enrich_rows_with_strategy_roles(quotes, strategy_config)
-    return f"""
-请基于以下完整上下文，给出今天的最终手动加仓/减仓建议。你是最终决策助手，平台量化信号是重要输入，但不是最高裁判。
+    ai_context = build_ai_context_v2(
+        summary=summary,
+        state=state,
+        positions=positions,
+        settings=settings,
+        strategy_config=strategy_config,
+        risk_config=risk_config,
+        quotes=quotes,
+        signals=signals,
+        intraday_context=intraday_context,
+        context=context,
+    )
+    extra_question = brief.strip() or "none"
+    return f"""Create today's final manual US-equity allocation advice from the context below.
+Respond in Simplified Chinese. Preserve ticker symbols and indicator abbreviations.
 
-你的角色与边界：
-- 你是谨慎的美股半自动量化加减仓助手。
-- 你不能下单，不能承诺收益，不能建议融资、期权、做空或杠杆。
-- 你可以同意平台信号，也可以覆盖平台信号；覆盖时必须明确写出“AI 覆盖平台信号”并给出可验证理由。
-- 若提供日内走势摘要，必须用它判断今天的进场节奏：现在小额、等待回踩、分批，还是暂不动。
+Requirements:
+1. Start with a Simplified Chinese generation-time line containing `YYYY-MM-DD HH:MM` and the Beijing-time label.
+2. Keep the entire answer under 500 Chinese characters. Use short paragraphs or bullets only. Do not use a table.
+3. Give the conclusion in 2-4 sentences. Answer the extra question directly when present.
+4. Mention at most 3 tickers: only actual buy/reduce actions or important risk warnings. Skip tickers with no action and no urgent warning.
+5. For each mentioned ticker, state only the Chinese action, amount/shares when actionable, and one short reason.
+6. Do not show internal field names, JSON paths, source-text labels, or implementation details.
+7. Do not output English enum values such as `do_not_add`, `allow_batch_add`, `risk_pause`, or `wait_for_pullback`. Translate all user-facing labels into natural Chinese.
+8. Do not repeat the full account, strategy, position list, or evidence chain. Mention estimated-cash uncertainty once only when relevant.
+9. Adds must be batched. Never exceed estimated cash, target weight, ETF max weight, or a platform-funded ETF allocation.
+10. For core ETFs, MA60/MA120 and ordinary stop loss are background only and do not independently block a funded drawdown purchase.
+11. For stocks, stop loss, below-MA120, excess weight, and overheated RSI take priority over ordinary adds.
+12. When precise prices are not allowed, omit prices instead of explaining the internal flag. Follow the session state exactly and never imply that you placed a trade.
 
-你必须先理解并持续遵守以下投资框架：
-1. 这是以美股科技/AI 长期投资为主的账户，不追求高频交易。
-2. 持仓分为三层：核心 ETF、核心科技仓、卫星仓；不同层不能用同一套激进程度处理。
-3. 核心 ETF 更偏长期底仓，趋势未破坏时可更稳定分批配置。
-4. 核心科技仓更偏长期持有，但仍需顺势、分批、避免过热追高。
-5. 卫星仓波动更大，必须更轻仓、更慢加、更早减仓降温。
-6. 每个标的的止盈线、止损线如果已设置，必须纳入最终判断；止损信号优先于普通加仓信号。
-7. 当价格接近日内高位、RSI 偏热或仓位高于目标时，默认不要追高；除非趋势和平台信号都支持，也只能小额。
-8. 当价格接近日内低位但跌破关键支撑，不叫低吸，必须等待重新站稳。
+Extra user question (verbatim):
+{extra_question}
 
-输出要求：
-1. 开头第一行必须写：生成时间：YYYY-MM-DD HH:MM（北京时间）。
-2. 第二部分写“今日最终结论”，用 1-3 句话说明今天应不应该操作、优先操作哪些标的。
-3. 如果“用户额外问题”不为空，请立即新增“额外问题回答”一节。
-4. 给出“账户总体判断”：现金、仓位是否激进、是否需要调整策略参数，控制在 3-5 行。
-5. 给出“标的决策表”：标的 / 分类 / 策略角色 / 平台信号 / AI 最终动作 / 买入触发价 / 失效或减仓价 / 金额或股数 / 一句话理由。
-6. 对需要操作、平台与 AI 不一致或止盈止损触发的标的，在“重点说明”里展开。
-7. 建仓和加仓必须分批；必须结合“日内走势摘要”判断现在小额、等待回踩、分批还是暂不动；不允许一次性打满目标仓位。
-8. 若价格跌破 MA120、触发止损线、仓位明显高于目标或 RSI 过热，必须优先讨论减仓或降温。
-9. 结合当前北京时间，提醒是现在执行还是等北京时间 21:30 后再确认。
-10. 结尾补“执行顺序建议”，只列今晚最重要的 1-3 个动作。
-11. 最后补“策略反馈”，没有问题就写“暂无需要调整的策略问题”。
-
-用户额外问题：
-{brief.strip() or '无'}
-
-北京时间上下文：
-{json.dumps(context, ensure_ascii=False, indent=2)}
-
-账户摘要：
-{json.dumps(summary, ensure_ascii=False, indent=2)}
-
-账户设置：
-{json.dumps(state.get("account", {}), ensure_ascii=False, indent=2)}
-
-当前分层策略摘要：
-{build_layered_strategy_summary(settings, risk_config)}
-
-当前持仓快照（已补充策略角色）：
-{json.dumps(enriched_positions, ensure_ascii=False, indent=2)}
-
-交易流水：
-{json.dumps(state.get("trades", []), ensure_ascii=False, indent=2)}
-
-策略参数：
-{json.dumps(settings, ensure_ascii=False, indent=2)}
-
-旧引擎参数：
-{json.dumps(strategy_config, ensure_ascii=False, indent=2)}
-
-风控参数：
-{json.dumps(risk_config, ensure_ascii=False, indent=2)}
-
-行情报价（已补充策略角色）：
-{json.dumps(enriched_quotes, ensure_ascii=False, indent=2)}
-
-日内走势摘要：
-{json.dumps(intraday_context, ensure_ascii=False, indent=2)}
-
-量化加减仓信号：
-{json.dumps(signals, ensure_ascii=False, indent=2)}
+{AI_CONTEXT_VERSION}:
+{json.dumps(ai_context, ensure_ascii=False, separators=(",", ":"))}
 """
 
 
@@ -452,49 +710,51 @@ def build_chat_context_prompt(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
-    context: dict[str, str],
+    context: dict[str, Any],
 ) -> str:
-    enriched_positions = enrich_rows_with_strategy_roles(positions, strategy_config)
-    enriched_quotes = enrich_rows_with_strategy_roles(quotes, strategy_config)
-    return f"""
-以下是当前账户、持仓、买卖操作、行情指标和量化信号上下文。
-请先理解这些上下文，然后只回答后续对话里用户最新提出的问题。
+    ai_context = build_ai_context_v2(
+        summary=summary,
+        state=state,
+        positions=positions,
+        settings=settings,
+        strategy_config=strategy_config,
+        risk_config=risk_config,
+        quotes=quotes,
+        signals=signals,
+        intraday_context=intraday_context,
+        context=context,
+    )
+    return f"""Use the current {AI_CONTEXT_VERSION} below to answer only the user's latest question.
+Respond in Simplified Chinese and keep the answer under 300 Chinese characters. Answer directly and do not repeat the full daily report.
+Treat estimated cash as non-broker-reported. Respect role-specific risk priority and all funding/weight limits.
+Do not expose internal English keys, JSON paths, enum values, or source-text labels. Translate all user-facing labels into natural Chinese.
+When precise prices are not allowed, omit them instead of explaining the internal flag.
+If overriding a platform action, state that briefly in Chinese without showing implementation details.
 
-回答时必须遵守三层投资框架：核心 ETF 偏长期底仓，核心科技仓顺势分批，卫星仓更轻仓、更慢加、更早减仓降温。止损、跌破 MA120、仓位超目标和过热追高风险优先于普通加仓信号。
-
-北京时间上下文：
-{json.dumps(context, ensure_ascii=False, indent=2)}
-
-账户摘要：
-{json.dumps(summary, ensure_ascii=False, indent=2)}
-
-当前分层策略摘要：
-{build_layered_strategy_summary(settings, risk_config)}
-
-当前持仓快照（已补充策略角色）：
-{json.dumps(enriched_positions, ensure_ascii=False, indent=2)}
-
-买卖操作记录：
-{json.dumps(state.get("trades", []), ensure_ascii=False, indent=2)}
-
-策略参数：
-{json.dumps(settings, ensure_ascii=False, indent=2)}
-
-旧引擎参数：
-{json.dumps(strategy_config, ensure_ascii=False, indent=2)}
-
-风控参数：
-{json.dumps(risk_config, ensure_ascii=False, indent=2)}
-
-行情报价（已补充策略角色）：
-{json.dumps(enriched_quotes, ensure_ascii=False, indent=2)}
-
-日内走势摘要：
-{json.dumps(intraday_context, ensure_ascii=False, indent=2)}
-
-量化加减仓信号：
-{json.dumps(signals, ensure_ascii=False, indent=2)}
+{AI_CONTEXT_VERSION}:
+{json.dumps(ai_context, ensure_ascii=False, separators=(",", ":"))}
 """
+
+
+def daily_advice_system_prompt() -> str:
+    return (
+        "You are a cautious, manual-only US equity allocation assistant. "
+        "Never place or imply trades, promise returns, or recommend margin, loans, options, shorting, or leverage. "
+        "Facts and hard funding/weight limits outrank role policy, platform signals, market timing, and AI judgment. "
+        "Sample data is not real market evidence and cannot support prices, MA, RSI, levels, or signals. "
+        "Respond in Simplified Chinese with clear, concise, manually verifiable advice under 500 Chinese characters. "
+        "Never expose internal English keys, JSON paths, enum values, or source-text labels to the user."
+    )
+
+
+def chat_system_prompt() -> str:
+    return (
+        "You are a cautious, manual-only US equity allocation chat assistant. "
+        "Answer the latest user question from the supplied AIContext only. Never place or imply trades, "
+        "promise returns, or recommend margin, loans, options, shorting, or leverage. "
+        "Sample data is not real market evidence. Respond in Simplified Chinese, be brief, and do not repeat the full daily report. "
+        "Never expose internal English keys, JSON paths, enum values, or source-text labels to the user."
+    )
 
 
 def build_layered_strategy_summary(settings: dict[str, Any], risk_config: dict[str, Any]) -> str:
@@ -735,24 +995,77 @@ def normalize_conversation_messages(messages: list[dict[str, Any]]) -> list[dict
     return normalized
 
 
-def beijing_now_context() -> dict[str, str]:
-    now = pd.Timestamp.now(tz=BEIJING_TZ)
-    hour = now.hour + now.minute / 60
-    weekday = now.weekday()
-    is_weekday = weekday < 5
-    if is_weekday and 21.5 <= hour <= 24:
-        status = "美股常规交易时段内（按北京时间 21:30-次日 04:00 估算）"
-        suggestion = "可以结合券商实时价格再次确认后再手动操作。"
-    elif is_weekday and 0 <= hour < 4:
-        status = "美股常规交易时段内（按北京时间 21:30-次日 04:00 估算）"
-        suggestion = "仍需用券商实时价格确认价格、股数和风险。"
+def budget_conversation_messages(
+    messages: list[dict[str, Any]],
+    max_chars: int = CHAT_HISTORY_MAX_CHARS,
+    max_message_chars: int = CHAT_MESSAGE_MAX_CHARS,
+) -> list[dict[str, str]]:
+    normalized = normalize_conversation_messages(messages)
+    if not normalized or max_chars <= 0 or max_message_chars <= 0:
+        return []
+
+    bounded = [
+        {"role": item["role"], "content": truncate_message(item["content"], max_message_chars)}
+        for item in normalized
+    ]
+    latest = bounded[-1]
+    if len(latest["content"]) > max_chars:
+        return [
+            {
+                "role": latest["role"],
+                "content": truncate_message(latest["content"], max_chars),
+            }
+        ]
+
+    selected_reversed = [latest]
+    used = len(latest["content"])
+    first = bounded[0] if len(bounded) > 1 else None
+    first_cost = len(first["content"]) if first else 0
+    reserve_first = bool(first and used + first_cost <= max_chars)
+
+    for item in reversed(bounded[1:-1]):
+        cost = len(item["content"])
+        reserved = first_cost if reserve_first else 0
+        if used + cost + reserved <= max_chars:
+            selected_reversed.append(item)
+            used += cost
+
+    selected = list(reversed(selected_reversed))
+    if reserve_first and first:
+        selected.insert(0, first)
+    return selected
+
+
+def truncate_message(content: str, limit: int) -> str:
+    marker = "\n[truncated]"
+    if len(content) <= limit:
+        return content
+    if limit <= len(marker):
+        return marker[:limit]
+    return f"{content[: limit - len(marker)]}{marker}"
+
+
+def beijing_now_context(now: pd.Timestamp | None = None) -> dict[str, Any]:
+    beijing_now = now if now is not None else pd.Timestamp.now(tz=BEIJING_TZ)
+    if beijing_now.tzinfo is None:
+        beijing_now = beijing_now.tz_localize(BEIJING_TZ)
     else:
-        status = "美股交易时段外/盘前准备阶段"
-        suggestion = "适合生成计划；正式交易建议等 21:30 后再刷新确认。"
+        beijing_now = beijing_now.tz_convert(BEIJING_TZ)
+    new_york_now = beijing_now.tz_convert(NEW_YORK_TZ)
+    new_york_minutes = new_york_now.hour * 60 + new_york_now.minute
+    is_regular_session = new_york_now.weekday() < 5 and 9 * 60 + 30 <= new_york_minutes < 16 * 60
+    if is_regular_session:
+        status = "美股常规交易时段内（按纽约当地时间 09:30-16:00 判断）"
+        suggestion = "可以结合券商实时价格再次确认后再手动操作。"
+    else:
+        status = "美股常规交易时段外（按纽约当地时间 09:30-16:00 判断）"
+        suggestion = "适合生成计划；正式交易前请在常规交易时段内刷新确认。"
     return {
-        "beijing_time": now.strftime("%Y-%m-%d %H:%M"),
-        "beijing_date": now.date().isoformat(),
-        "usual_manual_trade_time": "北京时间 21:30 之后",
+        "beijing_time": beijing_now.strftime("%Y-%m-%d %H:%M"),
+        "beijing_date": beijing_now.date().isoformat(),
+        "new_york_time": new_york_now.strftime("%Y-%m-%d %H:%M"),
+        "is_regular_session": is_regular_session,
+        "usual_manual_trade_time": "纽约当地时间 09:30-16:00",
         "estimated_session_status": status,
         "timing_suggestion": suggestion,
     }

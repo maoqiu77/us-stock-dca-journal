@@ -25,16 +25,16 @@ author's real accounts, positions, trade records, or API keys.
 Download a package from the
 [Releases page](https://github.com/maoqiu77/stock-trading-platform-next/releases):
 
-- Windows: `stock-trading-platform-next-v0.1.7-windows-x64.zip`
-- Apple Silicon Mac (M1/M2/M3/M4): `stock-trading-platform-next-v0.1.7-macos-arm64.zip`
-- Intel Mac: `stock-trading-platform-next-v0.1.7-macos-x64.zip`
+- Windows: `stock-trading-platform-next-v0.1.8-windows-x64.zip`
+- Apple Silicon Mac (M1/M2/M3/M4): `stock-trading-platform-next-v0.1.8-macos-arm64.zip`
+- Intel Mac: `stock-trading-platform-next-v0.1.8-macos-x64.zip`
 
 Do not download GitHub's automatically generated `Source code (zip)` archive.
 It contains source code for developers, not the ready-to-run application.
 
 ## Windows
 
-1. Download `stock-trading-platform-next-v0.1.7-windows-x64.zip`.
+1. Download `stock-trading-platform-next-v0.1.8-windows-x64.zip`.
 2. Right-click the archive and select **Extract All**.
 3. Open the extracted folder.
 4. Double-click `启动股票交易平台.exe`.
@@ -95,6 +95,27 @@ Public sample data is stored at:
 ```text
 storage/templates/
 ```
+
+## Evaluate AI context understanding
+
+The repository includes a fictional 20-case offline evaluation kit for checking
+whether an AI answer accurately uses account context, respects long-term
+investment constraints, and fits the user's strategy. It does not call another
+AI judge or use short-term returns as the quality target.
+
+Copy the public template into the private local directory before adding real
+answers or portfolio context:
+
+```bash
+mkdir -p storage/local/evaluations
+cp storage/templates/ai-context-evaluation.example.yaml \
+  storage/local/evaluations/ai-context-evaluation.yaml
+./scripts/evaluate_ai_context.py \
+  storage/local/evaluations/ai-context-evaluation.yaml
+```
+
+See [the AI context evaluation guide](docs/ai-context-evaluation.md) for the
+annotation schema, formulas, thresholds, and privacy rules.
 
 ## Troubleshooting
 
@@ -192,15 +213,15 @@ https://github.com/maoqiu77/stock-trading-platform-next/releases
 
 根据自己的电脑选择一个压缩包：
 
-- Windows 电脑：下载 `stock-trading-platform-next-v0.1.7-windows-x64.zip`
-- Apple 芯片 Mac（M1/M2/M3/M4）：下载 `stock-trading-platform-next-v0.1.7-macos-arm64.zip`
-- Intel 芯片 Mac：下载 `stock-trading-platform-next-v0.1.7-macos-x64.zip`
+- Windows 电脑：下载 `stock-trading-platform-next-v0.1.8-windows-x64.zip`
+- Apple 芯片 Mac（M1/M2/M3/M4）：下载 `stock-trading-platform-next-v0.1.8-macos-arm64.zip`
+- Intel 芯片 Mac：下载 `stock-trading-platform-next-v0.1.8-macos-x64.zip`
 
 不要下载 GitHub 自动生成的 `Source code (zip)`，那个是给开发者看的源码包，不是一键运行包。
 
 ## Windows 使用方法
 
-1. 下载 `stock-trading-platform-next-v0.1.7-windows-x64.zip`。
+1. 下载 `stock-trading-platform-next-v0.1.8-windows-x64.zip`。
 2. 右键压缩包，选择“全部解压”。
 3. 打开解压后的文件夹。
 4. 双击 `启动股票交易平台.exe`。
@@ -255,6 +276,22 @@ storage/local/
 ```text
 storage/templates/
 ```
+
+## 评测 AI 是否理解投资上下文
+
+项目提供一套包含 20 个虚构案例的离线评测工具，用于检验 AI 是否准确使用账户上下文、遵守长期投资约束，并给出符合用户投资方式的建议。评测不调用另一个 AI 自动裁判，也不以短期收益率作为质量目标。
+
+添加真实回答或投资上下文前，先把公开模板复制到本地私有目录：
+
+```bash
+mkdir -p storage/local/evaluations
+cp storage/templates/ai-context-evaluation.example.yaml \
+  storage/local/evaluations/ai-context-evaluation.yaml
+./scripts/evaluate_ai_context.py \
+  storage/local/evaluations/ai-context-evaluation.yaml
+```
+
+标注结构、计算公式、通过门槛和隐私规则见 [AI 投资上下文评测指南](docs/ai-context-evaluation.md)。
 
 ## 常见问题
 

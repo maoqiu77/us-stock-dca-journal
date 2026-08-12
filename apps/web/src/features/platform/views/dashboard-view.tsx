@@ -276,7 +276,7 @@ export function DashboardView({
                       <TableCell className="text-right tabular-nums">
                         <div>MA {maLine(realSignal)}</div>
                         <div className="text-xs text-muted-foreground">
-                          RSI {numberLabel(realSignal?.rsi, 1)} / 回撤 {formatRatio(realSignal?.drawdown)}
+                          RSI {numberLabel(realSignal?.rsi, 1)} / 52 周回撤 {formatRatio(realSignal?.drawdown252 ?? realSignal?.drawdown)}
                         </div>
                       </TableCell>
                       <TableCell>
