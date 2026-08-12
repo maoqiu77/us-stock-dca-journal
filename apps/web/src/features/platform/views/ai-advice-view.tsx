@@ -13,6 +13,7 @@ import {
   RefreshCcwIcon,
   SendIcon,
   SparklesIcon,
+  Trash2Icon,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchAiAdviceCalendar,
+  clearAiAdviceChat,
   generateAiAdvice,
   sendAiAdviceChat,
 } from "@/features/platform/api";
@@ -141,6 +143,14 @@ export function AiAdviceView() {
           () => chatMutation.reset()
         );
       }
+    },
+  });
+  const clearChatMutation = useMutation({
+    mutationFn: clearAiAdviceChat,
+    onSuccess: (response) => {
+      chatMutation.reset();
+      setChatPrompt("");
+      applyCalendarResponse(response);
     },
   });
   const savedDates = new Set(calendarData?.dates ?? []);
@@ -299,6 +309,23 @@ export function AiAdviceView() {
                   : `${record.date} 的历史对话`
                 : "生成今日 AI 建议后可继续追问"}
             </CardDescription>
+            <CardAction className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => clearChatMutation.mutate()}
+                disabled={
+                  !selectedIsToday ||
+                  chatMessages.length === 0 ||
+                  chatMutation.isPending ||
+                  clearChatMutation.isPending
+                }
+                title="仅清空今日追问，保留 AI 首次总结"
+              >
+                <Trash2Icon data-icon="inline-start" />
+                {clearChatMutation.isPending ? "清空中" : "清空今日对话"}
+              </Button>
+            </CardAction>
           </CardHeader>
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
             <div
@@ -346,6 +373,23 @@ export function AiAdviceView() {
                     )
                   }
                   disabled={chatMutation.isPending || !aiReady}
+                >
+                  <RefreshCcwIcon data-icon="inline-start" />
+                  重试
+                </Button>
+              </div>
+            ) : null}
+            {clearChatMutation.error ? (
+              <div className="flex items-start justify-between gap-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                <div className="flex min-w-0 items-start gap-2">
+                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
+                  <span className="min-w-0">{clearChatMutation.error.message}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => clearChatMutation.mutate()}
+                  disabled={clearChatMutation.isPending}
                 >
                   <RefreshCcwIcon data-icon="inline-start" />
                   重试

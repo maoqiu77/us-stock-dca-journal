@@ -66,6 +66,8 @@ export type StrategySettings = {
   hardStopMaBreakRatio: number;
   maxEtfWeight: number;
   monthlyDcaAmount: number;
+  recentEtfInvestmentAmount: number;
+  recentEtfInvestmentStartDate: string;
   etfRsiMax: number;
   etfReduceRsi: number;
   etfTakeProfitRsi: number;
@@ -170,6 +172,8 @@ const balancedSettings: StrategySettings = {
   hardStopMaBreakRatio: 0.5,
   maxEtfWeight: 0.6,
   monthlyDcaAmount: 100,
+  recentEtfInvestmentAmount: 0,
+  recentEtfInvestmentStartDate: "",
   etfRsiMax: 74,
   etfReduceRsi: 80,
   etfTakeProfitRsi: 84,
@@ -721,6 +725,28 @@ export function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
 }
 
+export function etfInvestmentPool(
+  state: TradingDataState,
+  settings: StrategySettings
+) {
+  const etfs = new Set(
+    state.positions
+      .filter((position) => position.assetType === "ETF")
+      .map((position) => position.ticker)
+  );
+  const invested = state.trades
+    .filter(
+      (trade) =>
+        trade.action === "买入" &&
+        etfs.has(trade.ticker) &&
+        (!settings.recentEtfInvestmentStartDate ||
+          trade.date >= settings.recentEtfInvestmentStartDate)
+    )
+    .reduce((sum, trade) => sum + trade.amount, 0);
+  const total = Math.max(settings.recentEtfInvestmentAmount, 0);
+  return { total, invested, remaining: Math.max(total - invested, 0) };
+}
+
 export function sanitizeTradingData(value: unknown): TradingDataState {
   if (!value || typeof value !== "object") {
     return DEFAULT_TRADING_DATA;
@@ -854,6 +880,11 @@ function sanitizeStrategySettings(
   output.satelliteSymbols = Array.isArray(input.satelliteSymbols)
     ? uniqueTickers(input.satelliteSymbols.map(String))
     : [...defaults.satelliteSymbols];
+  output.recentEtfInvestmentStartDate = isIsoDate(
+    String(input.recentEtfInvestmentStartDate ?? "")
+  )
+    ? String(input.recentEtfInvestmentStartDate)
+    : "";
 
   return output;
 }

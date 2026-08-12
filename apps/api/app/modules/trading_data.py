@@ -43,6 +43,8 @@ BALANCED_SETTINGS: dict[str, Any] = {
     "hardStopMaBreakRatio": 0.50,
     "maxEtfWeight": 0.60,
     "monthlyDcaAmount": 100.0,
+    "recentEtfInvestmentAmount": 0.0,
+    "recentEtfInvestmentStartDate": "",
     "etfRsiMax": 74.0,
     "etfReduceRsi": 80.0,
     "etfTakeProfitRsi": 84.0,
@@ -130,6 +132,7 @@ STRATEGY_ENGINE_KEY_MAP = {
     "takeProfitTrimRatio": "take_profit_trim_ratio",
     "hardStopMaBreakRatio": "hard_stop_ma_break_ratio",
     "monthlyDcaAmount": "monthly_dca_amount",
+    "recentEtfInvestmentAmount": "recent_etf_investment_amount",
     "etfRsiMax": "etf_rsi_max",
     "etfReduceRsi": "etf_reduce_rsi",
     "etfTakeProfitRsi": "etf_take_profit_rsi",
@@ -428,6 +431,30 @@ def strategy_settings_to_engine_config(settings: dict[str, Any]) -> tuple[dict[s
     return strategy, risk
 
 
+def etf_investment_pool(state: dict[str, Any], settings: dict[str, Any]) -> dict[str, float]:
+    """Derive the shared recent ETF funding pool from recorded trades."""
+    total = max(number(settings.get("recentEtfInvestmentAmount")), 0.0)
+    start_date = str(settings.get("recentEtfInvestmentStartDate") or "")
+    etf_symbols = {
+        normalize_ticker(position.get("ticker"))
+        for position in state.get("positions", [])
+        if position.get("assetType") == "ETF"
+    }
+    invested = sum(
+        max(number(trade.get("amount")), 0.0)
+        for trade in state.get("trades", [])
+        if trade.get("action") == "买入"
+        and normalize_ticker(trade.get("ticker")) in etf_symbols
+        and (not start_date or str(trade.get("date") or "") >= start_date)
+    )
+    invested = round(invested, 2)
+    return {
+        "total": round(total, 2),
+        "invested": invested,
+        "remaining": round(max(total - invested, 0.0), 2),
+    }
+
+
 def validate_trading_state(state: dict[str, Any] | None = None) -> list[str]:
     current = state or load_trading_state()
     errors: list[str] = []
@@ -687,6 +714,15 @@ def sanitize_strategy_settings(settings: dict[str, Any]) -> dict[str, Any]:
     ]:
         cleaned[key] = min(max(number(cleaned.get(key), BALANCED_SETTINGS[key]), 0.0), 100.0)
     cleaned["monthlyDcaAmount"] = max(number(cleaned.get("monthlyDcaAmount"), 0.0), 0.0)
+    cleaned["recentEtfInvestmentAmount"] = max(
+        number(cleaned.get("recentEtfInvestmentAmount"), 0.0), 0.0
+    )
+    start_date = str(cleaned.get("recentEtfInvestmentStartDate") or "")
+    try:
+        date.fromisoformat(start_date)
+    except ValueError:
+        start_date = ""
+    cleaned["recentEtfInvestmentStartDate"] = start_date
     cleaned["layeredPlanAmount"] = max(number(cleaned.get("layeredPlanAmount"), 0.0), 0.0)
     cleaned["layeredPullbacks"] = sanitize_layered_pullbacks(cleaned.get("layeredPullbacks"))
     cleaned["coreHoldings"] = sanitize_core_holdings(cleaned.get("coreHoldings"))
