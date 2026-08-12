@@ -96,6 +96,27 @@ Public sample data is stored at:
 storage/templates/
 ```
 
+## Evaluate AI context understanding
+
+The repository includes a fictional 20-case offline evaluation kit for checking
+whether an AI answer accurately uses account context, respects long-term
+investment constraints, and fits the user's strategy. It does not call another
+AI judge or use short-term returns as the quality target.
+
+Copy the public template into the private local directory before adding real
+answers or portfolio context:
+
+```bash
+mkdir -p storage/local/evaluations
+cp storage/templates/ai-context-evaluation.example.yaml \
+  storage/local/evaluations/ai-context-evaluation.yaml
+./scripts/evaluate_ai_context.py \
+  storage/local/evaluations/ai-context-evaluation.yaml
+```
+
+See [the AI context evaluation guide](docs/ai-context-evaluation.md) for the
+annotation schema, formulas, thresholds, and privacy rules.
+
 ## Troubleshooting
 
 ### The browser does not open after launching
@@ -255,6 +276,22 @@ storage/local/
 ```text
 storage/templates/
 ```
+
+## 评测 AI 是否理解投资上下文
+
+项目提供一套包含 20 个虚构案例的离线评测工具，用于检验 AI 是否准确使用账户上下文、遵守长期投资约束，并给出符合用户投资方式的建议。评测不调用另一个 AI 自动裁判，也不以短期收益率作为质量目标。
+
+添加真实回答或投资上下文前，先把公开模板复制到本地私有目录：
+
+```bash
+mkdir -p storage/local/evaluations
+cp storage/templates/ai-context-evaluation.example.yaml \
+  storage/local/evaluations/ai-context-evaluation.yaml
+./scripts/evaluate_ai_context.py \
+  storage/local/evaluations/ai-context-evaluation.yaml
+```
+
+标注结构、计算公式、通过门槛和隐私规则见 [AI 投资上下文评测指南](docs/ai-context-evaluation.md)。
 
 ## 常见问题
 

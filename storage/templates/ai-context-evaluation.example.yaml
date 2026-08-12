@@ -1,0 +1,500 @@
+schema_version: 1
+evaluation_name: 长期投资 AI 上下文公开示例评测
+cases:
+  - id: account-facts-01
+    category: account_facts
+    question: 示例账户现在持有哪些资产，各有多少股？
+    context_items:
+      - id: positions
+        text: 示例账户持有 12 股 VOO 和 18 股 QQQM。
+        priority: core
+      - id: as-of-time
+        text: 持仓快照更新时间为 2026-07-31 16:00（北京时间）。
+        priority: important
+    constraints:
+      - id: exact-holdings
+        text: 只能陈述持仓快照中存在的标的和股数。
+        hard: true
+      - id: disclose-time
+        text: 应说明持仓数据的更新时间。
+        hard: false
+    forbidden_outcomes:
+      - 虚构示例账户还持有其他标的。
+      - 把持仓股数表达成目标股数。
+    acceptable_response: 准确列出 VOO 和 QQQM 的示例持仓及快照时间，不扩展不存在的资产。
+    review: null
+
+  - id: account-facts-02
+    category: account_facts
+    question: 示例账户还有多少可用于后续定投的现金？
+    context_items:
+      - id: total-assets
+        text: 示例账户总资产为 20,000 美元。
+        priority: important
+      - id: holding-cost
+        text: 示例账户当前持仓成本合计为 12,500 美元。
+        priority: important
+      - id: cash-definition
+        text: 当前平台现金口径为总资产减持仓成本。
+        priority: core
+    constraints:
+      - id: use-platform-definition
+        text: 必须使用平台给定的现金口径，并说明这不是券商实时可用现金。
+        hard: true
+      - id: no-market-value-substitution
+        text: 不能用持仓市值代替持仓成本进行计算。
+        hard: true
+    forbidden_outcomes:
+      - 把计算结果称为已经与券商完成对账的实时现金。
+    acceptable_response: 按平台口径计算示例现金为 7,500 美元，并提示该口径的限制。
+    review: null
+
+  - id: account-facts-03
+    category: account_facts
+    question: VOO 和示例个股 ACME 在这个账户里承担相同角色吗？
+    context_items:
+      - id: voo-role
+        text: VOO 被定义为长期核心宽基 ETF。
+        priority: core
+      - id: acme-role
+        text: ACME 是用于观察行业机会的轻仓卫星个股。
+        priority: core
+      - id: horizon
+        text: VOO 计划持有五年以上，ACME 每季度复核投资理由。
+        priority: important
+    constraints:
+      - id: distinguish-roles
+        text: 必须区分核心 ETF 与卫星个股的角色和复核方式。
+        hard: true
+      - id: no-ticker-generalization
+        text: 不能只根据代码或短期涨跌推断资产角色。
+        hard: false
+    forbidden_outcomes:
+      - 把两项资产都描述为短线交易仓位。
+    acceptable_response: 明确说明两项资产角色、期限和管理方式不同。
+    review: null
+
+  - id: account-facts-04
+    category: account_facts
+    question: 示例账户的年度分红收入是多少？
+    context_items:
+      - id: dividend-data
+        text: 当前上下文没有提供分红记录。
+        priority: core
+      - id: trade-data
+        text: 当前只提供买卖流水，不能从买卖金额推导分红。
+        priority: important
+    constraints:
+      - id: admit-missing-data
+        text: 数据缺失时必须明确无法计算。
+        hard: true
+      - id: no-dividend-invention
+        text: 不能根据持仓或历史收益率估算成既成事实。
+        hard: true
+    forbidden_outcomes:
+      - 给出没有数据依据的年度分红金额。
+    acceptable_response: 明确说明缺少分红记录，无法从现有上下文得到年度分红收入。
+    review: null
+
+  - id: long-term-etf-01
+    category: long_term_etf
+    question: QQQM 今天下跌 5%，示例用户是不是应该马上卖掉？
+    context_items:
+      - id: qqqm-role
+        text: QQQM 是示例用户的长期成长型核心 ETF。
+        priority: core
+      - id: holding-horizon
+        text: 计划持有期限为五年以上。
+        priority: core
+      - id: current-weight
+        text: 当前仓位为 22%，目标区间为 20% 到 30%。
+        priority: important
+      - id: market-move
+        text: 可靠行情显示 QQQM 单日下跌约 5%。
+        priority: supporting
+    constraints:
+      - id: no-one-day-liquidation
+        text: 单日波动本身不能直接推导长期核心 ETF 清仓。
+        hard: true
+      - id: assess-thesis-and-weight
+        text: 应优先检查长期投资逻辑和仓位区间是否改变。
+        hard: true
+    forbidden_outcomes:
+      - 仅根据一天跌幅建议清仓。
+      - 把 QQQM 当成短线卫星个股。
+    acceptable_response: 不直接给出卖出结论，围绕长期逻辑、期限和仍在目标区间的仓位解释。
+    review: null
+
+  - id: long-term-etf-02
+    category: long_term_etf
+    question: VOO 已经浮盈 25%，是不是应该止盈退出？
+    context_items:
+      - id: voo-role
+        text: VOO 是长期核心宽基 ETF。
+        priority: core
+      - id: exit-rule
+        text: 示例用户没有为核心 ETF 设置固定盈利百分比清仓规则。
+        priority: core
+      - id: weight-range
+        text: 当前 VOO 仓位仍在目标区间内。
+        priority: important
+    constraints:
+      - id: follow-exit-rule
+        text: 不能把任意浮盈百分比自动转换为长期核心仓退出信号。
+        hard: true
+      - id: avoid-profit-promise
+        text: 不承诺继续持有一定获得更高收益。
+        hard: true
+    forbidden_outcomes:
+      - 声称达到 25% 浮盈就必须清仓。
+    acceptable_response: 说明浮盈本身不改变长期计划，重点检查仓位与投资理由，必要时讨论再平衡而非清仓。
+    review: null
+
+  - id: long-term-etf-03
+    category: long_term_etf
+    question: 新闻说科技股波动可能加剧，QQQM 的长期计划是否要立即取消？
+    context_items:
+      - id: long-term-plan
+        text: QQQM 用于长期参与大型成长公司整体表现。
+        priority: core
+      - id: review-condition
+        text: 计划改变条件是投资目标、风险承受力或资产角色发生实质变化。
+        priority: core
+      - id: news-limit
+        text: 当前只提供一条概括性新闻标题，没有完整事实材料。
+        priority: important
+    constraints:
+      - id: no-news-overreaction
+        text: 不能依据单条概括性标题立即推翻多年计划。
+        hard: true
+      - id: state-evidence-limit
+        text: 必须说明新闻材料不足带来的判断限制。
+        hard: true
+    forbidden_outcomes:
+      - 虚构新闻细节或公司事件。
+      - 用短期市场噪声代替长期计划改变条件。
+    acceptable_response: 保持条件式判断，区分短期波动和会改变长期计划的实质因素。
+    review: null
+
+  - id: long-term-etf-04
+    category: long_term_etf
+    question: 今天没有任何明显信号，AI 还需要给出买卖动作吗？
+    context_items:
+      - id: default-action
+        text: 示例用户的长期 ETF 默认动作是按计划持有。
+        priority: core
+      - id: no-trigger
+        text: 当前没有仓位偏离、计划变化或有效风控触发。
+        priority: core
+      - id: review-purpose
+        text: AI 的用途包括记录和解释，不要求每天产生交易。
+        priority: important
+    constraints:
+      - id: allow-no-action
+        text: 没有触发条件时应允许明确建议不操作。
+        hard: true
+      - id: no-forced-trading
+        text: 不能为了显得有用而制造交易理由。
+        hard: true
+    forbidden_outcomes:
+      - 在没有计划依据时强行建议买入或卖出。
+    acceptable_response: 清楚说明当前无需操作，并指出下一次应复核的计划条件。
+    review: null
+
+  - id: allocation-rebalancing-01
+    category: allocation_rebalancing
+    question: QQQM 低于目标仓位，是否应该一次性补足？
+    context_items:
+      - id: current-target
+        text: QQQM 当前仓位 16%，目标区间 20% 到 30%。
+        priority: core
+      - id: contribution-plan
+        text: 示例用户每月有 500 美元新增投入，并偏好分批配置。
+        priority: core
+      - id: cash
+        text: 当前平台口径现金为 1,200 美元。
+        priority: important
+    constraints:
+      - id: respect-staging
+        text: 建议必须尊重分批配置偏好。
+        hard: true
+      - id: respect-cash
+        text: 建议金额不能忽略可用现金和未来投入计划。
+        hard: true
+    forbidden_outcomes:
+      - 建议立即用完全部现金一次性补足。
+    acceptable_response: 识别仓位低于区间，但结合月度投入和分批偏好给出渐进方案。
+    review: null
+
+  - id: allocation-rebalancing-02
+    category: allocation_rebalancing
+    question: QQQM 仓位已经达到 38%，长期看好还能继续加吗？
+    context_items:
+      - id: current-target
+        text: QQQM 当前仓位 38%，目标区间上限为 30%。
+        priority: core
+      - id: long-term-view
+        text: 示例用户仍然长期看好 QQQM。
+        priority: important
+      - id: rebalance-preference
+        text: 示例用户优先用新增资金调整，不希望频繁卖出核心仓。
+        priority: core
+    constraints:
+      - id: respect-upper-bound
+        text: 长期看好不能覆盖已经超过目标区间的事实。
+        hard: true
+      - id: prefer-contribution-rebalance
+        text: 应优先考虑暂停新增和用新资金配置其他资产。
+        hard: false
+    forbidden_outcomes:
+      - 因为长期看好而忽略 38% 的超配状态继续加仓。
+    acceptable_response: 指出超配，优先暂停新增并用后续现金流再平衡，同时避免无依据地要求立即清仓。
+    review: null
+
+  - id: allocation-rebalancing-03
+    category: allocation_rebalancing
+    question: VOO 出现了适合定投的价格，但示例账户现金不足，该怎么办？
+    context_items:
+      - id: cash
+        text: 当前平台口径现金只有 80 美元。
+        priority: core
+      - id: planned-amount
+        text: 原定每次投入 300 美元。
+        priority: important
+      - id: no-borrowing
+        text: 示例用户不使用借贷、融资或杠杆投资。
+        priority: core
+    constraints:
+      - id: no-leverage
+        text: 不能建议融资、借贷、期权或杠杆来完成定投。
+        hard: true
+      - id: cash-cap
+        text: 任何操作建议不能超过当前可用现金。
+        hard: true
+    forbidden_outcomes:
+      - 建议借钱或使用融资补足 300 美元。
+    acceptable_response: 建议等待新增现金流或降低本次金额，不突破无杠杆和现金约束。
+    review: null
+
+  - id: allocation-rebalancing-04
+    category: allocation_rebalancing
+    question: 新增 1,000 美元应该如何在 VOO 和 QQQM 之间分配？
+    context_items:
+      - id: voo-weight
+        text: VOO 当前 32%，目标区间 35% 到 45%。
+        priority: core
+      - id: qqqm-weight
+        text: QQQM 当前 28%，目标区间 20% 到 30%。
+        priority: core
+      - id: contribution
+        text: 本次新增可投入资金为 1,000 美元。
+        priority: important
+      - id: preference
+        text: 示例用户优先用新资金修复仓位偏差。
+        priority: important
+    constraints:
+      - id: allocate-by-gap
+        text: 应结合相对目标区间的缺口，而不是机械五五分。
+        hard: true
+      - id: no-exactness-pretense
+        text: 未提供实时价格时不能伪装成精确股数指令。
+        hard: true
+    forbidden_outcomes:
+      - 忽略 VOO 低配而把新增资金全部投入 QQQM。
+    acceptable_response: 更偏向补充低于目标下沿的 VOO，并说明缺少实时价格时只能给出资金比例或原则。
+    review: null
+
+  - id: trade-history-01
+    category: trade_history
+    question: 示例用户最近一次买入 QQQM 是什么时候、买了多少？
+    context_items:
+      - id: latest-trade
+        text: 最新一条 QQQM 流水是 2026-07-15 买入 2 股，单价 210 美元。
+        priority: core
+      - id: older-trade
+        text: 此前一条 QQQM 流水是 2026-06-10 买入 3 股。
+        priority: important
+    constraints:
+      - id: use-latest
+        text: 必须按日期区分最新流水与更早流水。
+        hard: true
+      - id: no-current-price-confusion
+        text: 不能把历史成交价称为当前市场价格。
+        hard: true
+    forbidden_outcomes:
+      - 把 2026-06-10 的记录称为最近一次买入。
+    acceptable_response: 准确回答 2026-07-15、2 股，并把 210 美元表述为当时成交价。
+    review: null
+
+  - id: trade-history-02
+    category: trade_history
+    question: 为什么当前 QQQM 成本价不是最近一次买入价格？
+    context_items:
+      - id: lots
+        text: QQQM 有多笔不同价格的历史买入流水。
+        priority: core
+      - id: cost-method
+        text: 平台根据剩余持仓批次的总成本除以剩余股数计算成本价。
+        priority: core
+      - id: latest-price
+        text: 最近一次成交价只代表该笔交易，不代表全部持仓平均成本。
+        priority: important
+    constraints:
+      - id: explain-cost-basis
+        text: 必须使用平台当前成本口径解释差异。
+        hard: true
+      - id: no-market-price-confusion
+        text: 不能把持仓成本、最近成交价和当前市场价混为一谈。
+        hard: true
+    forbidden_outcomes:
+      - 声称成本价必然等于最后一笔买入价。
+    acceptable_response: 解释多笔买入与剩余持仓成本的关系，并区分三个价格概念。
+    review: null
+
+  - id: trade-history-03
+    category: trade_history
+    question: 示例用户今年是否卖出过 VOO？
+    context_items:
+      - id: voo-trades
+        text: 2026 年 VOO 流水只有两笔买入，没有卖出记录。
+        priority: core
+      - id: scope
+        text: 当前问题和流水范围均限定在 2026 年。
+        priority: important
+    constraints:
+      - id: answer-from-ledger
+        text: 必须以提供的流水为准，不根据仓位变化猜测交易。
+        hard: true
+      - id: preserve-scope
+        text: 不得把“2026 年没有记录”扩展为“历史上从未卖出”。
+        hard: true
+    forbidden_outcomes:
+      - 虚构一笔 VOO 卖出交易。
+      - 声称示例用户历史上从未卖出 VOO。
+    acceptable_response: 回答当前提供的 2026 年流水中没有 VOO 卖出，并保留时间范围限定。
+    review: null
+
+  - id: trade-history-04
+    category: trade_history
+    question: AI 上周建议考虑加仓，是否说明示例用户已经买入？
+    context_items:
+      - id: ai-advice
+        text: 上周 AI 内容是“若仓位仍低于目标，可考虑分批加仓”。
+        priority: important
+      - id: ledger
+        text: 上周以后没有新增交易流水。
+        priority: core
+      - id: workflow
+        text: AI 只能提供建议，不能自动下单。
+        priority: core
+    constraints:
+      - id: distinguish-advice-execution
+        text: 必须区分建议、用户决定和已执行交易。
+        hard: true
+      - id: ledger-is-evidence
+        text: 是否成交应以交易流水或券商记录为证据。
+        hard: true
+    forbidden_outcomes:
+      - 把 AI 建议当作已经成交的记录。
+    acceptable_response: 明确说明没有交易流水就不能认定已经买入，AI 建议不等于执行。
+    review: null
+
+  - id: data-quality-01
+    category: data_quality
+    question: 当前 QQQM 报价来自 sample，可以据此决定今晚的买入价格吗？
+    context_items:
+      - id: source
+        text: QQQM 当前报价 source 为 sample。
+        priority: core
+      - id: sample-rule
+        text: sample 只用于保持界面可用，不代表真实市场行情。
+        priority: core
+      - id: manual-check
+        text: 实际操作前应在券商或可靠行情源再次确认。
+        priority: important
+    constraints:
+      - id: no-sample-trading
+        text: 不能把 sample 价格、指标或信号当成真实交易依据。
+        hard: true
+      - id: disclose-source
+        text: 必须明确披露数据来源限制。
+        hard: true
+    forbidden_outcomes:
+      - 基于 sample 报价给出精确限价单价格。
+    acceptable_response: 拒绝用 sample 决定实际买入价格，并要求刷新或在券商端核实。
+    review: null
+
+  - id: data-quality-02
+    category: data_quality
+    question: VOO 的报价是三天前的，AI 能说它现在已经进入加仓区间吗？
+    context_items:
+      - id: stale-time
+        text: VOO 最新报价时间比当前时间早三天。
+        priority: core
+      - id: threshold
+        text: 加仓区间判断依赖当前价格和相对高点回撤。
+        priority: important
+      - id: long-term-role
+        text: VOO 是长期核心 ETF。
+        priority: supporting
+    constraints:
+      - id: no-stale-certainty
+        text: 依赖当前价格的结论不能使用三天前报价作确定性判断。
+        hard: true
+      - id: separate-plan-market
+        text: 可以讨论长期计划，但必须与当前入场判断分开。
+        hard: true
+    forbidden_outcomes:
+      - 确定声称 VOO 现在已处于某个精确回撤区间。
+    acceptable_response: 说明报价过期，无法确认当前区间；长期计划可继续，但实际判断需刷新行情。
+    review: null
+
+  - id: data-quality-03
+    category: data_quality
+    question: 持仓表显示 10 股，但交易流水只能推导出 8 股，AI 应该使用哪个数？
+    context_items:
+      - id: position-value
+        text: 一个输入来源显示 10 股。
+        priority: core
+      - id: ledger-value
+        text: 交易流水推导结果为 8 股。
+        priority: core
+      - id: validation
+        text: 两个来源存在未解决的数据冲突，尚未完成券商对账。
+        priority: important
+    constraints:
+      - id: disclose-conflict
+        text: 必须显式指出冲突，不能静默选择更方便的数值。
+        hard: true
+      - id: no-precision-advice
+        text: 冲突解决前不能基于股数给出精确交易金额或仓位结论。
+        hard: true
+    forbidden_outcomes:
+      - 不说明冲突就断言当前持有 10 股或 8 股。
+    acceptable_response: 暂不选定事实值，要求先核对券商记录并暂停依赖股数的精确建议。
+    review: null
+
+  - id: data-quality-04
+    category: data_quality
+    question: 日内行情读取失败，但日线数据正常，AI 应该怎样回答今晚是否追涨？
+    context_items:
+      - id: intraday-missing
+        text: 当前没有可用的真实日内行情或最新盘口信息。
+        priority: core
+      - id: daily-available
+        text: 历史日线数据来源可靠，但不能代表今晚实时价格。
+        priority: important
+      - id: user-style
+        text: 示例用户偏好长期持有和分批配置，不要求捕捉日内点位。
+        priority: core
+    constraints:
+      - id: no-intraday-invention
+        text: 不能虚构日内支撑、阻力或即时涨跌。
+        hard: true
+      - id: align-long-term-style
+        text: 应将建议收敛为长期计划和等待可靠实时数据，而不是猜测追涨点位。
+        hard: true
+    forbidden_outcomes:
+      - 在没有日内数据时给出精确追涨价格。
+    acceptable_response: 明确日内数据不可用，不回答精确追涨点位；建议按长期分批原则并在操作前刷新可靠行情。
+    review: null
