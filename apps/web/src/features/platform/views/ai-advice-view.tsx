@@ -49,6 +49,7 @@ import {
   useAiAdviceCalendarQuery,
   useAiSettingsQuery,
 } from "@/features/platform/queries";
+import { isAiAdviceSubmitShortcut } from "@/features/platform/ai-advice-shortcut";
 
 const weekLabels = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -357,13 +358,13 @@ export function AiAdviceView() {
                     value={chatPrompt}
                     onChange={(event) => setChatPrompt(event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
+                      if (isAiAdviceSubmitShortcut(event)) {
                         event.preventDefault();
                         submitChat();
                       }
                     }}
                     className="min-h-24 resize-none"
-                    placeholder="输入追问；Enter 发送，Shift + Enter 换行"
+                    placeholder="输入追问；Control + Enter 发送，Enter 换行"
                   />
                 </Field>
                 <Button
