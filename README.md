@@ -190,7 +190,7 @@ Licensed under the [Apache License 2.0](LICENSE).
 
 <a id="中文"></a>
 
-# 股票交易平台 Next
+# 股票交易平台 Next（美股定投交易日记）
 
 [English](#english) | [中文](#中文)
 
