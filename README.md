@@ -4,8 +4,6 @@
 
 [中文](#中文) | [English](#english)
 
-## 项目特色
-
 项目把每天的交易记录和与 AI 的对话整理成一份可浏览的投资日历。点击任意日期即可切换到当天，查看当天的交易操作、AI 建议和后续对话；不同日期之间可以随时来回切换，不必再从零散的记录中查找。每天积累下来的内容会形成连续的投资日记，方便回顾当时的判断、对照后续结果并持续复盘。
 
 ![整体界面截图](docs/screenshots/overview.png)
@@ -14,7 +12,7 @@
 
 <video src="https://github.com/user-attachments/assets/d07989b2-8ad5-490d-a9b6-327f87805320" width="800" title="美股定投交易日记演示" controls>美股定投交易日记演示</video>
 
-> 如果你的 Markdown 阅读器不支持内嵌视频，也可以直接打开 [MP4 录屏文件](docs/screenshots/demo.mp4)。
+> [MP4 录屏文件](docs/screenshots/demo.mp4)。
 
 这是一个本地运行的美股研究和交易辅助工具。它会在你的电脑上打开网页界面，用来查看自选股、K 线图、账户概览、策略信号、回测结果和 AI 建议。
 
