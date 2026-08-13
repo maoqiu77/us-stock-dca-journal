@@ -1,6 +1,6 @@
 <a id="english"></a>
 
-# Stock Trading Platform Next
+# Stock Trading Platform Next （美股定投交易日记）
 
 [English](#english) | [中文](#中文)
 
