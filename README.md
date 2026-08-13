@@ -6,15 +6,15 @@
 
 ## 项目特色
 
-每天的交易记录和与 AI 的对话，都可以像日历一样保存起来，之后按日期点击查看，方便持续复盘自己的投资过程。
+项目把每天的交易记录和与 AI 的对话整理成一份可浏览的投资日历。点击任意日期即可切换到当天，查看当天的交易操作、AI 建议和后续对话；不同日期之间可以随时来回切换，不必再从零散的记录中查找。每天积累下来的内容会形成连续的投资日记，方便回顾当时的判断、对照后续结果并持续复盘。
 
 ![整体界面截图](docs/screenshots/overview.png)
 
-项目演示录屏：
+## 演示视频
 
-<video src="docs/screenshots/demo.mov" controls muted playsinline width="100%"></video>
+<video src="docs/screenshots/demo.mp4" width="800" title="美股定投交易日记演示" controls>美股定投交易日记演示</video>
 
-> 如果你的 Markdown 阅读器不支持内嵌视频，也可以直接打开 [录屏文件](docs/screenshots/demo.mov)。
+> 如果你的 Markdown 阅读器不支持内嵌视频，也可以直接打开 [MP4 录屏文件](docs/screenshots/demo.mp4)。
 
 这是一个本地运行的美股研究和交易辅助工具。它会在你的电脑上打开网页界面，用来查看自选股、K 线图、账户概览、策略信号、回测结果和 AI 建议。
 
@@ -29,7 +29,7 @@
 
 ## 下载
 
-请到 [Release 页面](https://github.com/maoqiu77/stock-trading-platform-next/releases) 下载：
+请到 [Release 页面](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载：
 
 - Windows：`stock-trading-platform-next-v0.1.9-windows-x64.zip`
 - Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v0.1.9-macos-arm64.zip`
@@ -112,15 +112,15 @@ npm run dev:web
 
 ## Highlights
 
-Daily trades and AI conversations can be saved in a calendar-like journal. Click any date later to review what happened and continue your investment reflection.
+Daily trades and AI conversations are organized into a browsable investment calendar. Click any date to switch to that day and review its trades, AI advice, and follow-up conversation. You can move freely between dates instead of searching through scattered notes, creating a continuous journal for revisiting decisions, comparing later outcomes, and improving your investment process.
 
 ![Application overview](docs/screenshots/overview.png)
 
-Demo recording:
+## Demo Video
 
-<video src="docs/screenshots/demo.mov" controls muted playsinline width="100%"></video>
+<video src="docs/screenshots/demo.mp4" width="800" title="US Stock DCA Journal demo" controls>US Stock DCA Journal demo</video>
 
-> If your Markdown viewer cannot embed video, open the [recording file](docs/screenshots/demo.mov) directly.
+> If your Markdown viewer cannot embed video, open the [MP4 recording](docs/screenshots/demo.mp4) directly.
 
 This is a local stock research and trading-assistance tool for watchlists, candlestick charts, account summaries, strategy signals, backtests, and AI-generated advice.
 
@@ -128,7 +128,7 @@ Data is stored on your computer by default and is not automatically uploaded to 
 
 ## Download
 
-Download a ready-to-run package from the [Releases page](https://github.com/maoqiu77/stock-trading-platform-next/releases):
+Download a ready-to-run package from the [Releases page](https://github.com/maoqiu77/us-stock-dca-journal/releases):
 
 - Windows: `stock-trading-platform-next-v0.1.9-windows-x64.zip`
 - Apple Silicon Mac: `stock-trading-platform-next-v0.1.9-macos-arm64.zip`
