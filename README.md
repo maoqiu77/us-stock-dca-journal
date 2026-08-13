@@ -12,7 +12,7 @@
 
 ## 演示视频
 
-<video src="docs/screenshots/demo.mp4" width="800" title="美股定投交易日记演示" controls>美股定投交易日记演示</video>
+<video src="https://github.com/user-attachments/assets/d07989b2-8ad5-490d-a9b6-327f87805320" width="800" title="美股定投交易日记演示" controls>美股定投交易日记演示</video>
 
 > 如果你的 Markdown 阅读器不支持内嵌视频，也可以直接打开 [MP4 录屏文件](docs/screenshots/demo.mp4)。
 
@@ -118,7 +118,7 @@ Daily trades and AI conversations are organized into a browsable investment cale
 
 ## Demo Video
 
-<video src="docs/screenshots/demo.mp4" width="800" title="US Stock DCA Journal demo" controls>US Stock DCA Journal demo</video>
+<video src="https://github.com/user-attachments/assets/d07989b2-8ad5-490d-a9b6-327f87805320" width="800" title="US Stock DCA Journal demo" controls>US Stock DCA Journal demo</video>
 
 > If your Markdown viewer cannot embed video, open the [MP4 recording](docs/screenshots/demo.mp4) directly.
 
