@@ -18,6 +18,7 @@ from app.modules.ai_advice import (
     create_ai_chat_reply,
     create_external_ai_advice,
     create_local_ai_advice_draft,
+    clear_today_ai_advice_chat,
     get_ai_advice_calendar,
 )
 from app.modules.ai_settings import (
@@ -193,6 +194,11 @@ def generate_ai_advice(payload: AiAdviceBriefRequest) -> dict[str, object]:
 @app.post("/api/ai-advice/chat")
 def ai_advice_chat(payload: AiAdviceChatRequest) -> dict[str, object]:
     return create_ai_chat_reply(payload.prompt)
+
+
+@app.post("/api/ai-advice/chat/clear")
+def clear_ai_advice_chat() -> dict[str, object]:
+    return clear_today_ai_advice_chat()
 
 
 @app.get("/api/ai-settings")

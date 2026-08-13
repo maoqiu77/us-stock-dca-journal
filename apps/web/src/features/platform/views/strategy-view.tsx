@@ -41,10 +41,12 @@ import type {
   SignalRow,
 } from "@/features/platform/api";
 import {
+  etfInvestmentPool,
   formatMoney,
   formatRatio,
   formatShares,
   normalizeTicker,
+  todayIsoDate,
   type StrategyProfile,
   type StrategySettings,
 } from "@/features/platform/trading-data";
@@ -94,6 +96,7 @@ export function StrategyView() {
     updateStrategyProfile,
   } = useTradingData();
   const settings = activeStrategyProfile.settings;
+  const etfPool = etfInvestmentPool(state, settings);
   const signalsQuery = useSignalsQuery();
   const [preferredBacktestTicker, setPreferredBacktestTicker] =
     React.useState("");
@@ -158,7 +161,7 @@ export function StrategyView() {
               <TableHead>标的</TableHead>
               <TableHead>动作</TableHead>
               <TableHead>趋势</TableHead>
-              <TableHead className="text-right">RSI / 回撤</TableHead>
+              <TableHead className="text-right">RSI / 52 周回撤</TableHead>
               <TableHead className="text-right">仓位 / 目标</TableHead>
               <TableHead className="text-right">建议金额</TableHead>
               <TableHead>解释</TableHead>
@@ -471,6 +474,35 @@ export function StrategyView() {
                     })
                   }
                 />
+                <NumberField
+                  id="recent-etf-investment"
+                  label="近期可新投入资金"
+                  value={settings.recentEtfInvestmentAmount}
+                  onChange={(value) =>
+                    patchSettings(activeStrategyProfile, updateStrategyProfile, {
+                      recentEtfInvestmentAmount: value,
+                      recentEtfInvestmentStartDate:
+                        settings.recentEtfInvestmentStartDate || todayIsoDate(),
+                    })
+                  }
+                />
+              </div>
+              <div className="grid gap-3 rounded-lg bg-muted/50 p-3 md:grid-cols-4">
+                <MetricRow label="本轮开始" value={settings.recentEtfInvestmentStartDate || "未开始"} />
+                <MetricRow label="计划投入" value={formatMoney(etfPool.total)} />
+                <MetricRow label="已经投入" value={formatMoney(etfPool.invested)} />
+                <MetricRow label="剩余额度" value={formatMoney(etfPool.remaining)} />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    patchSettings(activeStrategyProfile, updateStrategyProfile, {
+                      recentEtfInvestmentStartDate: todayIsoDate(),
+                    })
+                  }
+                >
+                  开始新一轮
+                </Button>
               </div>
             </FieldGroup>
           </CardContent>
@@ -1023,7 +1055,7 @@ function SignalTableRow({ row }: { row: SignalRow }) {
         </div>
       </TableCell>
       <TableCell className="text-right tabular-nums">
-        {numberLabel(row.rsi)} / {formatRatio(row.drawdown)}
+        {numberLabel(row.rsi)} / {formatRatio(row.drawdown252 ?? row.drawdown)}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {formatRatio(row.current_weight)} / {formatRatio(row.target_weight)}

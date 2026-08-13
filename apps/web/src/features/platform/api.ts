@@ -28,6 +28,8 @@ export type SignalRow = {
   current_price: number;
   trend_status: string;
   drawdown: number;
+  drawdown252: number | null;
+  high252_date: string | null;
   rsi: number;
   ma20: number | null;
   ma60: number | null;
@@ -291,6 +293,12 @@ export async function sendAiAdviceChat(
   return requestJson<AiAdviceCalendarResponse>("/api/ai-advice/chat", {
     method: "POST",
     body: JSON.stringify({ prompt }),
+  }, AI_REQUEST_BASE_URL);
+}
+
+export async function clearAiAdviceChat(): Promise<AiAdviceCalendarResponse> {
+  return requestJson<AiAdviceCalendarResponse>("/api/ai-advice/chat/clear", {
+    method: "POST",
   }, AI_REQUEST_BASE_URL);
 }
 

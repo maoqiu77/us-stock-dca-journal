@@ -125,7 +125,22 @@ def evaluate_add_signal(
         sell_shares = 0.0
         sell_status = "建议减仓"
         sell_reason = ""
-        if stop_loss_pct > 0 and np.isfinite(return_from_cost) and return_from_cost <= -stop_loss_pct:
+        if asset_key == "etf":
+            effective_limit = min(max(target_weight, 0), etf_limit)
+            if context.current_weight > effective_limit + trim_to_target_buffer and price > 0:
+                target_shares = total_assets * effective_limit / price
+                sell_shares = max(shares - target_shares, 0)
+                sell_reason = "当前 ETF 仓位明显高于目标仓位或单只 ETF 上限，建议只调整超出的部分"
+            elif (
+                (np.isfinite(rsi_value) and rsi_value >= 85)
+                or (np.isfinite(return_from_cost) and return_from_cost >= 1.0)
+            ):
+                sell_shares = shares * 0.20
+                sell_reason = (
+                    f"ETF 处于极端高位（RSI14={rsi_value:.1f} 或相对成本盈利 {return_from_cost:.2%}），"
+                    "建议止盈 20%，保留大部分长期仓位"
+                )
+        elif stop_loss_pct > 0 and np.isfinite(return_from_cost) and return_from_cost <= -stop_loss_pct:
             sell_shares = shares * hard_stop_ma_break_ratio
             sell_status = "风险减仓"
             sell_reason = f"当前相对成本亏损 {return_from_cost:.2%}，已触发止损线 {-stop_loss_pct:.0%}，建议先减仓控制风险"
@@ -192,6 +207,71 @@ def evaluate_add_signal(
     strong_trend = np.isfinite(ma120) and np.isfinite(ma60) and price > ma60 and price > ma120
     normal_pullback = np.isfinite(drawdown20) and pullback_min <= drawdown20 <= pullback_max
     deeper_pullback = np.isfinite(drawdown20) and deeper_pullback_min <= drawdown20 <= deeper_pullback_max
+
+    if asset_key == "etf":
+        allocation = max(float(strategy_config.get("etf_allocation_amount", 0.0)), 0.0)
+        drawdown252 = float(metrics.get("Drawdown252", np.nan))
+        if allocation > 0 and np.isfinite(drawdown252) and drawdown252 >= 0.05:
+            reasons.extend(
+                [
+                    f"当前相对 52 周高点回撤 {drawdown252:.2%}，进入 ETF 分批投入区间",
+                    "ETF 的 MA60、MA120、普通 RSI 和止损线仅作背景，不阻止长期分批投入",
+                ]
+            )
+            amount = min(allocation, context.gap_to_target, cash)
+            shares_to_buy = amount / price if price > 0 else 0.0
+            if amount > 0:
+                return Signal(
+                    ticker=ticker,
+                    current_price=price,
+                    trend_status=status,
+                    drawdown=drawdown252,
+                    rsi=rsi_value,
+                    market_value=context.market_value,
+                    cost_basis=cost_basis,
+                    return_from_cost=return_from_cost,
+                    take_profit_pct=take_profit_pct,
+                    stop_loss_pct=stop_loss_pct,
+                    unrealized_pnl=unrealized_pnl,
+                    current_weight=context.current_weight,
+                    target_weight=target_weight,
+                    action="允许分批加仓",
+                    status="允许分批加仓",
+                    suggested_amount=amount,
+                    suggested_shares=shares_to_buy,
+                    reasons=reasons,
+                    blocked_reasons=[],
+                    risk_notes=risk_notes,
+                    manual_instruction=manual_instruction("买入", ticker, amount, shares_to_buy),
+                )
+        etf_blocked = list(blocked)
+        if not np.isfinite(drawdown252) or drawdown252 < 0.05:
+            etf_blocked.append("52 周回撤尚未达到 5% 的第一档")
+        else:
+            etf_blocked.append("当前回撤档位的共享 ETF 资金已投入，或近期可新投入资金不足")
+        return Signal(
+            ticker=ticker,
+            current_price=price,
+            trend_status=status,
+            drawdown=drawdown252,
+            rsi=rsi_value,
+            market_value=context.market_value,
+            cost_basis=cost_basis,
+            return_from_cost=return_from_cost,
+            take_profit_pct=take_profit_pct,
+            stop_loss_pct=stop_loss_pct,
+            unrealized_pnl=unrealized_pnl,
+            current_weight=context.current_weight,
+            target_weight=target_weight,
+            action="不加仓",
+            status="观察等待",
+            suggested_amount=0.0,
+            suggested_shares=0.0,
+            reasons=[],
+            blocked_reasons=etf_blocked,
+            risk_notes=risk_notes,
+            manual_instruction=manual_instruction("买入", ticker, 0.0, 0.0),
+        )
 
     if np.isfinite(ma120) and price < ma120:
         blocked.append(f"当前价格低于 MA120，{asset_label}长期趋势转弱，暂停主动加仓")

@@ -18,6 +18,7 @@ from app.modules.trading_data import (
     account_summary,
     active_strategy_settings,
     derive_positions,
+    etf_investment_pool,
     load_trading_state,
     strategy_settings_to_engine_config,
 )
@@ -35,17 +36,121 @@ def get_signal_rows() -> list[dict[str, Any]]:
 
     max_workers = min(len(positions), 6)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        return list(
-            executor.map(
-                lambda position: build_signal_row(
-                    position,
-                    summary,
-                    strategy_config,
-                    risk_config,
+        contexts = list(executor.map(load_signal_context, positions))
+    pool = etf_investment_pool(state, settings)
+    trades = state.get("trades", [])
+    candidates = []
+    for context in contexts:
+        position = context["position"]
+        price = finite_metric(context["metrics"].get("Close")) or 0.0
+        market_value = price * float(position["shares"])
+        target_gap = max(float(summary["totalAssets"]) * float(position["targetWeight"]) - market_value, 0.0)
+        candidates.append(
+            {
+                "ticker": position["ticker"],
+                "assetType": position["assetType"],
+                "drawdown252": finite_metric(context["metrics"].get("Drawdown252")) or 0.0,
+                "targetGap": target_gap,
+                "etfLimitGap": max(
+                    float(summary["totalAssets"]) * float(risk_config.get("max_etf_weight", 0.6))
+                    - market_value,
+                    0.0,
                 ),
-                positions,
-            )
+                "cycleInvested": sum(
+                    max(float(trade.get("amount", 0.0)), 0.0)
+                    for trade in trades
+                    if trade.get("action") == "买入"
+                    and str(trade.get("ticker", "")).upper() == str(position["ticker"]).upper()
+                    and (
+                        not context["metrics"].get("High252Date")
+                        or str(trade.get("date", "")) >= str(context["metrics"]["High252Date"])
+                    )
+                ),
+            }
         )
+    allocations = allocate_etf_investments(candidates, pool, float(summary["cash"]))
+    return [
+        build_signal_row(
+            context["position"],
+            summary,
+            {**strategy_config, "etf_allocation_amount": allocations.get(context["position"]["ticker"], 0.0)},
+            risk_config,
+            chart=context["chart"],
+            metrics=context["metrics"],
+        )
+        for context in contexts
+    ]
+
+
+def drawdown_entitlement(drawdown: float) -> float:
+    if drawdown >= 0.20:
+        return 1.0
+    if drawdown >= 0.15:
+        return 0.60
+    if drawdown >= 0.10:
+        return 0.35
+    if drawdown >= 0.05:
+        return 0.15
+    return 0.0
+
+
+def allocate_etf_investments(
+    candidates: list[dict[str, Any]],
+    pool: dict[str, float],
+    cash: float,
+) -> dict[str, float]:
+    """Allocate one shared cumulative ETF entitlement by target gaps."""
+    eligible = [
+        item
+        for item in candidates
+        if item.get("assetType") == "ETF"
+        and min(float(item.get("targetGap", 0.0)), float(item.get("etfLimitGap", item.get("targetGap", 0.0)))) > 0
+        and drawdown_entitlement(float(item.get("drawdown252", 0.0))) > 0
+    ]
+    if not eligible:
+        return {}
+    tier_available = max(
+        max(
+            float(pool.get("total", 0.0)) * drawdown_entitlement(float(item["drawdown252"]))
+            - float(item.get("cycleInvested", pool.get("invested", 0.0))),
+            0.0,
+        )
+        for item in eligible
+    )
+    available = min(
+        tier_available,
+        float(pool.get("remaining", 0.0)),
+        max(cash, 0.0),
+        sum(min(float(item["targetGap"]), float(item.get("etfLimitGap", item["targetGap"]))) for item in eligible),
+    )
+    gaps = {
+        str(item["ticker"]): min(
+            float(item["targetGap"]),
+            float(item.get("etfLimitGap", item["targetGap"])),
+        )
+        for item in eligible
+    }
+    total_gap = sum(gaps.values())
+    if available <= 0 or total_gap <= 0:
+        return {}
+    return {
+        str(item["ticker"]): round(
+            min(available * gaps[str(item["ticker"])] / total_gap, gaps[str(item["ticker"])]),
+            2,
+        )
+        for item in eligible
+    }
+
+
+def load_signal_context(position: dict[str, Any]) -> dict[str, Any]:
+    chart = get_chart(position["ticker"], "1y", "1d")
+    prices = bars_to_dataframe(chart.get("bars", []))
+    indicators = add_indicators(prices) if not prices.empty else prices
+    return {
+        "position": position,
+        "chart": chart,
+        "metrics": latest_metrics(indicators) if not indicators.empty else {},
+    }
 
 
 def build_signal_row(
@@ -53,15 +158,18 @@ def build_signal_row(
     summary: dict[str, Any],
     strategy_config: dict[str, Any],
     risk_config: dict[str, Any],
+    chart: dict[str, Any] | None = None,
+    metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    chart = get_chart(position["ticker"], "1y", "1d")
-    prices = bars_to_dataframe(chart.get("bars", []))
-    indicators = (
-        add_indicators(prices, int(strategy_config.get("rsi_period", 14)))
-        if not prices.empty
-        else prices
-    )
-    metrics = latest_metrics(indicators) if not indicators.empty else {}
+    chart = chart or get_chart(position["ticker"], "1y", "1d")
+    if metrics is None:
+        prices = bars_to_dataframe(chart.get("bars", []))
+        indicators = (
+            add_indicators(prices, int(strategy_config.get("rsi_period", 14)))
+            if not prices.empty
+            else prices
+        )
+        metrics = latest_metrics(indicators) if not indicators.empty else {}
     signal = evaluate_add_signal(
         ticker=position["ticker"],
         metrics=metrics,
@@ -82,6 +190,8 @@ def build_signal_row(
     row["ma60"] = finite_metric(metrics.get("MA60"))
     row["ma120"] = finite_metric(metrics.get("MA120"))
     row["ma200"] = finite_metric(metrics.get("MA200"))
+    row["drawdown252"] = finite_metric(metrics.get("Drawdown252"))
+    row["high252_date"] = metrics.get("High252Date")
     return row
 
 

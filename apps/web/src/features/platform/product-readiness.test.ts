@@ -43,6 +43,22 @@ test("AI advice follow-ups use an inline conversation without a confirmation dia
   assert.doesNotMatch(source, /setConfirmAction\("chat"\)/);
 });
 
+test("strategy view exposes the recent ETF funding pool and 52-week drawdown", () => {
+  const source = readSource("./views/strategy-view.tsx");
+  assert.match(source, /近期可新投入资金/);
+  assert.match(source, /开始新一轮/);
+  assert.match(source, /52 周回撤/);
+});
+
+test("AI advice view can clear today's follow-up conversation without removing the summary", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+
+  assert.match(source, /清空今日对话/);
+  assert.match(source, /clearAiAdviceChat/);
+  assert.match(source, /clearChatMutation/);
+  assert.match(source, /record\.messages\.slice\(1\)/);
+});
+
 test("AI advice view shows summarized prompt context without duplicate chat history", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   DEFAULT_TRADING_DATA,
   derivePositions,
+  etfInvestmentPool,
   formatTradeNumberInput,
   normalizeTradeInput,
   parseTradeNumberInput,
@@ -138,6 +139,25 @@ test("derivePositions removes sold shares from oldest lots first", () => {
   assert.equal(position.shares, 10);
   assert.equal(position.costBasis, 20);
   assert.equal(position.holdingCost, 200);
+});
+
+test("ETF investment pool counts recent ETF buys only", () => {
+  const state = testState();
+  state.trades = [
+    { id: "buy", date: "2026-08-02", ticker: "VOO", action: "买入", shares: 1, unitPrice: 150, amount: 150, note: "" },
+    { id: "old", date: "2026-07-30", ticker: "VOO", action: "买入", shares: 1, unitPrice: 200, amount: 200, note: "" },
+  ];
+  const settings = {
+    ...state.strategyProfiles[1].settings,
+    recentEtfInvestmentAmount: 1000,
+    recentEtfInvestmentStartDate: "2026-08-01",
+  };
+
+  assert.deepEqual(etfInvestmentPool(state, settings), {
+    total: 1000,
+    invested: 150,
+    remaining: 850,
+  });
 });
 
 test("trade number input helpers show empty values for zero and parse blanks as zero", () => {
