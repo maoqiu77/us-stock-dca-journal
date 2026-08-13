@@ -243,6 +243,18 @@ class AiAdvicePromptTest(unittest.TestCase):
         self.assertTrue(context["is_regular_session"])
         self.assertEqual(context["new_york_time"], "2026-08-14 14:00")
 
+    def test_advice_date_keeps_after_midnight_us_session_on_previous_date(self) -> None:
+        before_close = ai_advice.beijing_now_context(
+            pd.Timestamp("2026-08-14 03:59", tz="Asia/Shanghai")
+        )
+        at_close = ai_advice.beijing_now_context(
+            pd.Timestamp("2026-08-14 04:00", tz="Asia/Shanghai")
+        )
+
+        self.assertEqual(before_close["beijing_date"], "2026-08-14")
+        self.assertEqual(before_close["advice_date"], "2026-08-13")
+        self.assertEqual(at_close["advice_date"], "2026-08-14")
+
     def test_external_prompt_forbids_contradicting_the_calculated_session(self) -> None:
         context = ai_advice.beijing_now_context(pd.Timestamp("2026-08-12 23:53", tz="Asia/Shanghai"))
 

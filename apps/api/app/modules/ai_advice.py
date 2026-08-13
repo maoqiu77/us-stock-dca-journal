@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -91,9 +91,9 @@ def get_ai_advice_record(target_date: str | None = None) -> dict[str, Any] | Non
 def get_ai_advice_calendar(target_date: str | None = None) -> dict[str, Any]:
     now_context = beijing_now_context()
     saved_dates = list_ai_advice_dates()
-    selected_date = select_ai_advice_date(saved_dates, now_context["beijing_date"], target_date)
+    selected_date = select_ai_advice_date(saved_dates, advice_date_from_context(now_context), target_date)
     return {
-        "today": now_context["beijing_date"],
+        "today": advice_date_from_context(now_context),
         "selectedDate": selected_date,
         "dates": saved_dates,
         "record": get_ai_advice_record(selected_date) if selected_date else None,
@@ -102,7 +102,7 @@ def get_ai_advice_calendar(target_date: str | None = None) -> dict[str, Any]:
 
 def create_local_ai_advice_draft(brief: str = "") -> dict[str, Any]:
     context = beijing_now_context()
-    target_date = context["beijing_date"]
+    target_date = advice_date_from_context(context)
     state = load_trading_state()
     summary = account_summary(state)
     positions = derive_positions(state)
@@ -135,7 +135,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
     state = load_trading_state()
     ensure_external_ai_allowed(state)
     context = beijing_now_context()
-    target_date = context["beijing_date"]
+    target_date = advice_date_from_context(context)
     summary = account_summary(state)
     positions = derive_positions(state)
     settings = active_strategy_settings(state)
@@ -203,7 +203,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     state = load_trading_state()
     ensure_external_ai_allowed(state)
     context = beijing_now_context()
-    target_date = context["beijing_date"]
+    target_date = advice_date_from_context(context)
     current_record = get_ai_advice_record(target_date)
     if not current_record or not current_record.get("messages"):
         raise HTTPException(status_code=409, detail="请先生成今日 AI 综合建议，再继续追问。")
@@ -268,7 +268,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
 
 
 def clear_today_ai_advice_chat() -> dict[str, Any]:
-    target_date = beijing_now_context()["beijing_date"]
+    target_date = advice_date_from_context(beijing_now_context())
     advice_state = load_ai_advice_state()
     current_record = advice_state["records"].get(target_date)
     if current_record:
@@ -1060,15 +1060,25 @@ def beijing_now_context(now: pd.Timestamp | None = None) -> dict[str, Any]:
     else:
         status = "美股常规交易时段外（按纽约当地时间 09:30-16:00 判断）"
         suggestion = "适合生成计划；正式交易前请在常规交易时段内刷新确认。"
+    advice_date = beijing_now.date()
+    # A US session spans midnight in Beijing. Keep the post-midnight portion
+    # attached to the prior Beijing trading date until the session closes.
+    if beijing_now.hour < 4:
+        advice_date -= timedelta(days=1)
     return {
         "beijing_time": beijing_now.strftime("%Y-%m-%d %H:%M"),
         "beijing_date": beijing_now.date().isoformat(),
+        "advice_date": advice_date.isoformat(),
         "new_york_time": new_york_now.strftime("%Y-%m-%d %H:%M"),
         "is_regular_session": is_regular_session,
         "usual_manual_trade_time": "纽约当地时间 09:30-16:00",
         "estimated_session_status": status,
         "timing_suggestion": suggestion,
     }
+
+
+def advice_date_from_context(context: dict[str, Any]) -> str:
+    return str(context.get("advice_date") or context["beijing_date"])
 
 
 def select_ai_advice_date(

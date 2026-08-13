@@ -25,16 +25,16 @@ author's real accounts, positions, trade records, or API keys.
 Download a package from the
 [Releases page](https://github.com/maoqiu77/stock-trading-platform-next/releases):
 
-- Windows: `stock-trading-platform-next-v0.1.8-windows-x64.zip`
-- Apple Silicon Mac (M1/M2/M3/M4): `stock-trading-platform-next-v0.1.8-macos-arm64.zip`
-- Intel Mac: `stock-trading-platform-next-v0.1.8-macos-x64.zip`
+- Windows: `stock-trading-platform-next-v0.1.9-windows-x64.zip`
+- Apple Silicon Mac (M1/M2/M3/M4): `stock-trading-platform-next-v0.1.9-macos-arm64.zip`
+- Intel Mac: `stock-trading-platform-next-v0.1.9-macos-x64.zip`
 
 Do not download GitHub's automatically generated `Source code (zip)` archive.
 It contains source code for developers, not the ready-to-run application.
 
 ## Windows
 
-1. Download `stock-trading-platform-next-v0.1.8-windows-x64.zip`.
+1. Download `stock-trading-platform-next-v0.1.9-windows-x64.zip`.
 2. Right-click the archive and select **Extract All**.
 3. Open the extracted folder.
 4. Double-click `启动股票交易平台.exe`.
@@ -213,15 +213,15 @@ https://github.com/maoqiu77/stock-trading-platform-next/releases
 
 根据自己的电脑选择一个压缩包：
 
-- Windows 电脑：下载 `stock-trading-platform-next-v0.1.8-windows-x64.zip`
-- Apple 芯片 Mac（M1/M2/M3/M4）：下载 `stock-trading-platform-next-v0.1.8-macos-arm64.zip`
-- Intel 芯片 Mac：下载 `stock-trading-platform-next-v0.1.8-macos-x64.zip`
+- Windows 电脑：下载 `stock-trading-platform-next-v0.1.9-windows-x64.zip`
+- Apple 芯片 Mac（M1/M2/M3/M4）：下载 `stock-trading-platform-next-v0.1.9-macos-arm64.zip`
+- Intel 芯片 Mac：下载 `stock-trading-platform-next-v0.1.9-macos-x64.zip`
 
 不要下载 GitHub 自动生成的 `Source code (zip)`，那个是给开发者看的源码包，不是一键运行包。
 
 ## Windows 使用方法
 
-1. 下载 `stock-trading-platform-next-v0.1.8-windows-x64.zip`。
+1. 下载 `stock-trading-platform-next-v0.1.9-windows-x64.zip`。
 2. 右键压缩包，选择“全部解压”。
 3. 打开解压后的文件夹。
 4. 双击 `启动股票交易平台.exe`。
