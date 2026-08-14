@@ -481,10 +481,18 @@ export function DataManagementView() {
                     size="sm"
                     className="w-fit"
                   >
-                    <ToggleGroupItem value="买入" aria-label="买入">
+                    <ToggleGroupItem
+                      value="买入"
+                      aria-label="买入"
+                      className="data-[state=on]:border-trade-buy/30 data-[state=on]:bg-trade-buy/10 data-[state=on]:text-trade-buy data-[state=on]:hover:bg-trade-buy/15"
+                    >
                       买入
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="卖出" aria-label="卖出">
+                    <ToggleGroupItem
+                      value="卖出"
+                      aria-label="卖出"
+                      className="data-[state=on]:border-trade-sell/30 data-[state=on]:bg-trade-sell/10 data-[state=on]:text-trade-sell data-[state=on]:hover:bg-trade-sell/15"
+                    >
                       卖出
                     </ToggleGroupItem>
                   </ToggleGroup>
@@ -619,7 +627,7 @@ export function DataManagementView() {
                     <TableCell>{trade.date}</TableCell>
                     <TableCell className="font-medium">{trade.ticker}</TableCell>
                     <TableCell>
-                      <Badge variant={trade.action === "买入" ? "secondary" : "outline"}>
+                      <Badge variant={trade.action === "买入" ? "buy" : "sell"}>
                         {trade.action}
                       </Badge>
                     </TableCell>

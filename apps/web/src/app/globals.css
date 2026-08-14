@@ -25,6 +25,8 @@
   --color-chart-1: var(--chart-1);
   --color-price-up: var(--price-up);
   --color-price-down: var(--price-down);
+  --color-trade-buy: var(--trade-buy);
+  --color-trade-sell: var(--trade-sell);
   --color-volume: var(--volume);
   --color-ring: var(--ring);
   --color-input: var(--input);
@@ -86,6 +88,8 @@
   --sidebar-ring: oklch(0.708 0 0);
   --price-up: oklch(0.56 0.16 150);
   --price-down: oklch(0.58 0.2 25);
+  --trade-buy: oklch(0.48 0.12 155);
+  --trade-sell: oklch(0.52 0.16 28);
   --volume: oklch(0.62 0.05 252);
 }
 
@@ -123,6 +127,8 @@
   --sidebar-ring: oklch(0.556 0 0);
   --price-up: oklch(0.72 0.15 150);
   --price-down: oklch(0.7 0.18 25);
+  --trade-buy: oklch(0.78 0.12 155);
+  --trade-sell: oklch(0.78 0.14 28);
   --volume: oklch(0.72 0.06 252);
 }
 

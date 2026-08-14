@@ -1339,7 +1339,7 @@ function BacktestTradeTable({ item }: { item: BacktestStrategyResult }) {
                 <TableRow key={`${trade.Date}-${trade.Action}-${index}`}>
                   <TableCell>{trade.Date}</TableCell>
                   <TableCell>
-                    <Badge variant={trade.Action === "BUY" ? "secondary" : "outline"}>
+                    <Badge variant={trade.Action === "BUY" ? "buy" : "sell"}>
                       {trade.Action}
                     </Badge>
                   </TableCell>
@@ -1624,10 +1624,10 @@ function numberLabel(value?: number, digits = 2) {
 
 function signalVariant(action: string) {
   if (action.includes("减") || action.includes("卖")) {
-    return "outline";
+    return "sell";
   }
   if (action.includes("加") || action.includes("买")) {
-    return "secondary";
+    return "buy";
   }
   return "outline";
 }
