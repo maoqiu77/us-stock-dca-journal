@@ -11,6 +11,8 @@ test("platform navigation exposes update checks for end users", () => {
 
   assert.match(source, /"health"/);
   assert.match(source, /检查更新/);
+  assert.ok(source.indexOf('id: "data"') < source.indexOf('id: "strategy"'));
+  assert.ok(source.indexOf('id: "strategy"') < source.indexOf('id: "health"'));
 });
 
 test("workspace includes first-run onboarding without CSV import copy", () => {
@@ -20,6 +22,15 @@ test("workspace includes first-run onboarding without CSV import copy", () => {
   assert.match(source, /首次使用/);
   assert.match(source, /storage\/local/);
   assert.doesNotMatch(source, /CSV|TSV|导入文件/);
+});
+
+test("screenshot import supports multi-file recognition", () => {
+  const source = readSource("./views/position-screenshot-import.tsx");
+
+  assert.match(source, /multiple/);
+  assert.match(source, /Array\.from\(event\.currentTarget\.files/);
+  assert.match(source, /for \(const \[index, file\] of files\.entries\(\)/);
+  assert.match(source, /recognizePositionScreenshot\(await resizeImage\(file\), mode\)/);
 });
 
 test("AI advice view confirms private context before sending to AI", () => {
@@ -57,6 +68,22 @@ test("AI advice view can clear today's follow-up conversation without removing t
   assert.match(source, /clearAiAdviceChat/);
   assert.match(source, /clearChatMutation/);
   assert.match(source, /record\.messages\.slice\(1\)/);
+});
+
+test("AI advice calendar is full width and generation lives beside the advice title", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+
+  assert.match(source, /AI 建议日历/);
+  assert.match(source, /xl:col-span-2/);
+  assert.match(source, /grid-cols-8/);
+  assert.match(source, /text-base font-medium/);
+  assert.match(source, />\s*AI 建议\s*</);
+  assert.match(source, /AI 建议\s*<Button/);
+  assert.match(source, /ml-4 sm:ml-12 xl:ml-56/);
+  assert.match(source, /variant="secondary"\s*size="default"/);
+  assert.doesNotMatch(source, />\s*每日 AI 建议\s*</);
+  assert.doesNotMatch(source, /AI 日历记录/);
+  assert.doesNotMatch(source, /AI建议日历/);
 });
 
 test("AI advice view shows summarized prompt context without duplicate chat history", () => {

@@ -14,6 +14,9 @@ import {
   dynamicCash,
   getActiveStrategyProfile,
   holdingCostValue,
+  importPositionSnapshots,
+  applyRecognizedTrades as applyTrades,
+  replacePositionSnapshot as replaceSnapshot,
   normalizeTradeInput,
   removeTrackedTicker,
   replaceStockPool,
@@ -22,6 +25,7 @@ import {
   uniqueTickers,
   validateTradingData,
   type PositionPlan,
+  type PositionSnapshotInput,
   type StrategyProfile,
   type StrategySettings,
   type TradeRecord,
@@ -50,6 +54,9 @@ type TradingDataContextValue = {
   removePosition: (ticker: string) => void;
   addTrade: (input: TradeInput) => void;
   importTrades: (inputs: TradeInput[]) => void;
+  importPositions: (inputs: PositionSnapshotInput[], importDate: string) => void;
+  applyRecognizedTrades: (inputs: Array<{ ticker: string; action: "买入" | "卖出"; shares: number; unitPrice: number; amount: number; assetType: "ETF" | "STOCK"; date?: string; note?: string }>, date: string) => void;
+  replacePositionSnapshot: (inputs: PositionSnapshotInput[], date: string) => void;
   updateTrade: (
     id: string,
     input: Omit<TradeRecord, "id" | "shares"> & { shares?: number }
@@ -264,6 +271,15 @@ export function TradingDataProvider({
     [commitState]
   );
 
+  const importPositions = React.useCallback(
+    (inputs: PositionSnapshotInput[], importDate: string) => {
+      commitState((current) => importPositionSnapshots(current, inputs, importDate));
+    },
+    [commitState]
+  );
+  const applyRecognizedTrades = React.useCallback((inputs: Parameters<typeof applyTrades>[1], date: string) => commitState((current) => applyTrades(current, inputs, date)), [commitState]);
+  const replacePositionSnapshot = React.useCallback((inputs: PositionSnapshotInput[], date: string) => commitState((current) => replaceSnapshot(current, inputs, date)), [commitState]);
+
   const updateTrade = React.useCallback(
     (
       id: string,
@@ -344,6 +360,9 @@ export function TradingDataProvider({
       removePosition,
       addTrade,
       importTrades,
+      importPositions,
+      applyRecognizedTrades,
+      replacePositionSnapshot,
       updateTrade,
       removeTrade,
       setActiveStrategyProfile,
@@ -351,11 +370,13 @@ export function TradingDataProvider({
     }),
     [
       activeStrategyProfile,
+      applyRecognizedTrades,
       addTrade,
       cash,
       derivedPositions,
       holdingCost,
       importTrades,
+      importPositions,
       isHydrated,
       removePosition,
       removeTrade,
@@ -366,6 +387,7 @@ export function TradingDataProvider({
       updateTrade,
       updateStockPoolText,
       updateStrategyProfile,
+      replacePositionSnapshot,
       upsertPosition,
       validationIssues,
     ]

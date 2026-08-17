@@ -29,9 +29,9 @@
 
 请到 [Release 页面](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载：
 
-- Windows：`stock-trading-platform-next-v0.1.9-windows-x64.zip`
-- Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v0.1.9-macos-arm64.zip`
-- Intel 芯片 Mac：`stock-trading-platform-next-v0.1.9-macos-x64.zip`
+- Windows：`stock-trading-platform-next-v1.0.0-windows-x64.zip`
+- Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v1.0.0-macos-arm64.zip`
+- Intel 芯片 Mac：`stock-trading-platform-next-v1.0.0-macos-x64.zip`
 
 不要下载 GitHub 自动生成的 `Source code (zip)`，它是源码包，不是一键运行包。
 
@@ -128,9 +128,9 @@ Data is stored on your computer by default and is not automatically uploaded to 
 
 Download a ready-to-run package from the [Releases page](https://github.com/maoqiu77/us-stock-dca-journal/releases):
 
-- Windows: `stock-trading-platform-next-v0.1.9-windows-x64.zip`
-- Apple Silicon Mac: `stock-trading-platform-next-v0.1.9-macos-arm64.zip`
-- Intel Mac: `stock-trading-platform-next-v0.1.9-macos-x64.zip`
+- Windows: `stock-trading-platform-next-v1.0.0-windows-x64.zip`
+- Apple Silicon Mac: `stock-trading-platform-next-v1.0.0-macos-arm64.zip`
+- Intel Mac: `stock-trading-platform-next-v1.0.0-macos-x64.zip`
 
 Do not download GitHub's automatically generated `Source code (zip)` archive; it is for developers, not end users.
 

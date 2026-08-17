@@ -27,6 +27,14 @@ class ApiContractTest(unittest.TestCase):
                 {"baseUrl": 123, "model": "gpt-test", "apiKey": "sk-test"}
             )
 
+    def test_position_screenshot_rejects_unknown_or_non_string_fields(self) -> None:
+        models = self.load_request_models()
+
+        with self.assertRaises(ValidationError):
+            models["PositionScreenshotRequest"].model_validate(
+                {"imageDataUrl": 123, "accountId": "private"}
+            )
+
     def test_update_start_rejects_non_string_local_storage_snapshot(self) -> None:
         models = self.load_request_models()
 
@@ -57,6 +65,10 @@ class ApiContractTest(unittest.TestCase):
             models["AiSettingsTestRequest"],
         )
         self.assertIs(
+            get_type_hints(main.position_import_recognize)["payload"],
+            models["PositionScreenshotRequest"],
+        )
+        self.assertIs(
             get_type_hints(main.update_start)["payload"],
             models["UpdateStartRequest"],
         )
@@ -68,6 +80,7 @@ class ApiContractTest(unittest.TestCase):
                 AiAdviceChatRequest,
                 AiSettingsTestRequest,
                 AiSettingsUpdateRequest,
+                PositionScreenshotRequest,
                 UpdateStartRequest,
             )
         except ImportError as exc:
@@ -77,6 +90,7 @@ class ApiContractTest(unittest.TestCase):
             "AiAdviceChatRequest": AiAdviceChatRequest,
             "AiSettingsTestRequest": AiSettingsTestRequest,
             "AiSettingsUpdateRequest": AiSettingsUpdateRequest,
+            "PositionScreenshotRequest": PositionScreenshotRequest,
             "UpdateStartRequest": UpdateStartRequest,
         }
 

@@ -267,7 +267,7 @@ def call_openai_compatible_completion(
     base_url: str,
     model: str,
     api_key: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
     timeout: int,
     preferred_endpoint: str | None = None,
 ) -> dict[str, str]:
@@ -308,7 +308,7 @@ def openai_compatible_endpoint_order(preferred_endpoint: str | None = None) -> l
 def build_openai_compatible_payload(
     endpoint: str,
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
     if endpoint == "chat/completions":
         return build_chat_completions_payload(model, messages)
@@ -317,22 +317,22 @@ def build_openai_compatible_payload(
 
 def build_chat_completions_payload(
     model: str,
-    messages: list[dict[str, str]],
+    messages: list[dict[str, Any]],
 ) -> dict[str, Any]:
     return {
         "model": model,
         "messages": [
             {
                 "role": normalize_chat_message_role(str(message.get("role", "user"))),
-                "content": str(message.get("content", "")),
+                "content": message.get("content", ""),
             }
             for message in messages
-            if str(message.get("content", "")).strip()
+            if has_message_content(message.get("content"))
         ],
     }
 
 
-def build_responses_payload(model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
+def build_responses_payload(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
     instructions = "\n\n".join(
         str(message.get("content", "")).strip()
         for message in messages
@@ -341,15 +341,36 @@ def build_responses_payload(model: str, messages: list[dict[str, str]]) -> dict[
     input_messages = [
         {
             "role": normalize_response_input_role(str(message.get("role", "user"))),
-            "content": str(message.get("content", "")),
+            "content": to_responses_content(message.get("content", "")),
         }
         for message in messages
-        if message.get("role") != "system" and str(message.get("content", "")).strip()
+        if message.get("role") != "system" and has_message_content(message.get("content"))
     ]
     payload: dict[str, Any] = {"model": model, "input": input_messages}
     if instructions:
         payload["instructions"] = instructions
     return payload
+
+
+def has_message_content(content: Any) -> bool:
+    return bool(content) if isinstance(content, list) else bool(str(content).strip())
+
+
+def to_responses_content(content: Any) -> Any:
+    if not isinstance(content, list):
+        return str(content)
+    converted: list[dict[str, Any]] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "text":
+            converted.append({"type": "input_text", "text": str(item.get("text", ""))})
+        elif item.get("type") == "image_url":
+            image_url = item.get("image_url")
+            url = image_url.get("url") if isinstance(image_url, dict) else image_url
+            if url:
+                converted.append({"type": "input_image", "image_url": str(url)})
+    return converted
 
 
 def normalize_chat_message_role(role: str) -> str:

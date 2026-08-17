@@ -34,6 +34,13 @@ export type DerivedPosition = PositionPlan & {
   holdingCost: number;
 };
 
+export type PositionSnapshotInput = {
+  ticker: string;
+  assetType: AssetType;
+  shares: number;
+  averageCost: number;
+};
+
 export type LayeredPullback = {
   min: number;
   max: number;
@@ -386,6 +393,122 @@ export function upsertPositionPlan(
         )
       : [...state.positions, nextPosition],
   };
+}
+
+export function sortPositionPlans<T extends PositionPlan>(positions: T[]): T[] {
+  return positions
+    .map((position, index) => ({ position, index }))
+    .sort((first, second) => {
+      const weightDifference =
+        second.position.targetWeight - first.position.targetWeight;
+      return weightDifference || first.index - second.index;
+    })
+    .map(({ position }) => position);
+}
+
+export function comparePositionReturnsDescending(
+  first: number | undefined,
+  second: number | undefined
+) {
+  if (first === undefined) {
+    return second === undefined ? 0 : 1;
+  }
+  if (second === undefined) {
+    return -1;
+  }
+  return second - first;
+}
+
+export function importPositionSnapshots(
+  state: TradingDataState,
+  inputs: PositionSnapshotInput[],
+  importDate: string
+): TradingDataState {
+  const heldTickers = new Set(
+    derivePositions(state)
+      .filter((position) => position.shares > 0)
+      .map((position) => position.ticker)
+  );
+  const seen = new Set<string>();
+  const rows = inputs.filter((input) => {
+    const ticker = normalizeTicker(input.ticker);
+    const valid =
+      ticker &&
+      !seen.has(ticker) &&
+      !heldTickers.has(ticker) &&
+      Number.isFinite(input.shares) &&
+      input.shares > 0 &&
+      Number.isFinite(input.averageCost) &&
+      input.averageCost > 0;
+    seen.add(ticker);
+    return Boolean(valid);
+  });
+  if (!rows.length) {
+    return state;
+  }
+
+  const tickers = rows.map((row) => normalizeTicker(row.ticker));
+  const positionByTicker = new Map(
+    state.positions.map((position) => [normalizeTicker(position.ticker), position])
+  );
+  rows.forEach((row) => {
+    const ticker = normalizeTicker(row.ticker);
+    if (!positionByTicker.has(ticker)) {
+      positionByTicker.set(ticker, {
+        ticker,
+        targetWeight: 0,
+        assetType: row.assetType,
+        takeProfitPct: row.assetType === "ETF" ? 0 : 0.2,
+        stopLossPct: row.assetType === "ETF" ? 0 : 0.08,
+        purchaseDate: importDate,
+      });
+    }
+  });
+  const trades = rows.map((row) =>
+    normalizeTradeInput({
+      date: importDate,
+      ticker: row.ticker,
+      action: "买入",
+      shares: row.shares,
+      unitPrice: row.averageCost,
+      amount: row.shares * row.averageCost,
+      note: "券商截图导入的期初持仓",
+    })
+  );
+
+  const nextState = {
+    ...state,
+    stockPool: uniqueTickers([...state.stockPool, ...tickers]),
+    positions: [...positionByTicker.values()],
+    trades: [...state.trades, ...trades],
+  };
+  const nextHoldingCost = holdingCostValue(derivePositions(nextState));
+  return {
+    ...nextState,
+    account: {
+      ...nextState.account,
+      totalAssets: Math.max(nextState.account.totalAssets, nextHoldingCost),
+    },
+  };
+}
+
+export function applyRecognizedTrades(state: TradingDataState, inputs: Array<{ ticker: string; action: TradeAction; shares: number; unitPrice: number; amount: number; assetType: AssetType; date?: string; note?: string }>, date: string): TradingDataState {
+  const valid = inputs.filter((row) => normalizeTicker(row.ticker) && row.shares > 0 && row.unitPrice > 0);
+  if (!valid.length) return state;
+  const trades = valid.map((row) => normalizeTradeInput({ date: row.date || date, ticker: row.ticker, action: row.action, shares: row.shares, unitPrice: row.unitPrice, amount: row.amount || row.shares * row.unitPrice, note: row.note || "券商交易截图导入" }));
+  const positions = [...state.positions];
+  valid.forEach((row) => { const ticker = normalizeTicker(row.ticker); if (!positions.some((item) => normalizeTicker(item.ticker) === ticker)) positions.push({ ticker, targetWeight: 0, assetType: row.assetType, takeProfitPct: row.assetType === "ETF" ? 0 : 0.2, stopLossPct: row.assetType === "ETF" ? 0 : 0.08, purchaseDate: date }); });
+  return { ...state, stockPool: uniqueTickers([...state.stockPool, ...valid.map((row) => row.ticker)]), positions, trades: [...state.trades, ...trades] };
+}
+
+export function replacePositionSnapshot(state: TradingDataState, inputs: PositionSnapshotInput[], date: string): TradingDataState {
+  const rows = inputs.filter((row) => normalizeTicker(row.ticker) && row.shares > 0 && row.averageCost > 0);
+  const positions = rows.map((row) => ({ ticker: normalizeTicker(row.ticker), targetWeight: 0, assetType: row.assetType, takeProfitPct: row.assetType === "ETF" ? 0 : 0.2, stopLossPct: row.assetType === "ETF" ? 0 : 0.08, purchaseDate: date }));
+  const closingTrades = derivePositions(state).filter((row) => row.shares > 0).map((row) => normalizeTradeInput({ date, ticker: row.ticker, action: "卖出", shares: row.shares, unitPrice: row.costBasis, amount: row.shares * row.costBasis, note: "完整持仓截图覆盖：清除旧持仓" }));
+  const trades = rows.map((row) => normalizeTradeInput({ date, ticker: row.ticker, action: "买入", shares: row.shares, unitPrice: row.averageCost, amount: row.shares * row.averageCost, note: "券商完整持仓截图覆盖" }));
+  // A full snapshot is authoritative for current holdings; reset the derived ledger
+  // so positions absent from the screenshot cannot reappear through old lots.
+  return { ...state, stockPool: uniqueTickers([...state.stockPool, ...rows.map((row) => row.ticker)]), positions, trades: [...state.trades, ...closingTrades, ...trades] };
 }
 
 export function removeTrackedTicker(

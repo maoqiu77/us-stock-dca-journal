@@ -6,7 +6,6 @@ import {
   BotIcon,
   CoinsIcon,
   PencilIcon,
-  FileInputIcon,
   FolderLockIcon,
   GitBranchIcon,
   KeyRoundIcon,
@@ -15,7 +14,6 @@ import {
   ShieldCheckIcon,
   SlidersHorizontalIcon,
   Trash2Icon,
-  UploadIcon,
   XIcon,
 } from "lucide-react";
 
@@ -62,12 +60,11 @@ import { saveAiSettings, testAiSettings } from "@/features/platform/api";
 import { useAiSettingsQuery } from "@/features/platform/queries";
 import {
   formatMoney,
-  formatRatio,
   formatShares,
   formatTradeNumberInput,
-  normalizeTicker,
   parseTradeNumberInput,
   parseStockPoolText,
+  sortPositionPlans,
   todayIsoDate,
   updateTradeCalculation,
   type PositionPlan,
@@ -76,27 +73,19 @@ import {
   type TradeRecord,
 } from "@/features/platform/trading-data";
 import { useTradingData } from "@/features/platform/trading-data-context";
+import { PositionScreenshotImport } from "@/features/platform/views/position-screenshot-import";
 
 type TradeDraft = Omit<TradeRecord, "id" | "shares" | "unitPrice" | "amount"> & {
   shares: string;
   unitPrice: string;
   amount: string;
 };
-type ImportedTradeDraft = Omit<TradeRecord, "id" | "shares"> & {
-  shares?: number;
-};
-type TradeImportPreview = {
-  fileName: string;
-  trades: ImportedTradeDraft[];
-  errors: string[];
-};
-
 const emptyPosition: PositionPlan = {
   ticker: "",
-  targetWeight: 0.1,
+  targetWeight: 0,
   assetType: "STOCK",
-  takeProfitPct: 0.2,
-  stopLossPct: 0.08,
+  takeProfitPct: 0,
+  stopLossPct: 0,
   purchaseDate: "",
 };
 
@@ -112,12 +101,8 @@ const initialTradeDraft: TradeDraft = {
 
 export function DataManagementView() {
   const queryClient = useQueryClient();
-  const [files, setFiles] = React.useState<string[]>([]);
-  const [tradeImportPreview, setTradeImportPreview] = React.useState<
-    TradeImportPreview[]
-  >([]);
-  const [importResult, setImportResult] = React.useState("");
-  const [positionDraft, setPositionDraft] =
+  const [isAddingPosition, setIsAddingPosition] = React.useState(false);
+  const [newPositionDraft, setNewPositionDraft] =
     React.useState<PositionPlan>(emptyPosition);
   const [tradeDraft, setTradeDraft] = React.useState(initialTradeDraft);
   const [recentTradeFields, setRecentTradeFields] = React.useState<
@@ -133,12 +118,15 @@ export function DataManagementView() {
     upsertPosition,
     removePosition,
     addTrade,
-    importTrades,
     updateTrade,
     removeTrade,
     validationIssues,
     storageStatus,
   } = useTradingData();
+  const sortedPositions = React.useMemo(
+    () => sortPositionPlans(state.positions),
+    [state.positions]
+  );
   const aiSettingsQuery = useAiSettingsQuery();
   const [aiDraft, setAiDraft] = React.useState<{
     baseUrl?: string;
@@ -184,14 +172,32 @@ export function DataManagementView() {
   const stockPoolPreview = parseStockPoolText(stockPoolText);
   const aiBaseUrlValue = aiDraft.baseUrl ?? aiSettingsQuery.data?.baseUrl ?? "";
   const aiModelValue = aiDraft.model ?? aiSettingsQuery.data?.model ?? "";
-  const importableTrades = React.useMemo(
-    () => tradeImportPreview.flatMap((preview) => preview.trades),
-    [tradeImportPreview]
-  );
-  const importErrors = React.useMemo(
-    () => tradeImportPreview.flatMap((preview) => preview.errors),
-    [tradeImportPreview]
-  );
+  const updatePosition = (position: PositionPlan, patch: Partial<PositionPlan>) => {
+    upsertPosition({ ...position, ...patch });
+  };
+  const commitNewPosition = (position: PositionPlan) => {
+    if (!position.ticker.trim()) {
+      return;
+    }
+    upsertPosition(position);
+    setIsAddingPosition(false);
+  };
+  const updateNewPosition = <K extends keyof PositionPlan>(
+    field: K,
+    value: PositionPlan[K]
+  ) => {
+    const nextPosition = { ...newPositionDraft, [field]: value };
+    setNewPositionDraft(nextPosition);
+  };
+  const handleNewPositionBlur = (
+    event: React.FocusEvent<HTMLTableRowElement>
+  ) => {
+    const nextFocus = event.relatedTarget as Node | null;
+    if (nextFocus && event.currentTarget.contains(nextFocus)) {
+      return;
+    }
+    commitNewPosition(newPositionDraft);
+  };
   const handleTradeCalculationChange = (
     field: TradeCalculationField,
     value: string
@@ -205,17 +211,9 @@ export function DataManagementView() {
     setTradeDraft((current) => ({ ...current, ...result.draft }));
     setRecentTradeFields(result.recentFields);
   };
-  const handleTradeFiles = React.useCallback(async (fileList: FileList | null) => {
-    const selectedFiles = Array.from(fileList ?? []);
-    setFiles(selectedFiles.map((file) => file.name));
-    setImportResult("");
-    const previews = await Promise.all(selectedFiles.map(readTradeImportFile));
-    setTradeImportPreview(previews);
-  }, []);
-
   return (
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="flex flex-col gap-3">
+    <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="flex min-w-0 flex-col gap-3">
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
@@ -260,166 +258,211 @@ export function DataManagementView() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <SlidersHorizontalIcon />
-              持仓目标
-            </CardTitle>
-            <CardDescription>编辑每个标的的目标仓位、类型、止盈和止损线</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <Field>
-                  <FieldLabel htmlFor="data-position-ticker">标的</FieldLabel>
-                  <Input
-                    id="data-position-ticker"
-                    value={positionDraft.ticker}
-                    onChange={(event) =>
-                      setPositionDraft((current) => ({
-                        ...current,
-                        ticker: event.target.value.toUpperCase(),
-                      }))
-                    }
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="data-asset-type">类型</FieldLabel>
-                  <Select
-                    value={positionDraft.assetType}
-                    onValueChange={(value) =>
-                      setPositionDraft((current) => ({
-                        ...current,
-                        assetType: value === "ETF" ? "ETF" : "STOCK",
-                      }))
-                    }
-                  >
-                    <SelectTrigger id="data-asset-type" className="h-10 w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="STOCK">STOCK</SelectItem>
-                      <SelectItem value="ETF">ETF</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <RatioInput
-                  id="data-target-weight"
-                  label="目标仓位"
-                  value={positionDraft.targetWeight}
-                  onChange={(value) =>
-                    setPositionDraft((current) => ({
-                      ...current,
-                      targetWeight: value,
-                    }))
-                  }
-                />
-                <RatioInput
-                  id="data-take-profit"
-                  label="止盈线"
-                  value={positionDraft.takeProfitPct}
-                  onChange={(value) =>
-                    setPositionDraft((current) => ({
-                      ...current,
-                      takeProfitPct: value,
-                    }))
-                  }
-                />
-                <RatioInput
-                  id="data-stop-loss"
-                  label="止损线"
-                  value={positionDraft.stopLossPct}
-                  onChange={(value) =>
-                    setPositionDraft((current) => ({
-                      ...current,
-                      stopLossPct: value,
-                    }))
-                  }
-                />
-                <Field>
-                  <FieldLabel htmlFor="data-purchase-date">首次买入日期</FieldLabel>
-                  <Input
-                    id="data-purchase-date"
-                    type="date"
-                    value={positionDraft.purchaseDate}
-                    onChange={(event) =>
-                      setPositionDraft((current) => ({
-                        ...current,
-                        purchaseDate: event.target.value,
-                      }))
-                    }
-                  />
-                </Field>
-              </div>
-              <Button
-                onClick={() => {
-                  upsertPosition(positionDraft);
-                  setPositionDraft(emptyPosition);
-                }}
-                disabled={!positionDraft.ticker.trim()}
-              >
-                <SaveIcon data-icon="inline-start" />
-                保存持仓目标
-              </Button>
-            </FieldGroup>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>持仓目标列表</CardTitle>
-            <CardDescription>
-              当前持仓股数和成本由交易流水推导，目标和风控线在这里维护
-            </CardDescription>
+          <CardHeader className="flex flex-row items-start justify-between gap-3 border-b">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2">
+                <SlidersHorizontalIcon />
+                持仓目标列表
+              </CardTitle>
+              <CardDescription>
+                直接编辑目标、类型和风控线，目标仓位会自动从高到低排序
+              </CardDescription>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => {
+                setNewPositionDraft(emptyPosition);
+                setIsAddingPosition(true);
+              }}
+              disabled={isAddingPosition}
+            >
+              <PlusIcon data-icon="inline-start" />
+              添加新标的
+            </Button>
           </CardHeader>
           <CardContent className="overflow-x-auto">
-            <Table className="min-w-[820px]">
+            <Table className="min-w-[620px] table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>标的</TableHead>
-                  <TableHead>类型</TableHead>
-                  <TableHead className="text-right">目标仓位</TableHead>
-                  <TableHead className="text-right">止盈线</TableHead>
-                  <TableHead className="text-right">止损线</TableHead>
-                  <TableHead>首次买入</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
+                  <TableHead className="w-16 text-center">标的</TableHead>
+                  <TableHead className="w-20 text-center">类型</TableHead>
+                  <TableHead className="w-20 text-center">目标仓位</TableHead>
+                  <TableHead className="w-20 text-center">止盈线</TableHead>
+                  <TableHead className="w-20 text-center">止损线</TableHead>
+                  <TableHead className="w-36 text-center">首次买入</TableHead>
+                  <TableHead className="w-8 p-0 text-center" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {state.positions.map((position) => (
+                {sortedPositions.map((position) => (
                   <TableRow key={position.ticker}>
-                    <TableCell className="font-medium">{position.ticker}</TableCell>
-                    <TableCell>{position.assetType}</TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatRatio(position.targetWeight)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatRatio(position.takeProfitPct)}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {formatRatio(position.stopLossPct)}
-                    </TableCell>
-                    <TableCell>{position.purchaseDate || "--"}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setPositionDraft(position)}
+                    <TableCell className="px-2 font-medium">{position.ticker}</TableCell>
+                    <TableCell className="px-1">
+                      <Select
+                        value={position.assetType}
+                        onValueChange={(value) =>
+                          updatePosition(position, {
+                            assetType: value === "ETF" ? "ETF" : "STOCK",
+                          })
+                        }
+                      >
+                        <SelectTrigger
+                          aria-label={`${position.ticker} 类型`}
+                          className="w-20"
                         >
-                          编辑
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => removePosition(position.ticker)}
-                        >
-                          <Trash2Icon />
-                          <span className="sr-only">删除{position.ticker}</span>
-                        </Button>
-                      </div>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="STOCK">STOCK</SelectItem>
+                          <SelectItem value="ETF">ETF</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="px-1 text-right">
+                      <RatioTableInput
+                        aria-label={`${position.ticker} 目标仓位`}
+                        value={position.targetWeight}
+                        onChange={(value) =>
+                          updatePosition(position, { targetWeight: value })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="px-1 text-right">
+                      <RatioTableInput
+                        aria-label={`${position.ticker} 止盈线`}
+                        value={position.takeProfitPct}
+                        onChange={(value) =>
+                          updatePosition(position, { takeProfitPct: value })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="px-1 text-right">
+                      <RatioTableInput
+                        aria-label={`${position.ticker} 止损线`}
+                        value={position.stopLossPct}
+                        onChange={(value) =>
+                          updatePosition(position, { stopLossPct: value })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="px-1">
+                      <Input
+                        aria-label={`${position.ticker} 首次买入日期`}
+                        className="w-32"
+                        type="date"
+                        value={position.purchaseDate}
+                        onChange={(event) =>
+                          updatePosition(position, {
+                            purchaseDate: event.target.value,
+                          })
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="w-8 p-0 text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`删除${position.ticker}`}
+                        onClick={() => removePosition(position.ticker)}
+                      >
+                        <Trash2Icon />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
+                {isAddingPosition ? (
+                  <TableRow onBlur={handleNewPositionBlur}>
+                    <TableCell className="px-1">
+                      <Input
+                        autoFocus
+                        aria-label="新标的代码"
+                        className="w-20 font-medium uppercase"
+                        placeholder="Ticker"
+                        value={newPositionDraft.ticker}
+                        onChange={(event) =>
+                          setNewPositionDraft((current) => ({
+                            ...current,
+                            ticker: event.target.value.toUpperCase(),
+                          }))
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={newPositionDraft.assetType}
+                        onValueChange={(value) =>
+                          updateNewPosition(
+                            "assetType",
+                            value === "ETF" ? "ETF" : "STOCK"
+                          )
+                        }
+                      >
+                        <SelectTrigger
+                          aria-label="新标的类型"
+                          className="w-20"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="STOCK">STOCK</SelectItem>
+                          <SelectItem value="ETF">ETF</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="px-1 text-right">
+                      <RatioTableInput
+                        aria-label="新标的目标仓位"
+                        value={newPositionDraft.targetWeight}
+                        onChange={(value) => updateNewPosition("targetWeight", value)}
+                      />
+                    </TableCell>
+                    <TableCell className="px-1 text-right">
+                      <RatioTableInput
+                        aria-label="新标的止盈线"
+                        value={newPositionDraft.takeProfitPct}
+                        onChange={(value) => updateNewPosition("takeProfitPct", value)}
+                      />
+                    </TableCell>
+                    <TableCell className="px-1 text-right">
+                      <RatioTableInput
+                        aria-label="新标的止损线"
+                        value={newPositionDraft.stopLossPct}
+                        onChange={(value) => updateNewPosition("stopLossPct", value)}
+                      />
+                    </TableCell>
+                    <TableCell className="px-1">
+                      <Input
+                        aria-label="新标的首次买入日期"
+                        className="w-32"
+                        type="date"
+                        value={newPositionDraft.purchaseDate}
+                        onChange={(event) =>
+                          updateNewPosition("purchaseDate", event.target.value)
+                        }
+                      />
+                    </TableCell>
+                    <TableCell className="w-8 p-0 text-center">
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="取消添加新标的"
+                        onClick={() => setIsAddingPosition(false)}
+                      >
+                        <XIcon />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                {!sortedPositions.length && !isAddingPosition ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="h-20 text-center text-muted-foreground"
+                    >
+                      暂无持仓目标，点击右上角添加新标的
+                    </TableCell>
+                  </TableRow>
+                ) : null}
               </TableBody>
             </Table>
           </CardContent>
@@ -852,128 +895,7 @@ export function DataManagementView() {
             </Table>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <FileInputIcon />
-              本地导入
-            </CardTitle>
-            <CardDescription>CSV、XLSX、交易流水、持仓快照</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="local-files">选择文件</FieldLabel>
-                <Input
-                  id="local-files"
-                  type="file"
-                  multiple
-                  onChange={(event) => {
-                    void handleTradeFiles(event.target.files);
-                    event.currentTarget.value = "";
-                  }}
-                />
-                <FieldDescription>
-                  支持 CSV/TSV 交易流水：date、ticker、action、shares、unit_price、amount、note；XLSX 后续接入。
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-            <div className="mt-4 rounded-lg bg-muted/50 p-3">
-              <div className="text-sm font-medium">导入队列</div>
-              <div className="mt-2 flex flex-col gap-2">
-                {files.length ? (
-                  files.map((file) => (
-                    <div key={file} className="text-sm text-muted-foreground">
-                      {file}
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-sm text-muted-foreground">暂无文件</div>
-                )}
-              </div>
-            </div>
-            {tradeImportPreview.length ? (
-              <div className="mt-3 grid gap-3 rounded-lg bg-muted/50 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm">
-                    有效交易{" "}
-                    <span className="font-medium tabular-nums">
-                      {importableTrades.length}
-                    </span>{" "}
-                    条，错误{" "}
-                    <span className="font-medium tabular-nums">
-                      {importErrors.length}
-                    </span>{" "}
-                    条
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      importTrades(importableTrades);
-                      setImportResult(`已导入 ${importableTrades.length} 条交易流水。`);
-                      setTradeImportPreview([]);
-                      setFiles([]);
-                    }}
-                    disabled={!importableTrades.length}
-                  >
-                    <UploadIcon data-icon="inline-start" />
-                    导入有效交易
-                  </Button>
-                </div>
-                {importableTrades.length ? (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>日期</TableHead>
-                        <TableHead>标的</TableHead>
-                        <TableHead>动作</TableHead>
-                        <TableHead className="text-right">股数</TableHead>
-                        <TableHead className="text-right">单支成本</TableHead>
-                        <TableHead className="text-right">金额</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {importableTrades.slice(0, 5).map((trade, index) => (
-                        <TableRow key={`${trade.date}-${trade.ticker}-${index}`}>
-                          <TableCell>{trade.date}</TableCell>
-                          <TableCell className="font-medium">{trade.ticker}</TableCell>
-                          <TableCell>{trade.action}</TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatShares(trade.shares)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatMoney(trade.unitPrice)}
-                          </TableCell>
-                          <TableCell className="text-right tabular-nums">
-                            {formatMoney(trade.amount)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                ) : null}
-                {importableTrades.length > 5 ? (
-                  <div className="text-xs text-muted-foreground">
-                    仅预览前 5 条；导入会写入全部有效交易。
-                  </div>
-                ) : null}
-                {importErrors.length ? (
-                  <div className="grid gap-1 text-xs text-muted-foreground">
-                    {importErrors.slice(0, 6).map((error) => (
-                      <div key={error}>{error}</div>
-                    ))}
-                    {importErrors.length > 6 ? <div>...</div> : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {importResult ? (
-              <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                {importResult}
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
+        <PositionScreenshotImport />
         <StorageCard
           icon={<GitBranchIcon />}
           title="可提交模板"
@@ -1018,30 +940,26 @@ export function DataManagementView() {
   );
 }
 
-function RatioInput({
-  id,
-  label,
+function RatioTableInput({
   value,
   onChange,
-}: {
-  id: string;
-  label: string;
+  className,
+  ...props
+}: Omit<React.ComponentProps<typeof Input>, "value" | "onChange"> & {
   value: number;
   onChange: (value: number) => void;
 }) {
   return (
-    <Field>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <Input
-        id={id}
-        type="number"
-        min="0"
-        max="100"
-        step="1"
-        value={percentInputValue(value)}
-        onChange={(event) => onChange(Number(event.target.value) / 100)}
-      />
-    </Field>
+    <Input
+      {...props}
+      className={`w-20 text-right tabular-nums ${className ?? ""}`}
+      type="number"
+      min="0"
+      max="100"
+      step="0.01"
+      value={percentInputValue(value)}
+      onChange={(event) => onChange(Number(event.target.value) / 100)}
+    />
   );
 }
 
@@ -1075,169 +993,4 @@ function percentInputValue(value: number) {
     return 0;
   }
   return Number((value * 100).toFixed(4));
-}
-
-async function readTradeImportFile(file: File): Promise<TradeImportPreview> {
-  if (!/\.(csv|tsv|txt)$/i.test(file.name)) {
-    return {
-      fileName: file.name,
-      trades: [],
-      errors: [`${file.name}：当前仅支持 CSV/TSV 文本导入。`],
-    };
-  }
-
-  const text = await file.text();
-  return parseTradeCsv(file.name, text);
-}
-
-function parseTradeCsv(fileName: string, text: string): TradeImportPreview {
-  const delimiter = firstLine(text).includes("\t") ? "\t" : ",";
-  const rows = parseDelimitedRows(text, delimiter).filter((row) =>
-    row.some((cell) => cell.trim())
-  );
-  if (rows.length < 2) {
-    return { fileName, trades: [], errors: [`${fileName}：没有可导入的数据行。`] };
-  }
-
-  const header = rows[0].map(normalizeHeader);
-  const columnByName = buildColumnMap(header);
-  const trades: ImportedTradeDraft[] = [];
-  const errors: string[] = [];
-
-  rows.slice(1).forEach((row, index) => {
-    const rowNumber = index + 2;
-    const raw = (name: TradeImportColumn) => row[columnByName[name] ?? -1]?.trim() ?? "";
-    const date = normalizeCsvDate(raw("date"));
-    const ticker = normalizeTicker(raw("ticker"));
-    const action = normalizeTradeAction(raw("action"));
-    const shares = parseCsvNumber(raw("shares"));
-    let unitPrice = parseCsvNumber(raw("unitPrice"));
-    let amount = parseCsvNumber(raw("amount"));
-    const note = raw("note");
-
-    if (!date || !ticker || !action) {
-      errors.push(`${fileName} 第 ${rowNumber} 行：缺少日期、标的或动作。`);
-      return;
-    }
-    if (amount <= 0 && shares > 0 && unitPrice > 0) {
-      amount = shares * unitPrice;
-    }
-    if (unitPrice <= 0 && shares > 0 && amount > 0) {
-      unitPrice = amount / shares;
-    }
-    if (amount <= 0 || unitPrice <= 0) {
-      errors.push(`${fileName} 第 ${rowNumber} 行：金额和单支成本无法计算。`);
-      return;
-    }
-
-    trades.push({
-      date,
-      ticker,
-      action,
-      unitPrice,
-      amount,
-      shares: shares > 0 ? shares : undefined,
-      note,
-    });
-  });
-
-  return { fileName, trades, errors };
-}
-
-type TradeImportColumn =
-  | "date"
-  | "ticker"
-  | "action"
-  | "shares"
-  | "unitPrice"
-  | "amount"
-  | "note";
-
-const tradeColumnAliases: Record<TradeImportColumn, string[]> = {
-  date: ["date", "日期", "trade_date", "交易日期"],
-  ticker: ["ticker", "symbol", "标的", "代码"],
-  action: ["action", "side", "动作", "操作", "买卖"],
-  shares: ["shares", "quantity", "qty", "股数", "数量"],
-  unitPrice: ["unitprice", "unit_price", "price", "成交价", "单支成本", "单价"],
-  amount: ["amount", "value", "金额", "交易金额", "成交金额"],
-  note: ["note", "notes", "备注", "说明"],
-};
-
-function buildColumnMap(header: string[]) {
-  return (Object.keys(tradeColumnAliases) as TradeImportColumn[]).reduce<
-    Partial<Record<TradeImportColumn, number>>
-  >((output, column) => {
-    const aliases = new Set(tradeColumnAliases[column].map(normalizeHeader));
-    const index = header.findIndex((value) => aliases.has(value));
-    if (index >= 0) {
-      output[column] = index;
-    }
-    return output;
-  }, {});
-}
-
-function parseDelimitedRows(text: string, delimiter: string) {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let quoted = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const next = text[index + 1];
-    if (char === '"' && quoted && next === '"') {
-      cell += '"';
-      index += 1;
-    } else if (char === '"') {
-      quoted = !quoted;
-    } else if (char === delimiter && !quoted) {
-      row.push(cell);
-      cell = "";
-    } else if ((char === "\n" || char === "\r") && !quoted) {
-      if (char === "\r" && next === "\n") {
-        index += 1;
-      }
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-  row.push(cell);
-  rows.push(row);
-  return rows;
-}
-
-function firstLine(text: string) {
-  return text.split(/\r?\n/, 1)[0] ?? "";
-}
-
-function normalizeHeader(value: string) {
-  return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
-}
-
-function normalizeCsvDate(value: string) {
-  const match = value.trim().match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
-  if (!match) {
-    return "";
-  }
-  return `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}`;
-}
-
-function normalizeTradeAction(value: string): TradeAction | "" {
-  const normalized = value.trim().toLowerCase();
-  if (normalized.includes("卖") || normalized === "sell" || normalized === "sold") {
-    return "卖出";
-  }
-  if (normalized.includes("买") || normalized === "buy" || normalized === "bought") {
-    return "买入";
-  }
-  return "";
-}
-
-function parseCsvNumber(value: string) {
-  const parsed = Number(value.replace(/[$,\s]/g, ""));
-  return Number.isFinite(parsed) ? parsed : 0;
 }

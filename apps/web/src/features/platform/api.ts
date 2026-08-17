@@ -144,6 +144,27 @@ export type AiSettingsTestResult = {
   message: string;
 };
 
+export type RecognizedPosition = {
+  ticker: string;
+  name: string;
+  assetType: "ETF" | "STOCK";
+  shares: number;
+  averageCost: number | null;
+  marketValue: number | null;
+  currency: string;
+  confidence: number;
+  warnings: string[];
+};
+
+export type PositionRecognitionResult = {
+  mode: "portfolio" | "trades";
+  positions: RecognizedPosition[];
+  trades: RecognizedTrade[];
+  warnings: string[];
+  endpoint: string;
+};
+export type RecognizedTrade = { ticker: string; action: "买入" | "卖出"; shares: number; unitPrice: number; amount: number; assetType: "ETF" | "STOCK"; confidence: number; sourceText: string; warnings: string[] };
+
 export type UpdateAsset = {
   name: string;
   size: number;
@@ -241,6 +262,20 @@ export async function resetTradingState(): Promise<TradingStateResponse> {
     ...response,
     state: sanitizeTradingData(response.state),
   };
+}
+
+export async function recognizePositionScreenshot(
+  imageDataUrl: string,
+  mode: "auto" | "portfolio" | "trades" = "auto"
+): Promise<PositionRecognitionResult> {
+  return requestJson<PositionRecognitionResult>(
+    "/api/position-import/recognize",
+    {
+      method: "POST",
+      body: JSON.stringify({ imageDataUrl, mode }),
+    },
+    AI_REQUEST_BASE_URL
+  );
 }
 
 export async function fetchSignals(): Promise<SignalRow[]> {

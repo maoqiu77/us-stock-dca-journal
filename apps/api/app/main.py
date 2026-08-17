@@ -10,6 +10,7 @@ from app.api_models import (
     AiAdviceChatRequest,
     AiSettingsTestRequest,
     AiSettingsUpdateRequest,
+    PositionScreenshotRequest,
     TradingStateRequest,
     UpdateStartRequest,
 )
@@ -27,6 +28,7 @@ from app.modules.ai_settings import (
     update_ai_settings,
 )
 from app.modules.market import get_chart, get_quotes
+from app.modules.position_import import recognize_position_screenshot
 from app.modules.research import get_backtest_result, get_signal_rows
 from app.modules.app_update import (
     check_for_update,
@@ -199,6 +201,11 @@ def ai_advice_chat(payload: AiAdviceChatRequest) -> dict[str, object]:
 @app.post("/api/ai-advice/chat/clear")
 def clear_ai_advice_chat() -> dict[str, object]:
     return clear_today_ai_advice_chat()
+
+
+@app.post("/api/position-import/recognize")
+def position_import_recognize(payload: PositionScreenshotRequest) -> dict[str, object]:
+    return recognize_position_screenshot(payload.imageDataUrl, payload.mode)
 
 
 @app.get("/api/ai-settings")

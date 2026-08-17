@@ -56,8 +56,6 @@ import {
   isAiAdviceSubmitShortcut,
 } from "@/features/platform/ai-advice-shortcut";
 
-const weekLabels = ["一", "二", "三", "四", "五", "六", "日"];
-
 export function AiAdviceView() {
   const queryClient = useQueryClient();
   const [chatPrompt, setChatPrompt] = React.useState("");
@@ -200,13 +198,12 @@ export function AiAdviceView() {
 
   return (
     <>
-    <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="flex flex-col gap-3">
-        <Card>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <Card className="min-w-0 xl:col-span-2">
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
-              <BotIcon />
-              每日 AI 建议
+              <CalendarDaysIcon />
+              AI 建议日历
             </CardTitle>
             <CardDescription>按数据管理中的私有数据和 AI 配置生成</CardDescription>
             <CardAction>
@@ -215,45 +212,79 @@ export function AiAdviceView() {
               </Badge>
             </CardAction>
           </CardHeader>
-          <CardContent className="grid gap-3">
-            <Button
-              className="w-fit"
-              variant="secondary"
-              onClick={() => setConfirmGenerate(true)}
-              disabled={!aiReady || generationPending}
-            >
-              <SparklesIcon data-icon="inline-start" />
-              {generateButtonLabel}
-            </Button>
-            {aiUnavailableReason ? (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                {aiUnavailableReason}
-              </div>
-            ) : null}
-            {generationError ? (
-              <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                <div className="flex min-w-0 items-start gap-2">
-                  <AlertCircleIcon />
-                  <span className="min-w-0">{generationError}</span>
+          <CardContent>
+            <div className="grid min-w-0 gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={() =>
+                    setCalendarMonth(shiftMonth(calendarMonth, -1))
+                  }
+                  title="上个月"
+                >
+                  <ChevronLeftIcon />
+                  <span className="sr-only">上个月</span>
+                </Button>
+                <div className="text-sm font-medium">
+                  {calendarMonth.year} 年 {calendarMonth.month} 月
                 </div>
                 <Button
                   variant="outline"
-                  size="sm"
-                  onClick={() => externalMutation.mutate()}
-                  disabled={generationPending || !aiReady}
+                  size="icon-sm"
+                  onClick={() =>
+                    setCalendarMonth(shiftMonth(calendarMonth, 1))
+                  }
+                  title="下个月"
                 >
-                  <RefreshCcwIcon data-icon="inline-start" />
-                  重试
+                  <ChevronRightIcon />
+                  <span className="sr-only">下个月</span>
                 </Button>
               </div>
-            ) : null}
+              <div className="grid grid-cols-8 gap-1">
+                {days.map((day) => (
+                  <Button
+                    key={day}
+                    variant={
+                      day === selectedCalendarDate ? "secondary" : "outline"
+                    }
+                    size="sm"
+                    disabled={!savedDates.has(day)}
+                    onClick={() => setSelectedDate(day)}
+                    className="relative h-9 min-w-0 px-1 text-base font-medium"
+                    aria-label={`${day}${
+                      savedDates.has(day) ? "，已有 AI 建议" : "，无 AI 建议"
+                    }`}
+                  >
+                    {Number(day.slice(-2))}
+                    {savedDates.has(day) ? (
+                      <span
+                        className="absolute right-1 top-1 size-1 rounded-full bg-current"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
-        <Card className="min-w-0">
+        <div className="flex min-w-0 flex-col gap-3">
+          <Card className="min-w-0">
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
               <FileTextIcon />
-              AI 日历记录
+              AI 建议
+              <Button
+                className="ml-4 sm:ml-12 xl:ml-56"
+                variant="secondary"
+                size="default"
+                onClick={() => setConfirmGenerate(true)}
+                disabled={!aiReady || generationPending}
+              >
+                <SparklesIcon data-icon="inline-start" />
+                {generateButtonLabel}
+              </Button>
             </CardTitle>
             <CardDescription>
               {record
@@ -264,7 +295,7 @@ export function AiAdviceView() {
               <Badge variant="outline">{record?.source ?? "local"}</Badge>
             </CardAction>
           </CardHeader>
-          <CardContent>
+          <CardContent className="grid gap-4">
             {aiCalendarQuery.isLoading ? (
               <div className="grid gap-2">
                 <Skeleton className="h-5 w-1/3" />
@@ -292,11 +323,33 @@ export function AiAdviceView() {
                 生成今日 AI 建议后，这里会保存记录并开启追问。
               </div>
             )}
+            {aiUnavailableReason ? (
+              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                {aiUnavailableReason}
+              </div>
+            ) : null}
+            {generationError ? (
+              <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                <div className="flex min-w-0 items-start gap-2">
+                  <AlertCircleIcon />
+                  <span className="min-w-0">{generationError}</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => externalMutation.mutate()}
+                  disabled={generationPending || !aiReady}
+                >
+                  <RefreshCcwIcon data-icon="inline-start" />
+                  重试
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
-        </Card>
-      </div>
-      <div className="flex flex-col gap-3">
-        <Card className="min-h-[560px]">
+          </Card>
+        </div>
+        <div className="flex flex-col gap-3">
+          <Card className="min-h-[560px]">
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
               <MessageSquareIcon />
@@ -438,66 +491,8 @@ export function AiAdviceView() {
               </div>
             ) : null}
           </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <CalendarDaysIcon />
-              AI建议日历
-            </CardTitle>
-            <CardDescription>
-              每个北京时间自然日保存一条综合建议
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <Button
-                variant="outline"
-                size="icon-sm"
-                onClick={() => setCalendarMonth(shiftMonth(calendarMonth, -1))}
-              >
-                <ChevronLeftIcon />
-                <span className="sr-only">上个月</span>
-              </Button>
-              <div className="text-sm font-medium">
-                {calendarMonth.year} 年 {calendarMonth.month} 月
-              </div>
-              <Button
-                variant="outline"
-                size="icon-sm"
-                onClick={() => setCalendarMonth(shiftMonth(calendarMonth, 1))}
-              >
-                <ChevronRightIcon />
-                <span className="sr-only">下个月</span>
-              </Button>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted-foreground">
-              {weekLabels.map((label) => (
-                <div key={label}>{label}</div>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {days.map((day, index) =>
-                day ? (
-                  <Button
-                    key={day}
-                    variant={day === selectedCalendarDate ? "secondary" : "outline"}
-                    size="sm"
-                    disabled={!savedDates.has(day)}
-                    onClick={() => setSelectedDate(day)}
-                    className="h-9 px-1"
-                  >
-                    {Number(day.slice(-2))}
-                    {savedDates.has(day) ? " ●" : ""}
-                  </Button>
-                ) : (
-                  <div key={`empty-${index}`} className="h-9" />
-                )
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
+          </Card>
+          <Card>
           <CardHeader className="border-b">
             <CardTitle>AI-prompt</CardTitle>
             <CardDescription>每日总结发送给 AI 的上下文类型</CardDescription>
@@ -515,18 +510,18 @@ export function AiAdviceView() {
               </div>
             )}
           </CardContent>
-        </Card>
+          </Card>
+        </div>
       </div>
-    </div>
-    <AiSendConfirmDialog
-      open={confirmGenerate}
-      isPending={externalMutation.isPending}
-      onOpenChange={setConfirmGenerate}
-      onConfirm={() => {
-        externalMutation.mutate();
-        setConfirmGenerate(false);
-      }}
-    />
+      <AiSendConfirmDialog
+        open={confirmGenerate}
+        isPending={externalMutation.isPending}
+        onOpenChange={setConfirmGenerate}
+        onConfirm={() => {
+          externalMutation.mutate();
+          setConfirmGenerate(false);
+        }}
+      />
     </>
   );
 }
@@ -656,17 +651,10 @@ const AI_PROMPT_CONTEXT_ITEMS = [
 ];
 
 function calendarDays(year: number, month: number) {
-  const first = new Date(year, month - 1, 1);
   const last = new Date(year, month, 0);
-  const leading = (first.getDay() + 6) % 7;
-  const days: Array<string | null> = Array.from({ length: leading }, () => null);
-  for (let day = 1; day <= last.getDate(); day += 1) {
-    days.push(formatDate(year, month, day));
-  }
-  while (days.length % 7 !== 0) {
-    days.push(null);
-  }
-  return days;
+  return Array.from({ length: last.getDate() }, (_, index) =>
+    formatDate(year, month, index + 1)
+  );
 }
 
 function shiftMonth(

@@ -39,28 +39,28 @@ export const platformNavItems: PlatformNavItem[] = [
     icon: CandlestickChartIcon,
   },
   {
-    id: "strategy",
-    title: "策略研究",
-    description: "策略、信号、回测",
-    icon: SparklesIcon,
-  },
-  {
     id: "ai",
     title: "AI建议",
     description: "本地上下文建议流",
     icon: BotIcon,
   },
   {
-    id: "health",
-    title: "检查更新",
-    description: "软件更新、启动、行情、AI 状态",
-    icon: ActivityIcon,
-  },
-  {
     id: "data",
     title: "数据管理",
     description: "本地数据和安全提交",
     icon: DatabaseIcon,
+  },
+  {
+    id: "strategy",
+    title: "策略研究",
+    description: "策略、信号、回测",
+    icon: SparklesIcon,
+  },
+  {
+    id: "health",
+    title: "检查更新",
+    description: "软件更新、启动、行情、AI 状态",
+    icon: ActivityIcon,
   },
 ];
 

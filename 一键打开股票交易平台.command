@@ -73,15 +73,6 @@ if [[ ! -d "apps/web/node_modules" ]]; then
   npm --prefix apps/web ci
 fi
 
-if [[ ! -f "apps/web/.next/standalone/server.js" ]]; then
-  echo "正在构建网页端，第一次运行会稍慢..."
-  npm --prefix apps/web run build
-fi
-
-rm -rf apps/web/.next/standalone/.next/static apps/web/.next/standalone/public
-cp -R apps/web/.next/static apps/web/.next/standalone/.next/static
-cp -R apps/web/public apps/web/.next/standalone/public
-
 mkdir -p storage/local "$PID_DIR"
 
 export STOCK_APP_INSTALL_ROOT="$PWD"
@@ -122,7 +113,7 @@ API_PID=$!
 printf "%s" "$API_PID" > "$PID_DIR/api.pid"
 
 echo "正在启动网页端服务..."
-HOSTNAME=127.0.0.1 PORT=3000 node apps/web/.next/standalone/server.js \
+npm --prefix apps/web run dev -- --hostname 127.0.0.1 --port 3000 \
   > storage/local/web.log 2>&1 &
 WEB_PID=$!
 printf "%s" "$WEB_PID" > "$PID_DIR/web.pid"

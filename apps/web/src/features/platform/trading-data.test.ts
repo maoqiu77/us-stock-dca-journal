@@ -2,14 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  comparePositionReturnsDescending,
   DEFAULT_TRADING_DATA,
   derivePositions,
   etfInvestmentPool,
   formatTradeNumberInput,
+  importPositionSnapshots,
   normalizeTradeInput,
   parseTradeNumberInput,
   removeTrackedTicker,
   replaceStockPool,
+  sortPositionPlans,
   updateTradeCalculation,
   upsertPositionPlan,
   type TradingDataState,
@@ -45,6 +48,68 @@ test("upsertPositionPlan adds a new target ticker to the stock pool", () => {
 
   assert.deepEqual(next.stockPool, ["VOO", "DRAM"]);
   assert.equal(next.positions.at(-1)?.ticker, "DRAM");
+});
+
+test("sortPositionPlans orders targets descending and keeps zero-weight targets last", () => {
+  const positions = [
+    { ...testState().positions[0], ticker: "ZERO", targetWeight: 0 },
+    { ...testState().positions[0], ticker: "HIGH", targetWeight: 0.4 },
+    { ...testState().positions[0], ticker: "LOW", targetWeight: 0.1 },
+  ];
+
+  assert.deepEqual(
+    sortPositionPlans(positions).map((position) => position.ticker),
+    ["HIGH", "LOW", "ZERO"]
+  );
+});
+
+test("position returns sort profits before losses and missing returns", () => {
+  const rows = [
+    { ticker: "LOSS", value: -0.08 },
+    { ticker: "MISSING", value: undefined },
+    { ticker: "GAIN", value: 0.12 },
+    { ticker: "SMALL_GAIN", value: 0.03 },
+  ];
+
+  rows.sort((first, second) =>
+    comparePositionReturnsDescending(first.value, second.value)
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.ticker),
+    ["GAIN", "SMALL_GAIN", "LOSS", "MISSING"]
+  );
+});
+
+test("importPositionSnapshots creates plans and opening trades without overwriting holdings", () => {
+  const current = testState();
+  current.trades = [
+    {
+      id: "voo-buy",
+      date: "2026-01-01",
+      ticker: "VOO",
+      action: "买入",
+      shares: 1,
+      unitPrice: 400,
+      amount: 400,
+      note: "",
+    },
+  ];
+
+  const next = importPositionSnapshots(
+    current,
+    [
+      { ticker: "voo", assetType: "ETF", shares: 2, averageCost: 410 },
+      { ticker: "nvda", assetType: "STOCK", shares: 3, averageCost: 100 },
+    ],
+    "2026-08-14"
+  );
+
+  assert.equal(next.trades.length, 2);
+  assert.equal(next.trades.at(-1)?.ticker, "NVDA");
+  assert.equal(next.trades.at(-1)?.amount, 300);
+  assert.equal(next.positions.find((item) => item.ticker === "NVDA")?.targetWeight, 0);
+  assert.equal(derivePositions(next).find((item) => item.ticker === "VOO")?.shares, 1);
 });
 
 test("removeTrackedTicker removes a ticker from positions and stock pool", () => {

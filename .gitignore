@@ -43,3 +43,12 @@ yarn-error.log*
 
 # Release artifacts
 dist/
+
+# Local browser verification artifacts and personal media
+.playwright-cli/
+storage/图片/
+
+# npm is the release package manager for this project
+pnpm-lock.yaml
+apps/web/pnpm-lock.yaml
+apps/web/pnpm-workspace.yaml

@@ -1,6 +1,6 @@
 {
   "name": "stock-trading-platform-next",
-  "version": "0.1.9",
+  "version": "1.0.0",
   "private": true,
   "workspaces": [
     "apps/web"

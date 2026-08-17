@@ -34,6 +34,7 @@ import { useQuotesQuery } from "@/features/charts/queries";
 import { useSignalsQuery } from "@/features/platform/queries";
 import type { SignalRow } from "@/features/platform/api";
 import {
+  comparePositionReturnsDescending,
   dynamicCash,
   formatMoney,
   formatRatio,
@@ -97,6 +98,46 @@ export function DashboardView({
   const holdingReturn =
     holdingCost > 0 ? (holdingValue - holdingCost) / holdingCost : undefined;
   const accountCash = dynamicCash(state.account.totalAssets, holdingCost);
+  const statusRows = derivedPositions
+    .map((position) => {
+      const signal = signalByTicker.get(position.ticker);
+      const realSignal = signal?.source === "sample" ? undefined : signal;
+      const quotePrice = priceByTicker.get(position.ticker);
+      const price =
+        quotePrice ??
+        finiteNumber(realSignal?.current_price) ??
+        position.costBasis;
+      const isCostEstimate = !realSignal && quotePrice === undefined;
+      const marketValue =
+        quotePrice === undefined
+          ? finiteNumber(realSignal?.market_value) ?? position.shares * price
+          : position.shares * price;
+      const pnl = marketValue - position.holdingCost;
+      const returnFromCost =
+        position.holdingCost > 0 ? pnl / position.holdingCost : undefined;
+      const currentWeight =
+        realSignal?.current_weight ??
+        (state.account.totalAssets > 0
+          ? marketValue / state.account.totalAssets
+          : 0);
+
+      return {
+        position,
+        realSignal,
+        price,
+        isCostEstimate,
+        marketValue,
+        pnl,
+        returnFromCost,
+        currentWeight,
+      };
+    })
+    .sort((first, second) =>
+      comparePositionReturnsDescending(
+        first.returnFromCost,
+        second.returnFromCost
+      )
+    );
   const quoteSources = new Set(quotes.map((quote) => quote.source));
   const marketSource =
     quotes.length === 0
@@ -114,7 +155,7 @@ export function DashboardView({
           : "多个行情源混合返回";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       {quotesQuery.isLoading ? (
         <Skeleton className="h-48 w-full" />
       ) : (
@@ -125,8 +166,8 @@ export function DashboardView({
           holdingDayChange={holdingDayChange}
         />
       )}
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card>
+      <div className="grid items-stretch gap-2 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <Card size="sm" className="h-full">
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
               <WalletCardsIcon />
@@ -136,35 +177,40 @@ export function DashboardView({
               现金按总资产减持仓成本推算，市值和浮盈单独展示
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-2">
+          <CardContent className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
             <AccountMetric
               label="总资产"
               value={formatMoney(state.account.totalAssets)}
-              orientation="vertical"
+              emphasis
+              className="sm:col-span-2"
             />
             <AccountMetric
               label="现金"
               value={formatMoney(accountCash)}
-              orientation="vertical"
+              emphasis
+              className="sm:col-span-2"
             />
             <AccountMetric
               label="持仓成本"
               value={formatMoney(holdingCost)}
-              orientation="vertical"
+              emphasis
+              className="sm:col-span-2"
             />
             <AccountMetric
               label="持仓市值"
               value={formatMoney(holdingValue)}
-              orientation="vertical"
+              emphasis
+              className="sm:col-span-3"
             />
             <AccountMetric
               label="成本收益率"
               value={formatRatio(holdingReturn)}
-              orientation="vertical"
+              emphasis
+              className="col-span-2 sm:col-span-3"
             />
           </CardContent>
         </Card>
-        <Card>
+        <Card size="sm" className="h-full">
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
               <ListChecksIcon />
@@ -177,16 +223,36 @@ export function DashboardView({
               </Badge>
             </CardAction>
           </CardHeader>
-          <CardContent className="grid gap-3 text-sm">
-            <AccountMetric label="股票池" value={`${state.stockPool.length} 个标的`} />
-            <AccountMetric label="交易流水" value={`${state.trades.length} 条`} />
-            <AccountMetric label="当前策略" value={activeStrategyProfile.name} />
-            <AccountMetric label="可用现金" value={formatMoney(cash)} />
-            <AccountMetric label="状态库" value={storageStatusLabel(storageStatus)} />
+          <CardContent className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
+            <AccountMetric
+              label="股票池"
+              value={`${state.stockPool.length} 个标的`}
+              className="sm:col-span-2"
+            />
+            <AccountMetric
+              label="交易流水"
+              value={`${state.trades.length} 条`}
+              className="sm:col-span-2"
+            />
+            <AccountMetric
+              label="当前策略"
+              value={activeStrategyProfile.name}
+              className="sm:col-span-2"
+            />
+            <AccountMetric
+              label="可用现金"
+              value={formatMoney(cash)}
+              className="sm:col-span-3"
+            />
+            <AccountMetric
+              label="状态库"
+              value={storageStatusLabel(storageStatus)}
+              className="col-span-2 sm:col-span-3"
+            />
           </CardContent>
         </Card>
       </div>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
@@ -212,29 +278,17 @@ export function DashboardView({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {derivedPositions.map((position) => {
-                  const signal = signalByTicker.get(position.ticker);
-                  const realSignal = signal?.source === "sample" ? undefined : signal;
-                  const quotePrice = priceByTicker.get(position.ticker);
-                  const price =
-                    quotePrice ??
-                    finiteNumber(realSignal?.current_price) ??
-                    position.costBasis;
-                  const isCostEstimate = !realSignal && quotePrice === undefined;
-                  const marketValue =
-                    quotePrice === undefined
-                      ? finiteNumber(realSignal?.market_value) ??
-                        position.shares * price
-                      : position.shares * price;
-                  const pnl = marketValue - position.holdingCost;
-                  const returnFromCost =
-                    position.holdingCost > 0 ? pnl / position.holdingCost : undefined;
-                  const currentWeight =
-                    realSignal?.current_weight ??
-                    (state.account.totalAssets > 0
-                      ? marketValue / state.account.totalAssets
-                      : 0);
-                  return (
+                {statusRows.map(
+                  ({
+                    position,
+                    realSignal,
+                    price,
+                    isCostEstimate,
+                    marketValue,
+                    pnl,
+                    returnFromCost,
+                    currentWeight,
+                  }) => (
                     <TableRow key={position.ticker}>
                       <TableCell>
                         <div className="flex flex-col gap-1">
@@ -290,8 +344,8 @@ export function DashboardView({
                         </div>
                       </TableCell>
                     </TableRow>
-                  );
-                })}
+                  )
+                )}
               </TableBody>
             </Table>
           </CardContent>
@@ -353,27 +407,26 @@ export function DashboardView({
 function AccountMetric({
   label,
   value,
-  orientation = "row",
+  emphasis = false,
+  className,
 }: {
   label: string;
   value: string;
-  orientation?: "row" | "vertical";
+  emphasis?: boolean;
+  className?: string;
 }) {
-  const isVertical = orientation === "vertical";
   return (
     <div
       className={cn(
-        "rounded-lg bg-muted/50 p-3",
-        isVertical
-          ? "flex min-h-20 flex-col justify-between gap-2"
-          : "flex items-center justify-between gap-3"
+        "flex h-14 min-w-0 flex-col justify-between gap-0.5 rounded-lg bg-muted/50 px-2.5 py-1.5",
+        className
       )}
     >
-      <span className="text-sm text-muted-foreground">{label}</span>
+      <span className="truncate text-xs text-muted-foreground">{label}</span>
       <span
         className={cn(
-          "min-w-0 break-words font-medium tabular-nums",
-          isVertical ? "text-lg" : "text-right"
+          "min-w-0 truncate font-medium tabular-nums",
+          emphasis ? "text-base" : "text-sm"
         )}
         title={value}
       >

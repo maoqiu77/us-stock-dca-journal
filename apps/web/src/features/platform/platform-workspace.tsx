@@ -20,6 +20,16 @@ import { TradingDataProvider } from "@/features/platform/trading-data-context";
 import type { PlatformView } from "@/features/platform/types";
 
 const ONBOARDING_STORAGE_KEY = "stock-platform-onboarding-v1";
+const ACTIVE_VIEW_STORAGE_KEY = "stock-platform-active-view-v1";
+const RESTORABLE_VIEWS: PlatformView[] = [
+  "overview",
+  "charts",
+  "strategy",
+  "ai",
+  "health",
+  "data",
+  "settings",
+];
 
 const ChartWorkspace = dynamic(
   () =>
@@ -73,6 +83,10 @@ export function PlatformWorkspace() {
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
+      const storedView = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
+      if (isPlatformView(storedView)) {
+        setActiveView(storedView);
+      }
       setShowOnboarding(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "dismissed"
       );
@@ -95,12 +109,17 @@ export function PlatformWorkspace() {
     setShowOnboarding(false);
   }, []);
 
+  const changeActiveView = React.useCallback((view: PlatformView) => {
+    window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+    setActiveView(view);
+  }, []);
+
   const openOnboardingView = React.useCallback(
     (view: PlatformView) => {
       dismissOnboarding();
-      setActiveView(view);
+      changeActiveView(view);
     },
-    [dismissOnboarding]
+    [changeActiveView, dismissOnboarding]
   );
   const handleOnboardingOpenChange = React.useCallback(
     (open: boolean) => {
@@ -118,12 +137,12 @@ export function PlatformWorkspace() {
       <AppShell
         activeView={activeView}
         onMarketRefresh={refreshMarketData}
-        onViewChange={setActiveView}
+        onViewChange={changeActiveView}
       >
         {activeView === "overview" ? (
           <DashboardView
             marketRefreshKey={marketRefreshKey}
-            onNavigate={setActiveView}
+            onNavigate={changeActiveView}
           />
         ) : null}
         {activeView === "charts" ? (
@@ -210,4 +229,8 @@ function WorkspaceViewLoading() {
       <Skeleton className="min-h-[420px] w-full flex-1" />
     </div>
   );
+}
+
+function isPlatformView(value: string | null): value is PlatformView {
+  return RESTORABLE_VIEWS.some((view) => view === value);
 }

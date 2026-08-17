@@ -17,6 +17,13 @@ class AiAdviceChatRequest(BaseModel):
     prompt: StrictStr
 
 
+class PositionScreenshotRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    imageDataUrl: StrictStr
+    mode: StrictStr = "auto"
+
+
 class AiSettingsUpdateRequest(BaseModel):
     baseUrl: Optional[StrictStr] = None
     model: Optional[StrictStr] = None
