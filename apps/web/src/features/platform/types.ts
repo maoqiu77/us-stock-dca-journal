@@ -1,24 +1,18 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ActivityIcon,
   BrainCircuitIcon,
   BotIcon,
-  CandlestickChartIcon,
   DatabaseIcon,
   LayoutDashboardIcon,
-  SettingsIcon,
-  SparklesIcon,
+  SlidersHorizontalIcon,
 } from "lucide-react";
 
 export type PlatformView =
   | "overview"
-  | "charts"
   | "quant"
-  | "strategy"
   | "ai"
-  | "health"
   | "data"
-  | "settings";
+  | "ai-settings";
 
 export type PlatformNavItem = {
   id: PlatformView;
@@ -31,14 +25,8 @@ export const platformNavItems: PlatformNavItem[] = [
   {
     id: "overview",
     title: "总览",
-    description: "账户、行情、数据状态",
+    description: "盈亏、今日变动与持仓状态",
     icon: LayoutDashboardIcon,
-  },
-  {
-    id: "charts",
-    title: "K线工作台",
-    description: "多周期蜡烛图",
-    icon: CandlestickChartIcon,
   },
   {
     id: "quant",
@@ -48,40 +36,27 @@ export const platformNavItems: PlatformNavItem[] = [
   },
   {
     id: "ai",
-    title: "AI建议",
-    description: "本地上下文建议流",
+    title: "AI 日历",
+    description: "每日建议与连续对话",
     icon: BotIcon,
   },
   {
     id: "data",
-    title: "数据管理与AI模型配置",
-    description: "本地数据和安全提交",
+    title: "数据管理",
+    description: "截图导入与交易流水",
     icon: DatabaseIcon,
   },
   {
-    id: "strategy",
-    title: "策略研究",
-    description: "策略、信号、回测",
-    icon: SparklesIcon,
-  },
-  {
-    id: "health",
-    title: "检查更新",
-    description: "软件更新、启动、行情、AI 状态",
-    icon: ActivityIcon,
+    id: "ai-settings",
+    title: "AI 模型配置",
+    description: "AI 连接与研究数据",
+    icon: SlidersHorizontalIcon,
   },
 ];
 
-export const settingsNavItem: PlatformNavItem = {
-  id: "settings",
-  title: "设置",
-  description: "偏好和安全边界",
-  icon: SettingsIcon,
-};
-
 export function getPlatformViewMeta(view: PlatformView) {
   return (
-    [...platformNavItems, settingsNavItem].find((item) => item.id === view) ??
+    platformNavItems.find((item) => item.id === view) ??
     platformNavItems[0]
   );
 }

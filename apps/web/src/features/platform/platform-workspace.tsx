@@ -23,33 +23,16 @@ const ONBOARDING_STORAGE_KEY = "stock-platform-onboarding-v1";
 const ACTIVE_VIEW_STORAGE_KEY = "stock-platform-active-view-v1";
 const RESTORABLE_VIEWS: PlatformView[] = [
   "overview",
-  "charts",
   "quant",
-  "strategy",
   "ai",
-  "health",
   "data",
-  "settings",
+  "ai-settings",
 ];
 
-const ChartWorkspace = dynamic(
-  () =>
-    import("@/features/charts/chart-workspace").then(
-      (mod) => mod.ChartWorkspace
-    ),
-  { loading: () => <WorkspaceViewLoading /> }
-);
 const QuantAnalysisView = dynamic(
   () =>
     import("@/features/quant-analysis/quant-analysis-view").then(
       (mod) => mod.QuantAnalysisView
-    ),
-  { loading: () => <WorkspaceViewLoading /> }
-);
-const StrategyView = dynamic(
-  () =>
-    import("@/features/platform/views/strategy-view").then(
-      (mod) => mod.StrategyView
     ),
   { loading: () => <WorkspaceViewLoading /> }
 );
@@ -60,13 +43,6 @@ const AiAdviceView = dynamic(
     ),
   { loading: () => <WorkspaceViewLoading /> }
 );
-const HealthCheckView = dynamic(
-  () =>
-    import("@/features/platform/views/health-check-view").then(
-      (mod) => mod.HealthCheckView
-    ),
-  { loading: () => <WorkspaceViewLoading /> }
-);
 const DataManagementView = dynamic(
   () =>
     import("@/features/platform/views/data-management-view").then(
@@ -74,10 +50,10 @@ const DataManagementView = dynamic(
     ),
   { loading: () => <WorkspaceViewLoading /> }
 );
-const SettingsView = dynamic(
+const AiModelSettingsView = dynamic(
   () =>
-    import("@/features/platform/views/settings-view").then(
-      (mod) => mod.SettingsView
+    import("@/features/platform/views/ai-model-settings-view").then(
+      (mod) => mod.AiModelSettingsView
     ),
   { loading: () => <WorkspaceViewLoading /> }
 );
@@ -148,27 +124,19 @@ export function PlatformWorkspace() {
         onViewChange={changeActiveView}
       >
         {activeView === "overview" ? (
-          <DashboardView
-            marketRefreshKey={marketRefreshKey}
-            onNavigate={changeActiveView}
-          />
-        ) : null}
-        {activeView === "charts" ? (
-          <ChartWorkspace marketRefreshKey={marketRefreshKey} />
+          <DashboardView marketRefreshKey={marketRefreshKey} />
         ) : null}
         {activeView === "quant" ? <QuantAnalysisView /> : null}
-        {activeView === "strategy" ? <StrategyView /> : null}
         {activeView === "ai" ? <AiAdviceView /> : null}
-        {activeView === "health" ? <HealthCheckView /> : null}
         {activeView === "data" ? <DataManagementView /> : null}
-        {activeView === "settings" ? <SettingsView /> : null}
+        {activeView === "ai-settings" ? <AiModelSettingsView /> : null}
       </AppShell>
       <FirstRunOnboarding
         open={showOnboarding}
         onOpenChange={handleOnboardingOpenChange}
         onDismiss={dismissOnboarding}
         onOpenData={() => openOnboardingView("data")}
-        onOpenHealth={() => openOnboardingView("health")}
+        onOpenAiSettings={() => openOnboardingView("ai-settings")}
       />
     </TradingDataProvider>
   );
@@ -179,13 +147,13 @@ function FirstRunOnboarding({
   onOpenChange,
   onDismiss,
   onOpenData,
-  onOpenHealth,
+  onOpenAiSettings,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onDismiss: () => void;
   onOpenData: () => void;
-  onOpenHealth: () => void;
+  onOpenAiSettings: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -194,7 +162,7 @@ function FirstRunOnboarding({
           <DialogTitle>首次使用</DialogTitle>
           <DialogDescription>
             这个工具默认把运行数据保存在本机 storage/local。你可以先用示例数据熟悉界面，
-            再到数据管理里维护自己的股票池、持仓目标和 AI 接口。
+            再通过交易流水或券商截图维护自己的持仓。
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3 text-sm">
@@ -207,22 +175,22 @@ function FirstRunOnboarding({
           <div className="rounded-lg bg-muted/50 p-3">
             <div className="font-medium">先看演示</div>
             <div className="mt-1 text-muted-foreground">
-              没有配置时会使用示例股票池和可降级行情，sample 数据不会作为真实交易依据。
+              没有配置时会使用确定性样例数据，sample 数据不会作为真实交易依据。
             </div>
           </div>
           <div className="rounded-lg bg-muted/50 p-3">
             <div className="font-medium">AI 可选</div>
             <div className="mt-1 text-muted-foreground">
-              AI 建议使用 OpenAI-compatible 接口；发送前会再次确认账户、持仓、交易流水和策略信号上下文。
+              AI 日历和截图识别使用 OpenAI-compatible 接口，密钥只保存在本地。
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onOpenHealth}>
-            检查更新
+          <Button variant="outline" onClick={onOpenAiSettings}>
+            配置 AI
           </Button>
           <Button variant="outline" onClick={onOpenData}>
-            去数据管理
+            录入交易
           </Button>
           <Button onClick={onDismiss}>先用示例数据</Button>
         </DialogFooter>

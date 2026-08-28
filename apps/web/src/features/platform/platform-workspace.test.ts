@@ -29,6 +29,10 @@ test("platform workspace lazy-loads non-overview views", () => {
     source,
     /import \{ SettingsView \} from "@\/features\/platform\/views\/settings-view"/
   );
+  assert.doesNotMatch(source, /features\/charts\/chart-workspace/);
+  assert.doesNotMatch(source, /features\/platform\/views\/strategy-view/);
+  assert.doesNotMatch(source, /features\/platform\/views\/health-check-view/);
+  assert.match(source, /features\/platform\/views\/ai-model-settings-view/);
 });
 
 test("platform workspace restores and persists the active view", () => {
@@ -37,5 +41,5 @@ test("platform workspace restores and persists the active view", () => {
   assert.match(source, /localStorage\.setItem\(ACTIVE_VIEW_STORAGE_KEY, view\)/);
   assert.match(source, /isPlatformView\(storedView\)/);
   assert.match(source, /onViewChange=\{changeActiveView\}/);
-  assert.match(source, /onNavigate=\{changeActiveView\}/);
+  assert.match(source, /openOnboardingView\("ai-settings"\)/);
 });

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "股票交易平台",
-  description: "本地优先的股票行情与策略研究工作台",
+  description: "本地优先的持仓与量化分析工作台",
 };
 
 export default function RootLayout({

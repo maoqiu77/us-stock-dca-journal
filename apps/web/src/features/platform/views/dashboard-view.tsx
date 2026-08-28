@@ -1,19 +1,10 @@
 "use client";
 
-import {
-  ActivityIcon,
-  ArrowRightIcon,
-  DatabaseIcon,
-  ListChecksIcon,
-  ShieldCheckIcon,
-  WalletCardsIcon,
-} from "lucide-react";
+import { ActivityIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -28,45 +19,34 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { OverviewPanel } from "@/features/charts/overview-panel";
 import { formatPrice } from "@/features/charts/format";
+import { OverviewPanel } from "@/features/charts/overview-panel";
 import { useQuotesQuery } from "@/features/charts/queries";
-import { useSignalsQuery } from "@/features/platform/queries";
 import type { SignalRow } from "@/features/platform/api";
+import { useSignalsQuery } from "@/features/platform/queries";
 import {
   comparePositionReturnsDescending,
-  dynamicCash,
   formatMoney,
   formatRatio,
   formatShares,
   holdingMarketValue,
+  uniqueTickers,
 } from "@/features/platform/trading-data";
 import { useTradingData } from "@/features/platform/trading-data-context";
-import {
-  platformNavItems,
-  type PlatformView,
-} from "@/features/platform/types";
-import { cn } from "@/lib/utils";
 
 export function DashboardView({
   marketRefreshKey = 0,
-  onNavigate,
 }: {
   marketRefreshKey?: number;
-  onNavigate: (view: PlatformView) => void;
 }) {
   const signalsQuery = useSignalsQuery();
   const signals = signalsQuery.data ?? [];
-  const {
-    state,
-    derivedPositions,
-    holdingCost,
-    cash,
-    validationIssues,
-    activeStrategyProfile,
-    storageStatus,
-  } = useTradingData();
-  const tickers = state.stockPool;
+  const { state, derivedPositions, holdingCost } = useTradingData();
+  const heldPositions = derivedPositions.filter((position) => position.shares > 0);
+  const tickers = uniqueTickers([
+    ...state.stockPool,
+    ...heldPositions.map((position) => position.ticker),
+  ]);
   const quotesQuery = useQuotesQuery(tickers, marketRefreshKey);
   const quotes = quotesQuery.data ?? [];
   const priceByTicker = new Map(
@@ -88,25 +68,20 @@ export function DashboardView({
       valuationPriceByTicker.set(signal.ticker, signalPrice);
     }
   }
-  const holdingValue = holdingMarketValue(derivedPositions, valuationPriceByTicker);
+  const holdingValue = holdingMarketValue(heldPositions, valuationPriceByTicker);
   const holdingDayChange = changeByTicker.size
-    ? derivedPositions.reduce((total, position) => {
+    ? heldPositions.reduce((total, position) => {
         const change = changeByTicker.get(position.ticker);
         return change === undefined ? total : total + position.shares * change;
       }, 0)
     : undefined;
-  const holdingReturn =
-    holdingCost > 0 ? (holdingValue - holdingCost) / holdingCost : undefined;
-  const accountCash = dynamicCash(state.account.totalAssets, holdingCost);
-  const statusRows = derivedPositions
+  const statusRows = heldPositions
     .map((position) => {
       const signal = signalByTicker.get(position.ticker);
       const realSignal = signal?.source === "sample" ? undefined : signal;
       const quotePrice = priceByTicker.get(position.ticker);
       const price =
-        quotePrice ??
-        finiteNumber(realSignal?.current_price) ??
-        position.costBasis;
+        quotePrice ?? finiteNumber(realSignal?.current_price) ?? position.costBasis;
       const isCostEstimate = !realSignal && quotePrice === undefined;
       const marketValue =
         quotePrice === undefined
@@ -115,351 +90,112 @@ export function DashboardView({
       const pnl = marketValue - position.holdingCost;
       const returnFromCost =
         position.holdingCost > 0 ? pnl / position.holdingCost : undefined;
-      const currentWeight =
-        realSignal?.current_weight ??
-        (state.account.totalAssets > 0
-          ? marketValue / state.account.totalAssets
-          : 0);
 
       return {
         position,
         realSignal,
         price,
         isCostEstimate,
-        marketValue,
         pnl,
         returnFromCost,
-        currentWeight,
       };
     })
     .sort((first, second) =>
-      comparePositionReturnsDescending(
-        first.returnFromCost,
-        second.returnFromCost
-      )
+      comparePositionReturnsDescending(first.returnFromCost, second.returnFromCost)
     );
-  const quoteSources = new Set(quotes.map((quote) => quote.source));
-  const marketSource =
-    quotes.length === 0
-      ? "loading"
-      : quoteSources.size === 1
-        ? (quotes[0]?.source ?? "loading")
-        : "mixed";
-  const marketSourceDescription =
-    marketSource === "sample"
-      ? "当前为样例行情，未返回可用最新数据"
-      : marketSource === "yfinance"
-        ? "当前报价来自 yfinance"
-        : marketSource === "nasdaq"
-          ? "当前报价来自 Nasdaq 延迟行情"
-          : "多个行情源混合返回";
 
   return (
     <div className="flex flex-col gap-2">
       {quotesQuery.isLoading ? (
-        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-40 w-full" />
       ) : (
         <OverviewPanel
-          quotes={quotes}
           holdingCost={holdingCost}
           holdingValue={holdingValue}
           holdingDayChange={holdingDayChange}
         />
       )}
-      <div className="grid items-stretch gap-2 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <Card size="sm" className="h-full">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <WalletCardsIcon />
-              账户总览
-            </CardTitle>
-            <CardDescription>
-              现金按总资产减持仓成本推算，市值和浮盈单独展示
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
-            <AccountMetric
-              label="总资产"
-              value={formatMoney(state.account.totalAssets)}
-              emphasis
-              className="sm:col-span-2"
-            />
-            <AccountMetric
-              label="现金"
-              value={formatMoney(accountCash)}
-              emphasis
-              className="sm:col-span-2"
-            />
-            <AccountMetric
-              label="持仓成本"
-              value={formatMoney(holdingCost)}
-              emphasis
-              className="sm:col-span-2"
-            />
-            <AccountMetric
-              label="持仓市值"
-              value={formatMoney(holdingValue)}
-              emphasis
-              className="sm:col-span-3"
-            />
-            <AccountMetric
-              label="成本收益率"
-              value={formatRatio(holdingReturn)}
-              emphasis
-              className="col-span-2 sm:col-span-3"
-            />
-          </CardContent>
-        </Card>
-        <Card size="sm" className="h-full">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <ListChecksIcon />
-              数据状态
-            </CardTitle>
-            <CardDescription>设置、流水、策略的当前可用性</CardDescription>
-            <CardAction>
-              <Badge variant={validationIssues.length ? "outline" : "secondary"}>
-                {validationIssues.length ? "needs-fix" : "ready"}
-              </Badge>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-1.5 sm:grid-cols-6">
-            <AccountMetric
-              label="股票池"
-              value={`${state.stockPool.length} 个标的`}
-              className="sm:col-span-2"
-            />
-            <AccountMetric
-              label="交易流水"
-              value={`${state.trades.length} 条`}
-              className="sm:col-span-2"
-            />
-            <AccountMetric
-              label="当前策略"
-              value={activeStrategyProfile.name}
-              className="sm:col-span-2"
-            />
-            <AccountMetric
-              label="可用现金"
-              value={formatMoney(cash)}
-              className="sm:col-span-3"
-            />
-            <AccountMetric
-              label="状态库"
-              value={storageStatusLabel(storageStatus)}
-              className="col-span-2 sm:col-span-3"
-            />
-          </CardContent>
-        </Card>
-      </div>
-      <div className="flex flex-col gap-2">
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <ActivityIcon />
-              标的状态
-            </CardTitle>
-            <CardDescription>
-              合并持仓成本、浮动盈亏、均线、RSI、回撤和今日加减仓信号
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="overflow-x-auto">
-            <Table className="min-w-[960px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>标的</TableHead>
-                  <TableHead className="text-right">现价</TableHead>
-                  <TableHead className="text-right">持仓</TableHead>
-                  <TableHead className="text-right">成本/市值</TableHead>
-                  <TableHead className="text-right">盈亏</TableHead>
-                  <TableHead className="text-right">仓位</TableHead>
-                  <TableHead className="text-right">技术指标</TableHead>
-                  <TableHead>今日信号</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {statusRows.map(
-                  ({
-                    position,
-                    realSignal,
-                    price,
-                    isCostEstimate,
-                    marketValue,
-                    pnl,
-                    returnFromCost,
-                    currentWeight,
-                  }) => (
-                    <TableRow key={position.ticker}>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span className="font-medium">{position.ticker}</span>
-                          <Badge variant="outline" className="w-fit">
-                            {position.assetType}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        <div>{formatMoney(price)}</div>
-                        {isCostEstimate ? (
-                          <div className="text-xs text-muted-foreground">
-                            成本估算
-                          </div>
-                        ) : null}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        <div>{formatShares(position.shares)} 股</div>
-                        <div className="text-xs text-muted-foreground">
-                          成本价 {formatMoney(position.costBasis)}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        <div>{formatMoney(position.holdingCost)}</div>
-                        <div className="text-xs text-muted-foreground">
-                          市值 {formatMoney(marketValue)}
-                        </div>
-                      </TableCell>
-                      <TableCell className={signedCellClass(pnl)}>
-                        {formatMoney(pnl)} / {formatRatio(returnFromCost)}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        <div>{formatRatio(currentWeight)}</div>
-                        <div className="text-xs text-muted-foreground">
-                          目标 {formatRatio(position.targetWeight)}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        <div>MA {maLine(realSignal)}</div>
-                        <div className="text-xs text-muted-foreground">
-                          RSI {numberLabel(realSignal?.rsi, 1)} / 52 周回撤 {formatRatio(realSignal?.drawdown252 ?? realSignal?.drawdown)}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <Badge variant={signalVariant(realSignal?.status)}>
-                            {realSignal?.status ?? "等待真实行情"}
-                          </Badge>
-                          <span className="max-w-64 truncate text-xs text-muted-foreground">
-                            {realSignal?.action ?? "样例行情不参与市值和信号计算"}
-                          </span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="border-b">
-            <CardTitle>工作流</CardTitle>
-            <CardDescription>行情、策略、AI、数据的主入口</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3">
-            {platformNavItems
-              .filter((item) => item.id !== "overview")
-              .map((item) => (
-                <div key={item.id} className="rounded-lg bg-muted/50 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <item.icon />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">
-                          {item.title}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {item.description}
-                        </div>
+      <Card>
+        <CardHeader className="border-b">
+          <CardTitle className="flex items-center gap-2">
+            <ActivityIcon />
+            标的状态
+          </CardTitle>
+          <CardDescription>
+            持仓成本、浮动盈亏、技术指标和今日信号
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="overflow-x-auto">
+          <Table className="min-w-[820px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>标的</TableHead>
+                <TableHead className="text-right">现价</TableHead>
+                <TableHead className="text-right">持仓成本</TableHead>
+                <TableHead className="text-right">盈亏</TableHead>
+                <TableHead className="text-right">技术指标</TableHead>
+                <TableHead>今日信号</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {statusRows.map(
+                ({ position, realSignal, price, isCostEstimate, pnl, returnFromCost }) => (
+                  <TableRow key={position.ticker}>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium">{position.ticker}</span>
+                        <Badge variant="outline" className="w-fit">
+                          {position.assetType}
+                        </Badge>
                       </div>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => onNavigate(item.id)}
-                    >
-                      <ArrowRightIcon />
-                      <span className="sr-only">打开{item.title}</span>
-                    </Button>
-                  </div>
-                </div>
-              ))}
-          </CardContent>
-        </Card>
-      </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        <StatusCard
-          icon={<ShieldCheckIcon />}
-          title="提交安全"
-          description="storage/local 与 .env 已排除提交"
-          badge="ready"
-        />
-        <StatusCard
-          icon={<DatabaseIcon />}
-          title="数据源"
-          description={marketSourceDescription}
-          badge={marketSource}
-        />
-      </div>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>{formatMoney(price)}</div>
+                      {isCostEstimate ? (
+                        <div className="text-xs text-muted-foreground">成本估算</div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>{formatMoney(position.holdingCost)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatShares(position.shares)} 股 x {formatMoney(position.costBasis)}
+                      </div>
+                    </TableCell>
+                    <TableCell className={signedCellClass(pnl)}>
+                      {formatMoney(pnl)} / {formatRatio(returnFromCost)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      <div>MA {maLine(realSignal)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        RSI {numberLabel(realSignal?.rsi, 1)} / 52 周回撤{" "}
+                        {formatRatio(realSignal?.drawdown252 ?? realSignal?.drawdown)}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-col gap-1">
+                        <Badge variant={signalVariant(realSignal?.status)}>
+                          {realSignal?.status ?? "等待真实行情"}
+                        </Badge>
+                        <span className="max-w-64 truncate text-xs text-muted-foreground">
+                          {realSignal?.action ?? "样例行情不参与市值和信号计算"}
+                        </span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              )}
+              {!statusRows.length ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                    暂无持仓，请到数据管理录入交易或导入券商截图。
+                  </TableCell>
+                </TableRow>
+              ) : null}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
-  );
-}
-
-function AccountMetric({
-  label,
-  value,
-  emphasis = false,
-  className,
-}: {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "flex h-14 min-w-0 flex-col justify-between gap-0.5 rounded-lg bg-muted/50 px-2.5 py-1.5",
-        className
-      )}
-    >
-      <span className="truncate text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          "min-w-0 truncate font-medium tabular-nums",
-          emphasis ? "text-base" : "text-sm"
-        )}
-        title={value}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function StatusCard({
-  icon,
-  title,
-  description,
-  badge,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  badge: string;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {icon}
-          {title}
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-        <CardAction>
-          <Badge variant="secondary">{badge}</Badge>
-        </CardAction>
-      </CardHeader>
-    </Card>
   );
 }
 
@@ -499,20 +235,4 @@ function signalVariant(status?: string): "secondary" | "outline" {
   return ["允许加仓", "建议减仓", "风险减仓"].includes(status)
     ? "secondary"
     : "outline";
-}
-
-function storageStatusLabel(status: string) {
-  if (status === "api") {
-    return "SQLite";
-  }
-  if (status === "saving") {
-    return "保存中";
-  }
-  if (status === "loading") {
-    return "加载中";
-  }
-  if (status === "error") {
-    return "本地兜底";
-  }
-  return "localStorage";
 }

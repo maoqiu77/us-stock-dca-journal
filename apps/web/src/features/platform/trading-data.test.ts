@@ -10,6 +10,7 @@ import {
   importPositionSnapshots,
   normalizeTradeInput,
   parseTradeNumberInput,
+  recordTrade,
   removeTrackedTicker,
   replaceStockPool,
   sortPositionPlans,
@@ -162,6 +163,27 @@ test("normalizeTradeInput keeps trade amount and unit price to four decimals", (
 
   assert.equal(trade.unitPrice, 48.1235);
   assert.equal(trade.amount, 120.9877);
+});
+
+test("recordTrade automatically tracks a newly entered holding", () => {
+  const next = recordTrade(
+    testState(),
+    {
+      date: "2026-08-29",
+      ticker: "qqqm",
+      action: "买入",
+      shares: 2,
+      unitPrice: 250,
+      amount: 500,
+      note: "manual entry",
+    },
+    "ETF"
+  );
+
+  assert.deepEqual(next.stockPool, ["VOO", "QQQM"]);
+  assert.equal(next.positions.at(-1)?.ticker, "QQQM");
+  assert.equal(next.positions.at(-1)?.assetType, "ETF");
+  assert.equal(derivePositions(next).at(-1)?.holdingCost, 500);
 });
 
 test("derivePositions removes sold shares from oldest lots first", () => {

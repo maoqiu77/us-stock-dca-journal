@@ -186,7 +186,7 @@ export function AiAdviceView() {
       : externalMutation.error?.message ?? "";
   const aiStatus = aiReady ? "ready" : "missing-config";
   const aiUnavailableReason = !aiReady
-    ? "请先在数据管理补齐 AI Base URL、模型和 API Key。"
+    ? "请先在 AI 模型配置补齐 Base URL、模型和 API Key。"
     : "";
   const submitChat = () => {
     const prompt = chatPrompt.trim();
@@ -205,7 +205,7 @@ export function AiAdviceView() {
               <CalendarDaysIcon />
               AI 建议日历
             </CardTitle>
-            <CardDescription>按数据管理中的私有数据和 AI 配置生成</CardDescription>
+            <CardDescription>按本地持仓数据和 AI 模型配置生成</CardDescription>
             <CardAction>
               <Badge variant={aiStatus === "ready" ? "secondary" : "outline"}>
                 {aiStatus}

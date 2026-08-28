@@ -6,15 +6,16 @@ function readSource(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf-8");
 }
 
-test("quant analysis is lazy loaded directly after charts navigation", () => {
+test("quant analysis remains lazy loaded in the simplified navigation", () => {
   const workspace = readSource("../platform/platform-workspace.tsx");
   const navigation = readSource("../platform/types.ts");
 
   assert.match(workspace, /features\/quant-analysis\/quant-analysis-view/);
   assert.match(workspace, /activeView === "quant"/);
-  assert.ok(navigation.indexOf('id: "charts"') < navigation.indexOf('id: "quant"'));
+  assert.ok(navigation.indexOf('id: "overview"') < navigation.indexOf('id: "quant"'));
   assert.ok(navigation.indexOf('id: "quant"') < navigation.indexOf('id: "ai"'));
-  assert.match(navigation, /title: "数据管理与AI模型配置"/);
+  assert.match(navigation, /title: "数据管理"/);
+  assert.match(navigation, /title: "AI 模型配置"/);
 });
 
 test("quant view exposes full run lifecycle and historical safeguards", () => {

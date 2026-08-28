@@ -28,6 +28,11 @@ export type TradeRecord = {
   note: string;
 };
 
+export type TradeInput = Omit<TradeRecord, "id" | "shares"> & {
+  id?: string;
+  shares?: number;
+};
+
 export type DerivedPosition = PositionPlan & {
   shares: number;
   costBasis: number;
@@ -548,7 +553,7 @@ export function findDuplicateTickers(values: string[]) {
 }
 
 export function normalizeTradeInput(
-  input: Omit<TradeRecord, "id" | "shares"> & { id?: string; shares?: number }
+  input: TradeInput
 ): TradeRecord {
   const amount = cleanNumber(input.amount);
   const unitPrice = cleanNumber(input.unitPrice);
@@ -564,6 +569,75 @@ export function normalizeTradeInput(
     unitPrice: roundNumber(unitPrice, 4),
     amount: roundNumber(amount > 0 ? amount : shares * unitPrice, 4),
     note: input.note.trim(),
+  };
+}
+
+export function recordTrade(
+  state: TradingDataState,
+  input: TradeInput,
+  assetType: AssetType = "STOCK"
+): TradingDataState {
+  const trade = normalizeTradeInput(input);
+  if (!trade.ticker) {
+    return state;
+  }
+  return ensureTradeTicker(
+    { ...state, trades: [...state.trades, trade] },
+    trade,
+    assetType
+  );
+}
+
+export function replaceRecordedTrade(
+  state: TradingDataState,
+  id: string,
+  input: TradeInput,
+  assetType: AssetType = "STOCK"
+): TradingDataState {
+  const trade = normalizeTradeInput({ ...input, id });
+  if (!trade.ticker) {
+    return state;
+  }
+  return ensureTradeTicker(
+    {
+      ...state,
+      trades: state.trades.map((item) => (item.id === id ? trade : item)),
+    },
+    trade,
+    assetType
+  );
+}
+
+function ensureTradeTicker(
+  state: TradingDataState,
+  trade: TradeRecord,
+  assetType: AssetType
+): TradingDataState {
+  const positionExists = state.positions.some(
+    (position) => normalizeTicker(position.ticker) === trade.ticker
+  );
+  const positions = positionExists
+    ? state.positions.map((position) =>
+        normalizeTicker(position.ticker) === trade.ticker
+          ? { ...position, assetType }
+          : position
+      )
+    : [
+        ...state.positions,
+        {
+          ticker: trade.ticker,
+          targetWeight: 0,
+          assetType,
+          takeProfitPct: assetType === "ETF" ? 0 : 0.2,
+          stopLossPct: assetType === "ETF" ? 0 : 0.08,
+          purchaseDate: trade.action === "买入" ? trade.date : "",
+        },
+      ];
+
+  return {
+    ...state,
+    stockPool: uniqueTickers([...state.stockPool, trade.ticker]),
+    positions,
   };
 }
 

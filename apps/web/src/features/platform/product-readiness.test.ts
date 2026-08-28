@@ -6,13 +6,19 @@ function readSource(path: string) {
   return readFileSync(new URL(path, import.meta.url), "utf-8");
 }
 
-test("platform navigation exposes update checks for end users", () => {
+test("platform navigation exposes only the five focused work areas", () => {
   const source = readSource("./types.ts");
 
-  assert.match(source, /"health"/);
-  assert.match(source, /检查更新/);
-  assert.ok(source.indexOf('id: "data"') < source.indexOf('id: "strategy"'));
-  assert.ok(source.indexOf('id: "strategy"') < source.indexOf('id: "health"'));
+  assert.match(source, /title: "总览"/);
+  assert.match(source, /title: "量化分析"/);
+  assert.match(source, /title: "AI 日历"/);
+  assert.match(source, /title: "数据管理"/);
+  assert.match(source, /title: "AI 模型配置"/);
+  assert.doesNotMatch(source, /K线工作台|策略研究|检查更新/);
+  assert.ok(source.indexOf('id: "overview"') < source.indexOf('id: "quant"'));
+  assert.ok(source.indexOf('id: "quant"') < source.indexOf('id: "ai"'));
+  assert.ok(source.indexOf('id: "ai"') < source.indexOf('id: "data"'));
+  assert.ok(source.indexOf('id: "data"') < source.indexOf('id: "ai-settings"'));
 });
 
 test("workspace includes first-run onboarding without CSV import copy", () => {
@@ -31,6 +37,23 @@ test("screenshot import supports multi-file recognition", () => {
   assert.match(source, /Array\.from\(event\.currentTarget\.files/);
   assert.match(source, /for \(const \[index, file\] of files\.entries\(\)/);
   assert.match(source, /recognizePositionScreenshot\(await resizeImage\(file\), mode\)/);
+});
+
+test("data management is focused on screenshot import and transaction history", () => {
+  const source = readSource("./views/data-management-view.tsx");
+
+  assert.match(source, /PositionScreenshotImport/);
+  assert.match(source, /手动录入交易/);
+  assert.match(source, /交易流水/);
+  assert.doesNotMatch(source, /账户与股票池|持仓目标列表|AI 连接设置/);
+});
+
+test("AI model settings keeps AI and research data configuration together", () => {
+  const source = readSource("./views/ai-model-settings-view.tsx");
+
+  assert.match(source, /AI 连接设置/);
+  assert.match(source, /ResearchSettingsCard/);
+  assert.match(source, /saveAiSettings/);
 });
 
 test("AI advice view confirms private context before sending to AI", () => {

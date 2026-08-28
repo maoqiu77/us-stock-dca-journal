@@ -5,7 +5,6 @@ import { CandlestickChartIcon } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -14,10 +13,10 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   platformNavItems,
-  settingsNavItem,
   type PlatformView,
 } from "@/features/platform/types";
 
@@ -28,6 +27,12 @@ export function AppSidebar({
   activeView: PlatformView;
   onViewChange: (view: PlatformView) => void;
 }) {
+  const { setOpenMobile } = useSidebar();
+  const selectView = (view: PlatformView) => {
+    onViewChange(view);
+    setOpenMobile(false);
+  };
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
@@ -47,14 +52,14 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+          <SidebarGroupLabel>功能</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {platformNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     isActive={activeView === item.id}
-                    onClick={() => onViewChange(item.id)}
+                    onClick={() => selectView(item.id)}
                   >
                     <item.icon />
                     <span>{item.title}</span>
@@ -65,19 +70,6 @@ export function AppSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              isActive={activeView === settingsNavItem.id}
-              onClick={() => onViewChange(settingsNavItem.id)}
-            >
-              <settingsNavItem.icon />
-              <span>{settingsNavItem.title}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarFooter>
       <SidebarRail />
     </Sidebar>
   );

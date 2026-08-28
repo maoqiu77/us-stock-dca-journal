@@ -18,27 +18,25 @@ import {
   applyRecognizedTrades as applyTrades,
   replacePositionSnapshot as replaceSnapshot,
   normalizeTradeInput,
+  recordTrade,
   removeTrackedTicker,
+  replaceRecordedTrade,
   replaceStockPool,
   sanitizeTradingData,
   upsertPositionPlan,
   uniqueTickers,
   validateTradingData,
+  type AssetType,
   type PositionPlan,
   type PositionSnapshotInput,
   type StrategyProfile,
   type StrategySettings,
-  type TradeRecord,
+  type TradeInput,
   type TradingAccount,
   type TradingDataState,
 } from "@/features/platform/trading-data";
 
 type StorageStatus = "loading" | "api" | "saving" | "local" | "error";
-type TradeInput = Omit<TradeRecord, "id" | "shares"> & {
-  id?: string;
-  shares?: number;
-};
-
 type TradingDataContextValue = {
   state: TradingDataState;
   isHydrated: boolean;
@@ -52,14 +50,15 @@ type TradingDataContextValue = {
   updateStockPoolText: (value: string) => void;
   upsertPosition: (position: PositionPlan) => void;
   removePosition: (ticker: string) => void;
-  addTrade: (input: TradeInput) => void;
+  addTrade: (input: TradeInput, assetType?: AssetType) => void;
   importTrades: (inputs: TradeInput[]) => void;
   importPositions: (inputs: PositionSnapshotInput[], importDate: string) => void;
   applyRecognizedTrades: (inputs: Array<{ ticker: string; action: "买入" | "卖出"; shares: number; unitPrice: number; amount: number; assetType: "ETF" | "STOCK"; date?: string; note?: string }>, date: string) => void;
   replacePositionSnapshot: (inputs: PositionSnapshotInput[], date: string) => void;
   updateTrade: (
     id: string,
-    input: Omit<TradeRecord, "id" | "shares"> & { shares?: number }
+    input: TradeInput,
+    assetType?: AssetType
   ) => void;
   removeTrade: (id: string) => void;
   setActiveStrategyProfile: (profileId: StrategyProfile["id"]) => void;
@@ -247,11 +246,8 @@ export function TradingDataProvider({
   );
 
   const addTrade = React.useCallback(
-    (input: TradeInput) => {
-      commitState((current) => ({
-        ...current,
-        trades: [...current.trades, normalizeTradeInput(input)],
-      }));
+    (input: TradeInput, assetType: AssetType = "STOCK") => {
+      commitState((current) => recordTrade(current, input, assetType));
     },
     [commitState]
   );
@@ -283,16 +279,12 @@ export function TradingDataProvider({
   const updateTrade = React.useCallback(
     (
       id: string,
-      input: Omit<TradeRecord, "id" | "shares"> & {
-        shares?: number;
-      }
+      input: TradeInput,
+      assetType: AssetType = "STOCK"
     ) => {
-      commitState((current) => ({
-        ...current,
-        trades: current.trades.map((trade) =>
-          trade.id === id ? normalizeTradeInput({ ...input, id }) : trade
-        ),
-      }));
+      commitState((current) =>
+        replaceRecordedTrade(current, id, input, assetType)
+      );
     },
     [commitState]
   );
