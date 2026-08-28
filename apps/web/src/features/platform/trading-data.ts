@@ -424,6 +424,17 @@ export function comparePositionReturnsDescending(
   return second - first;
 }
 
+export function sortTradesNewestFirst<T extends TradeRecord>(trades: T[]): T[] {
+  return trades
+    .map((trade, index) => ({ trade, index }))
+    .sort(
+      (first, second) =>
+        second.trade.date.localeCompare(first.trade.date) ||
+        second.index - first.index
+    )
+    .map(({ trade }) => trade);
+}
+
 export function importPositionSnapshots(
   state: TradingDataState,
   inputs: PositionSnapshotInput[],

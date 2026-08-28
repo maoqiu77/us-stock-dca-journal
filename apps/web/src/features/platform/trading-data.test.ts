@@ -14,6 +14,7 @@ import {
   removeTrackedTicker,
   replaceStockPool,
   sortPositionPlans,
+  sortTradesNewestFirst,
   updateTradeCalculation,
   upsertPositionPlan,
   type TradingDataState,
@@ -79,6 +80,32 @@ test("position returns sort profits before losses and missing returns", () => {
   assert.deepEqual(
     rows.map((row) => row.ticker),
     ["GAIN", "SMALL_GAIN", "LOSS", "MISSING"]
+  );
+});
+
+test("trade records sort from newest to oldest without mutating state order", () => {
+  const trades = [
+    { id: "old", date: "2026-08-01" },
+    { id: "new-first", date: "2026-08-29" },
+    { id: "middle", date: "2026-08-15" },
+    { id: "new-last", date: "2026-08-29" },
+  ].map((trade) => ({
+    ...trade,
+    ticker: "VOO",
+    action: "买入" as const,
+    shares: 1,
+    unitPrice: 100,
+    amount: 100,
+    note: "",
+  }));
+
+  assert.deepEqual(
+    sortTradesNewestFirst(trades).map((trade) => trade.id),
+    ["new-last", "new-first", "middle", "old"]
+  );
+  assert.deepEqual(
+    trades.map((trade) => trade.id),
+    ["old", "new-first", "middle", "new-last"]
   );
 });
 

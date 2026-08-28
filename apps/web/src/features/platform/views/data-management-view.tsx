@@ -41,6 +41,7 @@ import {
   formatShares,
   formatTradeNumberInput,
   parseTradeNumberInput,
+  sortTradesNewestFirst,
   todayIsoDate,
   updateTradeCalculation,
   type AssetType,
@@ -79,6 +80,10 @@ export function DataManagementView() {
   const tradeUnitPrice = parseTradeNumberInput(tradeDraft.unitPrice);
   const tradeShares = parseTradeNumberInput(tradeDraft.shares);
   const isEditingTrade = Boolean(editingTradeId);
+  const tradesNewestFirst = React.useMemo(
+    () => sortTradesNewestFirst(state.trades),
+    [state.trades]
+  );
 
   const resetDraft = () => {
     setTradeDraft(initialTradeDraft);
@@ -307,7 +312,7 @@ export function DataManagementView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {state.trades.map((trade) => (
+              {tradesNewestFirst.map((trade) => (
                 <TableRow key={trade.id}>
                   <TableCell>{trade.date}</TableCell>
                   <TableCell className="font-medium">{trade.ticker}</TableCell>
