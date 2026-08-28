@@ -107,6 +107,62 @@ class PositionImportTest(unittest.TestCase):
         self.assertEqual([row["action"] for row in trades], ["卖出", "买入"])
         self.assertEqual(trades[1]["unitPrice"], 590)
 
+    def test_trade_sanitizer_accepts_common_model_field_aliases(self) -> None:
+        trades, warnings = position_import.sanitize_trades([
+            {
+                "symbol": "NOK",
+                "side": "buy",
+                "quantity": 10,
+                "fill_price": 10.928,
+            },
+            {
+                "symbol": "SMH",
+                "name": "VanEck Semiconductor ETF",
+                "side": "buy",
+                "quantity": 35,
+                "quantity_unit": "USD",
+                "fill_price": 595.2642,
+            },
+        ])
+
+        self.assertFalse(warnings)
+        self.assertEqual(trades[0]["ticker"], "NOK")
+        self.assertEqual(trades[0]["action"], "买入")
+        self.assertEqual(trades[0]["shares"], 10)
+        self.assertEqual(trades[1]["assetType"], "ETF")
+        self.assertEqual(trades[1]["amount"], 35)
+        self.assertAlmostEqual(trades[1]["shares"], 35 / 595.2642, places=6)
+
+    def test_recognition_repairs_a_nonstandard_first_response(self) -> None:
+        completions = [
+            {"content": "无法输出结构化结果", "endpoint": "responses"},
+            {
+                "content": '{"mode":"trades","positions":[],"trades":[{"ticker":"NOK","action":"买入","quantityType":"shares","quantity":10,"executionPrice":10.928}],"warnings":[]}',
+                "endpoint": "responses",
+            },
+        ]
+        with (
+            patch.object(
+                position_import,
+                "load_ai_settings",
+                return_value={"baseUrl": "https://example.test/v1", "model": "vision", "apiKey": "sk-test"},
+            ),
+            patch.object(
+                position_import,
+                "call_openai_compatible_completion",
+                side_effect=completions,
+            ) as completion_mock,
+        ):
+            result = position_import.recognize_position_screenshot(
+                "data:image/png;base64,AAAA"
+            )
+
+        self.assertEqual(completion_mock.call_count, 2)
+        self.assertEqual(result["trades"][0]["ticker"], "NOK")
+        repair_messages = completion_mock.call_args_list[1].kwargs["messages"]
+        self.assertEqual(repair_messages[-2]["role"], "assistant")
+        self.assertIn("顶层必须包含", repair_messages[-1]["content"])
+
     def test_auto_mode_uses_trade_rows_when_model_omits_mode(self) -> None:
         completion = {"content": '{"trades":[{"ticker":"SMCI","action":"Sell","shares":2,"executionPrice":41.69}]}', "endpoint": "responses"}
         with (

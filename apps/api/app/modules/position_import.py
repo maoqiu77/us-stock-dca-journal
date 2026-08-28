@@ -37,6 +37,10 @@ SYSTEM_PROMPT = """你负责从券商截图中提取持仓或当日交易。只�
 9. 对每一行同时保留 quantityType、quantity、amount、executionPrice、sourceText；sourceText 原样摘录订单文字（例如 `Buy $35.00 @ Market`、`Sell 2 @ Market`），方便用户确认。若截图文字和金额/价格无法自洽，加入该行 warnings，不要猜测。
 """
 
+REPAIR_PROMPT = """你刚才的结果无法被导入。请仅重新输出一个有效 JSON 对象，不要解释、不要 Markdown，也不要包含账户信息。
+顶层必须包含 mode、positions、trades、warnings。交易字段必须使用 action、ticker、assetType、quantityType、quantity、amount、executionPrice、sourceText、confidence；持仓字段必须使用 ticker、name、assetType、shares、averageCost、marketValue、currency、confidence、warnings。
+不要重新分析或改变图片中的数值，只把刚才已经识别到的内容改成以上字段结构。"""
+
 
 def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> dict[str, object]:
     validate_image_data_url(image_data_url)
@@ -44,24 +48,25 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
     if not settings.get("baseUrl") or not settings.get("model") or not settings.get("apiKey"):
         raise HTTPException(status_code=400, detail="请先在数据管理中配置并测试 AI 接口。")
 
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": f"识别这张券商截图，模式为 {mode}。如果是 auto 请自行判断是 portfolio 还是 trades。"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_data_url, "detail": "high"},
+                },
+            ],
+        },
+    ]
     try:
         completion = call_openai_compatible_completion(
             base_url=str(settings["baseUrl"]),
             model=str(settings["model"]),
             api_key=str(settings["apiKey"]),
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"识别这张券商截图，模式为 {mode}。如果是 auto 请自行判断是 portfolio 还是 trades。"},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": image_data_url, "detail": "high"},
-                        },
-                    ],
-                },
-            ],
+            messages=messages,
             timeout=AI_TIMEOUT_SECONDS,
         )
     except OpenAICompatibleRequestError as exc:
@@ -69,17 +74,44 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
 
     try:
         parsed = parse_json_object(completion["content"])
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "AI 已返回内容，但格式不是可解析的持仓 JSON。请重试；"
-                "若持续失败，请在 AI 模型配置中选择支持图片的模型。"
-            ),
-        ) from exc
-    positions, row_warnings = sanitize_positions(parsed.get("positions"))
-    trades, trade_warnings = sanitize_trades(parsed.get("trades"))
+    except ValueError:
+        parsed = None
+
     requested_mode = str(mode).lower()
+    positions, row_warnings = sanitize_positions(parsed.get("positions")) if parsed else ([], [])
+    trades, trade_warnings = sanitize_trades(parsed.get("trades")) if parsed else ([], [])
+    expected_rows_found = (
+        bool(trades)
+        if requested_mode == "trades"
+        else bool(positions)
+        if requested_mode == "portfolio"
+        else bool(positions or trades)
+    )
+    if not expected_rows_found:
+        try:
+            completion = call_openai_compatible_completion(
+                base_url=str(settings["baseUrl"]),
+                model=str(settings["model"]),
+                api_key=str(settings["apiKey"]),
+                messages=[
+                    *messages,
+                    {"role": "assistant", "content": completion["content"]},
+                    {"role": "user", "content": REPAIR_PROMPT},
+                ],
+                timeout=AI_TIMEOUT_SECONDS,
+            )
+            parsed = parse_json_object(completion["content"])
+        except (OpenAICompatibleRequestError, ValueError) as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "AI 已返回内容，但无法整理为可导入的持仓或交易数据。请重试；"
+                    "若持续失败，请在 AI 模型配置中选择支持图片的模型。"
+                ),
+            ) from exc
+        positions, row_warnings = sanitize_positions(parsed.get("positions"))
+        trades, trade_warnings = sanitize_trades(parsed.get("trades"))
+
     returned_mode = str(parsed.get("mode") or "").lower()
     if requested_mode in {"portfolio", "trades"}:
         detected_mode = requested_mode
@@ -106,17 +138,46 @@ def sanitize_trades(value: Any) -> tuple[list[dict[str, Any]], list[str]]:
     for item in value:
         if not isinstance(item, dict):
             continue
-        ticker = normalize_ticker(item.get("ticker", ""))
-        quantity_type = str(item.get("quantityType") or "shares").strip().lower()
-        quantity = positive_number(item.get("quantity"))
-        shares = positive_number(item.get("shares"))
-        raw_action = str(item.get("action") or "").strip().lower()
-        action = {"buy": "买入", "bought": "买入", "sell": "卖出", "sold": "卖出"}.get(raw_action, str(item.get("action") or "").strip())
-        bid_price = positive_number(item.get("bidPrice")) or positive_number(item.get("bid"))
-        ask_price = positive_number(item.get("askPrice")) or positive_number(item.get("ask"))
+        fields = normalize_model_fields(item)
+        ticker = normalize_ticker(model_field(fields, "ticker", "symbol", "securitySymbol", "stockSymbol", "code") or "")
+        quantity = positive_number(model_field(fields, "quantity", "filledQuantity", "filledQty", "executedQuantity"))
+        shares = positive_number(model_field(fields, "shares", "shareCount"))
+        amount = positive_number(model_field(fields, "amount", "notional", "dollarAmount", "totalAmount", "filledAmount"))
+        quantity_type_value = model_field(fields, "quantityType")
+        quantity_unit = str(model_field(fields, "quantityUnit") or "").strip().lower()
+        currency_units = {"usd", "hkd", "cny", "cad", "eur", "gbp", "jpy", "aud", "cash", "amount", "currency", "dollar", "dollars"}
+        if quantity_type_value:
+            raw_quantity_type = str(quantity_type_value).strip().lower()
+            quantity_type = "amount" if raw_quantity_type in currency_units else raw_quantity_type
+        elif quantity_unit in currency_units:
+            quantity_type = "amount"
+        elif amount is not None and quantity is None and shares is None:
+            quantity_type = "amount"
+        else:
+            quantity_type = "shares"
+        if quantity_type == "amount" and amount is None:
+            amount = quantity
+
+        raw_action_value = model_field(fields, "action", "side", "instruction", "tradeAction", "orderAction") or ""
+        raw_action = re.sub(r"[^a-z\u4e00-\u9fff]", "", str(raw_action_value).strip().lower())
+        if raw_action.startswith(("buy", "bought")):
+            action = "买入"
+        elif raw_action.startswith(("sell", "sold")):
+            action = "卖出"
+        else:
+            action = str(raw_action_value).strip()
+        bid_price = positive_number(model_field(fields, "bidPrice", "bid"))
+        ask_price = positive_number(model_field(fields, "askPrice", "ask"))
         quoted_price = ((bid_price + ask_price) / 2) if bid_price and ask_price else bid_price or ask_price
-        price = positive_number(item.get("executionPrice")) or positive_number(item.get("filledPrice")) or positive_number(item.get("unitPrice")) or positive_number(item.get("lastPrice")) or quoted_price
-        amount = positive_number(item.get("amount"))
+        price = (
+            positive_number(model_field(fields, "executionPrice", "executedPrice"))
+            or positive_number(model_field(fields, "filledPrice", "fillPrice"))
+            or positive_number(model_field(fields, "averagePrice", "avgPrice"))
+            or positive_number(model_field(fields, "averageFillPrice", "avgFillPrice"))
+            or positive_number(model_field(fields, "unitPrice", "lastPrice"))
+            or positive_number(model_field(fields, "limitPrice", "price"))
+            or quoted_price
+        )
         if not price and amount and shares:
             price = amount / shares
         if quantity_type == "amount":
@@ -127,8 +188,37 @@ def sanitize_trades(value: Any) -> tuple[list[dict[str, Any]], list[str]]:
             warnings.append(f"已忽略缺少代码、买卖方向、数量或成交价的交易行{f'（{ticker}）' if ticker else ''}。")
             continue
         amount = amount or shares * price
-        result.append({"ticker": ticker, "action": action, "shares": round(shares, 6), "unitPrice": round(price, 6), "amount": round(amount, 6), "assetType": "ETF" if str(item.get("assetType", "")).upper() == "ETF" else "STOCK", "confidence": confidence_number(item.get("confidence")), "sourceText": str(item.get("sourceText") or "").strip()[:240], "warnings": sanitize_warnings(item.get("warnings"))})
+        asset_type = str(model_field(fields, "assetType") or "").upper()
+        name = str(model_field(fields, "name", "securityName") or "").upper()
+        result.append(
+            {
+                "ticker": ticker,
+                "action": action,
+                "shares": round(shares, 6),
+                "unitPrice": round(price, 6),
+                "amount": round(amount, 6),
+                "assetType": "ETF" if asset_type == "ETF" or " ETF" in name else "STOCK",
+                "confidence": confidence_number(model_field(fields, "confidence")),
+                "sourceText": str(model_field(fields, "sourceText") or "").strip()[:240],
+                "warnings": sanitize_warnings(model_field(fields, "warnings")),
+            }
+        )
     return result, warnings
+
+
+def normalize_model_fields(value: dict[str, Any]) -> dict[str, Any]:
+    return {
+        re.sub(r"[^a-z0-9]", "", str(key).lower()): field_value
+        for key, field_value in value.items()
+    }
+
+
+def model_field(fields: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        value = fields.get(re.sub(r"[^a-z0-9]", "", name.lower()))
+        if value is not None and value != "":
+            return value
+    return None
 
 
 def validate_image_data_url(value: str) -> None:
