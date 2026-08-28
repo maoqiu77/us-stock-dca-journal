@@ -427,7 +427,14 @@ def to_responses_content(content: Any) -> Any:
             image_url = item.get("image_url")
             url = image_url.get("url") if isinstance(image_url, dict) else image_url
             if url:
-                converted.append({"type": "input_image", "image_url": str(url)})
+                converted_image = {
+                    "type": "input_image",
+                    "image_url": str(url),
+                }
+                detail = image_url.get("detail") if isinstance(image_url, dict) else None
+                if detail in {"auto", "low", "high"}:
+                    converted_image["detail"] = detail
+                converted.append(converted_image)
     return converted
 
 

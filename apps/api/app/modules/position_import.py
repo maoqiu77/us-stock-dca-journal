@@ -55,7 +55,10 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
                     "role": "user",
                     "content": [
                         {"type": "text", "text": f"识别这张券商截图，模式为 {mode}。如果是 auto 请自行判断是 portfolio 还是 trades。"},
-                        {"type": "image_url", "image_url": {"url": image_data_url}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": image_data_url, "detail": "high"},
+                        },
                     ],
                 },
             ],
@@ -66,8 +69,14 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
 
     try:
         parsed = parse_json_object(completion["content"])
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise HTTPException(status_code=502, detail="AI 未返回有效的持仓 JSON，请重试或更换支持图片的模型。") from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "AI 已返回内容，但格式不是可解析的持仓 JSON。请重试；"
+                "若持续失败，请在 AI 模型配置中选择支持图片的模型。"
+            ),
+        ) from exc
     positions, row_warnings = sanitize_positions(parsed.get("positions"))
     trades, trade_warnings = sanitize_trades(parsed.get("trades"))
     requested_mode = str(mode).lower()
@@ -130,14 +139,51 @@ def validate_image_data_url(value: str) -> None:
 
 
 def parse_json_object(content: str) -> dict[str, Any]:
-    cleaned = content.strip()
-    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", cleaned, flags=re.DOTALL | re.IGNORECASE)
-    if fenced:
-        cleaned = fenced.group(1)
-    parsed = json.loads(cleaned)
-    if not isinstance(parsed, dict):
-        raise ValueError("Expected object")
-    return parsed
+    cleaned = content.strip().lstrip("\ufeff")
+    if not cleaned:
+        raise ValueError("Empty model response")
+
+    decoder = json.JSONDecoder()
+    objects: list[dict[str, Any]] = []
+    candidates = [cleaned]
+    candidates.extend(
+        re.findall(
+            r"```(?:json)?\s*(.*?)\s*```",
+            cleaned,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+    )
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate.strip())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            if is_recognition_payload(parsed):
+                return parsed
+            objects.append(parsed)
+
+    # OpenAI-compatible providers sometimes wrap valid JSON in a short
+    # explanation. raw_decode lets us recover the object without weakening
+    # the downstream field validation.
+    for match in re.finditer(r"\{", cleaned):
+        try:
+            parsed, _ = decoder.raw_decode(cleaned[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            if is_recognition_payload(parsed):
+                return parsed
+            objects.append(parsed)
+
+    if objects:
+        return objects[0]
+    raise ValueError("Model response does not contain a JSON object")
+
+
+def is_recognition_payload(value: dict[str, Any]) -> bool:
+    return any(key in value for key in ("mode", "positions", "trades", "warnings"))
 
 
 def sanitize_positions(value: Any) -> tuple[list[dict[str, Any]], list[str]]:

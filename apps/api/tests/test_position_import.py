@@ -16,7 +16,13 @@ class PositionImportTest(unittest.TestCase):
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "extract"},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": "data:image/png;base64,AAAA",
+                            "detail": "high",
+                        },
+                    },
                 ],
             },
         ]
@@ -26,7 +32,30 @@ class PositionImportTest(unittest.TestCase):
 
         self.assertEqual(chat["messages"][1]["content"][1]["type"], "image_url")
         self.assertEqual(responses["input"][0]["content"][1]["type"], "input_image")
+        self.assertEqual(responses["input"][0]["content"][1]["detail"], "high")
         self.assertIs(responses["store"], False)
+
+    def test_json_parser_accepts_explanation_around_payload(self) -> None:
+        parsed = position_import.parse_json_object(
+            "识别结果如下：\n"
+            '{"mode":"portfolio","positions":[],"trades":[],"warnings":[]}'
+            "\n请核对。"
+        )
+
+        self.assertEqual(parsed["mode"], "portfolio")
+
+    def test_json_parser_accepts_fenced_payload_after_explanation(self) -> None:
+        parsed = position_import.parse_json_object(
+            "我已完成识别。\n```json\n"
+            '{"mode":"trades","positions":[],"trades":[],"warnings":[]}'
+            "\n```\n以上为结果。"
+        )
+
+        self.assertEqual(parsed["mode"], "trades")
+
+    def test_json_parser_rejects_response_without_an_object(self) -> None:
+        with self.assertRaises(ValueError):
+            position_import.parse_json_object("抱歉，我无法读取这张图片。")
 
     def test_recognition_sanitizes_model_output(self) -> None:
         completion = {
