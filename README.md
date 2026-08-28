@@ -1,10 +1,10 @@
 <a id="中文"></a>
 
-# 美股定投交易日记
+# 美股定投交易日记 · 量化分析
 
 [中文](#中文) | [English](#english)
 
-项目把每天的交易记录和与 AI 的对话整理成一份可浏览的投资日历。点击任意日期即可切换到当天，查看当天的交易操作、AI 建议和后续对话；不同日期之间可以随时来回切换，不必再从零散的记录中查找。每天积累下来的内容会形成连续的投资日记，方便回顾当时的判断、对照后续结果并持续复盘。
+这是一个面向美股个股和 ETF 的本地投资研究与交易辅助工具，新增的“量化分析”区域会先计算可复算的市场指标和相对表现，再通过多智能体协作生成结构化研判；它不会自动下单，也不构成投资建议。与此同时，项目把每天的交易记录和与 AI 的对话整理成一份可浏览的投资日历：点击任意日期即可切换到当天，查看交易操作、AI 建议和后续对话，持续回顾判断并进行复盘。
 
 ![整体界面截图](docs/screenshots/overview.png)
 
@@ -123,13 +123,13 @@ npm run dev:web
 
 <a id="english"></a>
 
-# 美股定投交易日记
+# US Stock DCA Journal + Quant Analysis
 
 [中文](#中文) | [English](#english)
 
 ## Highlights
 
-Daily trades and AI conversations are organized into a browsable investment calendar. Click any date to switch to that day and review its trades, AI advice, and follow-up conversation. You can move freely between dates instead of searching through scattered notes, creating a continuous journal for revisiting decisions, comparing later outcomes, and improving your investment process.
+This is a local research and trading-assistance tool for US equities and ETFs. Its new **Quant Analysis** workspace computes reproducible market indicators and relative performance first, then uses a multi-agent workflow to produce a structured research view; it never places trades and is not investment advice. Daily trades and AI conversations are also organized into a browsable investment calendar so you can review decisions, compare later outcomes, and improve your investment process.
 
 ![Application overview](docs/screenshots/overview.png)
 
