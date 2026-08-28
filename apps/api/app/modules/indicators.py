@@ -37,6 +37,37 @@ def add_indicators(df: pd.DataFrame, rsi_period: int = 14) -> pd.DataFrame:
     out["Drawdown252"] = (out["High252"] - close) / out["High252"]
     out["Return20"] = close.pct_change(20)
     out["Return60"] = close.pct_change(60)
+    ema12 = close.ewm(span=12, adjust=False, min_periods=12).mean()
+    ema26 = close.ewm(span=26, adjust=False, min_periods=26).mean()
+    out["MACD"] = ema12 - ema26
+    out["MACDSignal"] = out["MACD"].ewm(span=9, adjust=False, min_periods=9).mean()
+    out["MACDHistogram"] = out["MACD"] - out["MACDSignal"]
+    out["BollingerMiddle"] = close.rolling(window=20, min_periods=20).mean()
+    bollinger_std = close.rolling(window=20, min_periods=20).std(ddof=0)
+    out["BollingerUpper"] = out["BollingerMiddle"] + 2 * bollinger_std
+    out["BollingerLower"] = out["BollingerMiddle"] - 2 * bollinger_std
+    if {"High", "Low"}.issubset(out.columns):
+        previous_close = close.shift(1)
+        true_range = pd.concat(
+            [
+                out["High"] - out["Low"],
+                (out["High"] - previous_close).abs(),
+                (out["Low"] - previous_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        out["ATR14"] = true_range.ewm(
+            alpha=1 / 14, adjust=False, min_periods=14
+        ).mean()
+    else:
+        out["ATR14"] = np.nan
+    if "Volume" in out.columns:
+        volume_total = out["Volume"].rolling(window=20, min_periods=20).sum()
+        out["VWMA20"] = (close * out["Volume"]).rolling(
+            window=20, min_periods=20
+        ).sum() / volume_total.replace(0, np.nan)
+    else:
+        out["VWMA20"] = np.nan
     return out
 
 
@@ -59,6 +90,14 @@ def latest_metrics(df: pd.DataFrame) -> dict[str, float | str]:
         "Drawdown252",
         "Return20",
         "Return60",
+        "MACD",
+        "MACDSignal",
+        "MACDHistogram",
+        "BollingerUpper",
+        "BollingerMiddle",
+        "BollingerLower",
+        "ATR14",
+        "VWMA20",
     ]
     metrics: dict[str, float | str] = {
         key: float(row[key]) if pd.notna(row.get(key)) else np.nan for key in keys

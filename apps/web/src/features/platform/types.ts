@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ActivityIcon,
+  BrainCircuitIcon,
   BotIcon,
   CandlestickChartIcon,
   DatabaseIcon,
@@ -12,6 +13,7 @@ import {
 export type PlatformView =
   | "overview"
   | "charts"
+  | "quant"
   | "strategy"
   | "ai"
   | "health"
@@ -39,6 +41,12 @@ export const platformNavItems: PlatformNavItem[] = [
     icon: CandlestickChartIcon,
   },
   {
+    id: "quant",
+    title: "量化分析",
+    description: "单股多智能体研判",
+    icon: BrainCircuitIcon,
+  },
+  {
     id: "ai",
     title: "AI建议",
     description: "本地上下文建议流",
@@ -46,7 +54,7 @@ export const platformNavItems: PlatformNavItem[] = [
   },
   {
     id: "data",
-    title: "数据管理",
+    title: "数据管理与AI模型配置",
     description: "本地数据和安全提交",
     icon: DatabaseIcon,
   },

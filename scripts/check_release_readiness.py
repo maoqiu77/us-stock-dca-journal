@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLIENT_API_FILES = [
     ROOT / "apps/web/src/features/charts/api.ts",
     ROOT / "apps/web/src/features/platform/api.ts",
+    ROOT / "apps/web/src/features/quant-analysis/api.ts",
 ]
 NEXT_CONFIG = ROOT / "apps/web/next.config.ts"
 RELEASE_WORKFLOW = ROOT / ".github/workflows/build-release-packages.yml"

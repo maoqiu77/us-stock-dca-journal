@@ -8,7 +8,7 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
-CURRENT_DB_SCHEMA_VERSION = 1
+CURRENT_DB_SCHEMA_VERSION = 3
 
 
 def connect() -> sqlite3.Connection:
@@ -48,6 +48,84 @@ def migrate_db(connection: sqlite3.Connection) -> None:
             )
             """
         )
+        connection.execute("pragma user_version = 1")
+        version = 1
+    if version < 2:
+        connection.execute(
+            """
+            create table if not exists quant_analysis_runs (
+              id text primary key,
+              ticker text not null,
+              asset_type text not null default '',
+              requested_date text not null,
+              effective_date text not null,
+              mode text not null,
+              analysts_json text not null,
+              reflection_enabled integer not null default 0,
+              input_signature text not null,
+              model text not null default '',
+              version integer not null,
+              status text not null,
+              current_stage text not null default '',
+              progress integer not null default 0,
+              error_code text not null default '',
+              error_message text not null default '',
+              final_result_json text not null default '',
+              reflection_status text not null default 'disabled',
+              reflection_json text not null default '',
+              created_at text not null default current_timestamp,
+              started_at text not null default '',
+              completed_at text not null default '',
+              updated_at text not null default current_timestamp
+            )
+            """
+        )
+        connection.execute(
+            """
+            create table if not exists quant_analysis_steps (
+              run_id text not null,
+              step_key text not null,
+              sequence integer not null,
+              role text not null,
+              status text not null,
+              attempt integer not null default 1,
+              input_summary_json text not null default '{}',
+              output_json text not null default '',
+              data_sources_json text not null default '[]',
+              error_message text not null default '',
+              tokens_in integer not null default 0,
+              tokens_out integer not null default 0,
+              started_at text not null default '',
+              completed_at text not null default '',
+              primary key (run_id, step_key)
+            )
+            """
+        )
+        connection.execute(
+            """
+            create index if not exists idx_quant_runs_ticker_date
+            on quant_analysis_runs (ticker, effective_date, created_at desc)
+            """
+        )
+        connection.execute(
+            """
+            create index if not exists idx_quant_runs_signature
+            on quant_analysis_runs (input_signature, status, created_at desc)
+            """
+        )
+        connection.execute("pragma user_version = 2")
+        version = 2
+    if version < 3:
+        step_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "pragma table_info(quant_analysis_steps)"
+            ).fetchall()
+        }
+        if "duration_ms" not in step_columns:
+            connection.execute(
+                "alter table quant_analysis_steps add column duration_ms integer not null default 0"
+            )
         connection.execute(f"pragma user_version = {CURRENT_DB_SCHEMA_VERSION}")
 
 

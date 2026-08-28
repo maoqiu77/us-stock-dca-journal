@@ -1,47 +1,70 @@
 from __future__ import annotations
 
+import json
 import unittest
 from unittest.mock import patch
 
+import httpx
 import requests
 from fastapi import HTTPException
+from openai import OpenAI
 
 from app.modules import ai_settings
 
 
 class AiSettingsTest(unittest.TestCase):
     def test_connection_test_checks_responses_api(self) -> None:
-        responses = [
-            FakeResponse({"data": [{"id": "gpt-test"}]}),
-            FakeResponse(
-                {
-                    "output": [
-                        {
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [{"type": "output_text", "text": "ok"}],
-                        }
-                    ]
-                }
-            ),
-        ]
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["path"] = request.url.path
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json=sdk_responses_payload("ok"))
+
+        sdk_client = OpenAI(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            max_retries=0,
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
 
         with (
             patch.object(ai_settings, "load_ai_settings", return_value={}),
-            patch.object(requests, "get", return_value=responses[0]) as get,
-            patch.object(requests, "post", return_value=responses[1]) as post,
+            patch.object(
+                requests,
+                "get",
+                return_value=FakeResponse({"data": [{"id": "gpt-5.6-sol"}]}),
+            ) as get,
+            patch.object(ai_settings, "OpenAI", return_value=sdk_client) as openai_client,
         ):
             result = ai_settings.test_ai_settings_connection(
                 {
                     "baseUrl": "https://example.test/v1",
-                    "model": "gpt-test",
+                    "model": "gpt-5.6-sol",
                     "apiKey": "sk-test",
                 }
             )
 
         get.assert_called_once()
-        post.assert_called_once()
-        self.assertEqual(post.call_args.args[0], "https://example.test/v1/responses")
+        openai_client.assert_called_once_with(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            timeout=60,
+            max_retries=0,
+        )
+        self.assertEqual(captured["path"], "/v1/responses")
+        body = captured["body"]
+        self.assertIsInstance(body, dict)
+        self.assertEqual(body["model"], "gpt-5.6-sol")
+        self.assertIs(body["store"], False)
+        self.assertEqual(
+            body["reasoning"],
+            {"effort": "low"},
+        )
+        self.assertEqual(body["instructions"], "你是测试助手。")
+        self.assertEqual(body["input"], [{"role": "user", "content": "请只回复 ok。"}])
+        self.assertNotIn("messages", body)
+        self.assertNotIn("temperature", body)
         self.assertTrue(result["responsesOk"])
         self.assertEqual(result["generationEndpoint"], "responses")
         self.assertIn("Responses API 可用", result["message"])
@@ -90,6 +113,37 @@ class AiSettingsTest(unittest.TestCase):
         )
         self.assertEqual(result["generationEndpoint"], "chat/completions")
         self.assertIn("chat/completions API 可用", result["message"])
+
+    def test_sol_does_not_fall_back_to_chat_completions(self) -> None:
+        paths: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            paths.append(request.url.path)
+            return httpx.Response(
+                404,
+                json={"error": {"message": "no route available"}},
+            )
+
+        sdk_client = OpenAI(
+            api_key="sk-test",
+            base_url="https://example.test/v1",
+            max_retries=0,
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        with patch.object(ai_settings, "OpenAI", return_value=sdk_client):
+            with self.assertRaises(ai_settings.OpenAICompatibleRequestError) as context:
+                ai_settings.call_openai_compatible_completion(
+                    base_url="https://example.test/v1",
+                    model="gpt-5.6-sol",
+                    api_key="sk-test",
+                    messages=[{"role": "user", "content": "hello"}],
+                    timeout=20,
+                )
+
+        self.assertEqual(paths, ["/v1/responses"])
+        self.assertIn("404", str(context.exception))
+        self.assertIn("no route available", str(context.exception))
+        self.assertNotIn("sk-test", str(context.exception))
 
     def test_connection_test_continues_when_models_endpoint_is_blocked(self) -> None:
         with (
@@ -247,6 +301,39 @@ class FakeResponse:
     @property
     def text(self) -> str:
         return str(self.payload)
+
+
+def sdk_responses_payload(content: str) -> dict[str, object]:
+    return {
+        "id": "resp_test",
+        "object": "response",
+        "created_at": 1,
+        "model": "gpt-5.6-sol",
+        "status": "completed",
+        "output": [
+            {
+                "id": "msg_test",
+                "type": "message",
+                "role": "assistant",
+                "status": "completed",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": content,
+                        "annotations": [],
+                        "logprobs": [],
+                    }
+                ],
+            }
+        ],
+        "usage": {
+            "input_tokens": 1,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 1,
+            "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 2,
+        },
+    }
 
 
 if __name__ == "__main__":

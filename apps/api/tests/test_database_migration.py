@@ -55,6 +55,12 @@ class DatabaseMigrationTest(unittest.TestCase):
                         "select payload from app_state where key = ?",
                         ("ai_settings_v1",),
                     ).fetchone()[0]
+                    quant_tables = {
+                        row[0]
+                        for row in connection.execute(
+                            "select name from sqlite_master where type = 'table'"
+                        ).fetchall()
+                    }
             finally:
                 database.DB_PATH = original_db_path
                 database.TEMPLATE_HOME = original_template_home
@@ -62,6 +68,8 @@ class DatabaseMigrationTest(unittest.TestCase):
         self.assertEqual(version, database.CURRENT_DB_SCHEMA_VERSION)
         self.assertEqual(watchlist_count, 1)
         self.assertEqual(ai_payload, '{"model":"gpt-test"}')
+        self.assertIn("quant_analysis_runs", quant_tables)
+        self.assertIn("quant_analysis_steps", quant_tables)
 
 
 if __name__ == "__main__":

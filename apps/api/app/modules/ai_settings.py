@@ -7,14 +7,16 @@ from zoneinfo import ZoneInfo
 
 import requests
 from fastapi import HTTPException
+from openai import OpenAI, OpenAIError
 
 from app.core.database import get_state_payload, set_state_payload
 
 
 APP_STATE_KEY = "ai_settings_v1"
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
-AI_SETTINGS_TEST_TIMEOUT_SECONDS = 20
+AI_SETTINGS_TEST_TIMEOUT_SECONDS = 60
 OPENAI_COMPATIBLE_ENDPOINTS = ("responses", "chat/completions")
+RESPONSES_ONLY_MODELS = frozenset({"gpt-5.6-sol"})
 AI_REQUEST_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
@@ -273,6 +275,15 @@ def call_openai_compatible_completion(
 ) -> dict[str, str]:
     normalized_base_url, detected_endpoint = normalize_openai_base_url(base_url)
     endpoint_preference = preferred_endpoint or detected_endpoint
+    if requires_responses_api(model):
+        return call_responses_completion_with_sdk(
+            base_url=normalized_base_url,
+            model=model,
+            api_key=api_key,
+            messages=messages,
+            timeout=timeout,
+        )
+
     errors: list[str] = []
     for endpoint in openai_compatible_endpoint_order(endpoint_preference):
         try:
@@ -293,6 +304,43 @@ def call_openai_compatible_completion(
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             errors.append(f"{endpoint}: {exc}")
     raise OpenAICompatibleRequestError("；".join(errors))
+
+
+def call_responses_completion_with_sdk(
+    *,
+    base_url: str,
+    model: str,
+    api_key: str,
+    messages: list[dict[str, Any]],
+    timeout: int,
+) -> dict[str, str]:
+    client: OpenAI | None = None
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=0,
+        )
+        response = client.responses.create(
+            **build_responses_payload(model, messages),
+        )
+        content = str(response.output_text or "").strip()
+        if not content:
+            raise ValueError("Missing responses text")
+        return {
+            "content": content,
+            "endpoint": "responses",
+        }
+    except OpenAIError as exc:
+        raise OpenAICompatibleRequestError(
+            f"responses: {describe_openai_sdk_error(exc)}"
+        ) from exc
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
+        raise OpenAICompatibleRequestError(f"responses: {exc}") from exc
+    finally:
+        if client is not None:
+            client.close()
 
 
 def openai_compatible_endpoint_order(preferred_endpoint: str | None = None) -> list[str]:
@@ -346,10 +394,20 @@ def build_responses_payload(model: str, messages: list[dict[str, Any]]) -> dict[
         for message in messages
         if message.get("role") != "system" and has_message_content(message.get("content"))
     ]
-    payload: dict[str, Any] = {"model": model, "input": input_messages}
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": input_messages,
+        "store": False,
+    }
     if instructions:
         payload["instructions"] = instructions
+    if requires_responses_api(model):
+        payload["reasoning"] = {"effort": "low"}
     return payload
+
+
+def requires_responses_api(model: str) -> bool:
+    return str(model).strip().lower() in RESPONSES_ONLY_MODELS
 
 
 def has_message_content(content: Any) -> bool:
@@ -411,6 +469,15 @@ def describe_ai_request_error(exc: requests.exceptions.RequestException) -> str:
     if provider_message:
         return f"{exc}；服务返回：{provider_message}"
     return str(exc)
+
+
+def describe_openai_sdk_error(exc: OpenAIError) -> str:
+    response = getattr(exc, "response", None)
+    provider_message = extract_provider_error_message(response)
+    message = str(exc).strip()
+    if provider_message and provider_message not in message:
+        return f"{message}；服务返回：{provider_message}"
+    return message
 
 
 def extract_provider_error_message(response: Any) -> str:

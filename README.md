@@ -29,11 +29,17 @@
 
 请到 [Release 页面](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载：
 
-- Windows：`stock-trading-platform-next-v1.0.0-windows-x64.zip`
-- Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v1.0.0-macos-arm64.zip`
-- Intel 芯片 Mac：`stock-trading-platform-next-v1.0.0-macos-x64.zip`
+- Windows：`stock-trading-platform-next-v1.1.0-windows-x64.zip`
+- Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v1.1.0-macos-arm64.zip`
+- Intel 芯片 Mac：`stock-trading-platform-next-v1.1.0-macos-x64.zip`
 
 不要下载 GitHub 自动生成的 `Source code (zip)`，它是源码包，不是一键运行包。
+
+### Release V1.1.0
+
+本版本新增左侧“量化分析”区域。这是一个面向美股个股和 ETF 的量化研究功能：先计算可复算的技术指标和相对表现，再由多个专门角色协作完成技术、基本面、新闻、情绪、宏观、辩论和风险复核，最后生成结构化研判报告。它只读取公开市场信息，不读取账户金额、持仓、现金或交易流水，也不会自动下单。
+
+该多智能体研究流程借鉴了 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 的角色分工和研究辩论思路。TradingAgents 是一个开源的多智能体大语言模型金融交易研究框架，截至 2026-08-29 GitHub 显示约 101,567 stars（约 102k），采用 Apache License 2.0。本项目没有打包或运行 TradingAgents，而是在现有 Next.js + FastAPI、本地优先和隐私边界内做了独立实现；详细说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## Windows 使用方法
 
@@ -64,6 +70,19 @@ http://192.168.1.20:3000
 ## 数据保存在哪里
 
 私有运行数据保存在 `storage/local/`，可能包含账户金额、持仓、交易记录和 AI 设置。备份或分享项目时不要提交这个目录。公开示例数据位于 `storage/templates/`。
+
+## 量化分析与多智能体研判
+
+左侧“量化分析”面向 Yahoo 可识别的美国个股和 ETF。页面把结果分成两层：
+
+- 量化事实：均线、RSI、MACD、布林带、ATR、VWMA、回撤和相对 SPY 收益等可复算数据。
+- AI 研判：技术、基本面或 ETF 结构、新闻、社交情绪、宏观事件，以及多空和风险讨论形成的非确定性研究结论。
+
+可选公开来源包括 Yahoo Finance、Nasdaq、StockTwits、Reddit、FRED 和 Polymarket。历史日期不会使用当前 StockTwits、Reddit 或当前 Polymarket 数据，避免把未来信息混入历史报告。外部行情降级为 sample 时只保留界面预览，不会发送给 AI；没有任何真实数据时会停止后续决策链。
+
+快速模式通常调用“分析师数量 + 8”次 AI，深度模式通常调用“分析师数量 + 18”次 AI；结构化 JSON 修复可能额外调用一次。报告、阶段状态和可选的五日结果反思保存在 `storage/local/quant-analysis/` 与本地 SQLite 中。FRED Key 和 AI Key 只保存在本机，API 仅返回掩码。
+
+量化分析只发送标的代码、公开市场数据和公开新闻摘要，不发送账户金额、持仓、现金或交易流水。它不会自动下单，也不构成投资建议。多智能体角色架构的来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## 评测 AI 是否理解投资上下文
 
@@ -122,17 +141,25 @@ Daily trades and AI conversations are organized into a browsable investment cale
 
 This is a local stock research and trading-assistance tool for watchlists, candlestick charts, account summaries, strategy signals, backtests, and AI-generated advice.
 
+The Quant Analysis workspace supports Yahoo-recognized US equities and ETFs. It separates reproducible market facts from non-deterministic multi-agent interpretation, archives successful reports locally, excludes current social and prediction-market data from historical runs, and never sends account balances, positions, cash, or trading logs into its research prompts. Quick runs normally use `analyst count + 8` AI calls; deep runs use `analyst count + 18`, with a possible extra call for JSON repair. It does not place trades and is not investment advice.
+
 Data is stored on your computer by default and is not automatically uploaded to the cloud. Public releases contain sample data only and do not include real accounts, positions, trade records, or API keys.
 
 ## Download
 
 Download a ready-to-run package from the [Releases page](https://github.com/maoqiu77/us-stock-dca-journal/releases):
 
-- Windows: `stock-trading-platform-next-v1.0.0-windows-x64.zip`
-- Apple Silicon Mac: `stock-trading-platform-next-v1.0.0-macos-arm64.zip`
-- Intel Mac: `stock-trading-platform-next-v1.0.0-macos-x64.zip`
+- Windows: `stock-trading-platform-next-v1.1.0-windows-x64.zip`
+- Apple Silicon Mac: `stock-trading-platform-next-v1.1.0-macos-arm64.zip`
+- Intel Mac: `stock-trading-platform-next-v1.1.0-macos-x64.zip`
 
 Do not download GitHub's automatically generated `Source code (zip)` archive; it is for developers, not end users.
+
+### Release V1.1.0
+
+This release adds the **Quant Analysis** workspace to the left navigation. It is a quantitative research feature for US equities and ETFs: reproducible indicators and relative performance are computed first, then specialist roles collaborate across technicals, fundamentals, news, sentiment, macro events, debate, and risk review to produce a structured report. It reads public market information only, never sends account balances, positions, cash, or trading logs into research prompts, and never places trades.
+
+The multi-agent workflow is informed by the role architecture and research-debate pattern in [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents), an open-source multi-agent LLM financial-trading research framework with about 101,567 GitHub stars (about 102k as of 2026-08-29), released under Apache License 2.0. This project does not bundle or execute TradingAgents; it is an independent implementation adapted to this repository's Next.js + FastAPI stack, local-first operation, and privacy boundary. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the attribution details.
 
 ## Run the application
 

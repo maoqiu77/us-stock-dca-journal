@@ -26,6 +26,7 @@ class PositionImportTest(unittest.TestCase):
 
         self.assertEqual(chat["messages"][1]["content"][1]["type"], "image_url")
         self.assertEqual(responses["input"][0]["content"][1]["type"], "input_image")
+        self.assertIs(responses["store"], False)
 
     def test_recognition_sanitizes_model_output(self) -> None:
         completion = {

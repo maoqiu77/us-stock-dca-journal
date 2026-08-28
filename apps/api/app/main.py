@@ -11,6 +11,9 @@ from app.api_models import (
     AiSettingsTestRequest,
     AiSettingsUpdateRequest,
     PositionScreenshotRequest,
+    QuantAnalysisRunRequest,
+    ResearchSettingsTestRequest,
+    ResearchSettingsUpdateRequest,
     TradingStateRequest,
     UpdateStartRequest,
 )
@@ -29,6 +32,12 @@ from app.modules.ai_settings import (
 )
 from app.modules.market import get_chart, get_quotes
 from app.modules.position_import import recognize_position_screenshot
+from app.modules.quant_analysis.manager import quant_analysis_manager
+from app.modules.research_settings import (
+    get_research_settings_public,
+    test_fred_connection,
+    update_research_settings,
+)
 from app.modules.research import get_backtest_result, get_signal_rows
 from app.modules.app_update import (
     check_for_update,
@@ -67,6 +76,12 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    quant_analysis_manager.start()
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    quant_analysis_manager.stop()
 
 
 @app.get("/health")
@@ -221,3 +236,58 @@ def put_ai_settings(payload: AiSettingsUpdateRequest) -> dict[str, object]:
 @app.post("/api/ai-settings/test")
 def test_ai_settings(payload: AiSettingsTestRequest) -> dict[str, object]:
     return test_ai_settings_connection(payload.model_dump(exclude_none=True))
+
+
+@app.post("/api/quant-analysis/runs")
+def create_quant_analysis_run(payload: QuantAnalysisRunRequest) -> dict[str, object]:
+    return quant_analysis_manager.submit(payload)
+
+
+@app.get("/api/quant-analysis/runs")
+def quant_analysis_runs(
+    ticker: Optional[str] = Query(default=None),
+    date: Optional[str] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+) -> dict[str, object]:
+    return {
+        "items": quant_analysis_manager.list(
+            ticker=ticker,
+            effective_date=date,
+            status=status,
+        )
+    }
+
+
+@app.get("/api/quant-analysis/runs/{run_id}")
+def quant_analysis_run(run_id: str) -> dict[str, object]:
+    return quant_analysis_manager.get(run_id)
+
+
+@app.post("/api/quant-analysis/runs/{run_id}/cancel")
+def cancel_quant_analysis_run(run_id: str) -> dict[str, object]:
+    return quant_analysis_manager.cancel(run_id)
+
+
+@app.post("/api/quant-analysis/runs/{run_id}/resume")
+def resume_quant_analysis_run(run_id: str) -> dict[str, object]:
+    return quant_analysis_manager.resume(run_id)
+
+
+@app.post("/api/quant-analysis/runs/{run_id}/reflection")
+def reflect_quant_analysis_run(run_id: str) -> dict[str, object]:
+    return quant_analysis_manager.reflect(run_id)
+
+
+@app.get("/api/research-settings")
+def research_settings() -> dict[str, object]:
+    return get_research_settings_public()
+
+
+@app.put("/api/research-settings")
+def put_research_settings(payload: ResearchSettingsUpdateRequest) -> dict[str, object]:
+    return update_research_settings(payload.model_dump(exclude_none=True))
+
+
+@app.post("/api/research-settings/fred/test")
+def test_research_fred(payload: ResearchSettingsTestRequest) -> dict[str, object]:
+    return test_fred_connection(payload.model_dump(exclude_none=True))

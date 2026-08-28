@@ -464,6 +464,7 @@ class AiAdvicePromptTest(unittest.TestCase):
 
         self.assertEqual(content, "ok")
         self.assertEqual(post.call_args.args[0], "https://example.test/v1/responses")
+        self.assertIs(post.call_args.kwargs["json"]["store"], False)
         self.assertEqual(post.call_args.kwargs["json"]["instructions"], "system rules")
         self.assertEqual(post.call_args.kwargs["json"]["input"], [{"role": "user", "content": "user prompt"}])
 

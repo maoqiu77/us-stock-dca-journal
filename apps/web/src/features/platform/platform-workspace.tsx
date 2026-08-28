@@ -24,6 +24,7 @@ const ACTIVE_VIEW_STORAGE_KEY = "stock-platform-active-view-v1";
 const RESTORABLE_VIEWS: PlatformView[] = [
   "overview",
   "charts",
+  "quant",
   "strategy",
   "ai",
   "health",
@@ -35,6 +36,13 @@ const ChartWorkspace = dynamic(
   () =>
     import("@/features/charts/chart-workspace").then(
       (mod) => mod.ChartWorkspace
+    ),
+  { loading: () => <WorkspaceViewLoading /> }
+);
+const QuantAnalysisView = dynamic(
+  () =>
+    import("@/features/quant-analysis/quant-analysis-view").then(
+      (mod) => mod.QuantAnalysisView
     ),
   { loading: () => <WorkspaceViewLoading /> }
 );
@@ -148,6 +156,7 @@ export function PlatformWorkspace() {
         {activeView === "charts" ? (
           <ChartWorkspace marketRefreshKey={marketRefreshKey} />
         ) : null}
+        {activeView === "quant" ? <QuantAnalysisView /> : null}
         {activeView === "strategy" ? <StrategyView /> : null}
         {activeView === "ai" ? <AiAdviceView /> : null}
         {activeView === "health" ? <HealthCheckView /> : null}

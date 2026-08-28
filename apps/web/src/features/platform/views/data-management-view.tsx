@@ -74,6 +74,7 @@ import {
 } from "@/features/platform/trading-data";
 import { useTradingData } from "@/features/platform/trading-data-context";
 import { PositionScreenshotImport } from "@/features/platform/views/position-screenshot-import";
+import { ResearchSettingsCard } from "@/features/quant-analysis/research-settings-card";
 
 type TradeDraft = Omit<TradeRecord, "id" | "shares" | "unitPrice" | "amount"> & {
   shares: string;
@@ -856,6 +857,7 @@ export function DataManagementView() {
             </FieldGroup>
           </CardContent>
         </Card>
+        <ResearchSettingsCard />
         <Card>
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
