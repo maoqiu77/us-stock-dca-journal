@@ -6,6 +6,8 @@
 
 这是一个面向美股个股和 ETF 的本地投资研究与交易辅助工具，新增的“量化分析”区域会先计算可复算的市场指标和相对表现，再通过多智能体协作生成结构化研判；它不会自动下单，也不构成投资建议。与此同时，项目把每天的交易记录和与 AI 的对话整理成一份可浏览的投资日历：点击任意日期即可切换到当天，查看交易操作、AI 建议和后续对话，持续回顾判断并进行复盘。
 
+量化分析的多智能体研究流程借鉴了 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 的角色分工和研究辩论思路。TradingAgents 是一个开源的多智能体大语言模型金融交易研究框架，截至 2026-08-29 GitHub 显示约 101,567 stars（约 102k），采用 Apache License 2.0。本项目没有打包或运行 TradingAgents，而是在现有 Next.js + FastAPI、本地优先和隐私边界内做了独立实现；详细说明见 [THIRD_PARTY_NOTICES.md](https://github.com/maoqiu77/us-stock-dca-journal/blob/main/THIRD_PARTY_NOTICES.md)。
+
 ![整体界面截图](docs/screenshots/overview.png)
 
 ## 演示视频
