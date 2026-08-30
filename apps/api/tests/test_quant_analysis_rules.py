@@ -79,6 +79,15 @@ class QuantAnalysisRulesTest(unittest.TestCase):
         )
 
         self.assertEqual(first, second)
+        different_simple_model = build_input_signature(
+            ticker="AAPL",
+            effective_date="2026-08-28",
+            mode="quick",
+            analysts=["technical", "news"],
+            simple_model="another-simple-model",
+            complex_model="test-model",
+        )
+        self.assertNotEqual(first, different_simple_model)
         self.assertEqual(
             parse_structured_response('```json\n{"rating":"持有"}\n```'),
             {"rating": "持有"},

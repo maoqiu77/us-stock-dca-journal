@@ -41,7 +41,8 @@ function AiConnectionCard() {
   const settingsQuery = useAiSettingsQuery();
   const [draft, setDraft] = React.useState<{
     baseUrl?: string;
-    model?: string;
+    complexModel?: string;
+    simpleModel?: string;
     apiKey: string;
     clearApiKey: boolean;
   }>({
@@ -50,7 +51,10 @@ function AiConnectionCard() {
   });
   const [message, setMessage] = React.useState("");
   const baseUrl = draft.baseUrl ?? settingsQuery.data?.baseUrl ?? "";
-  const model = draft.model ?? settingsQuery.data?.model ?? "";
+  const complexModel =
+    draft.complexModel ?? settingsQuery.data?.complexModel ?? "gpt-5.6-sol";
+  const simpleModel =
+    draft.simpleModel ?? settingsQuery.data?.simpleModel ?? "gpt-5.6-luna";
   const saveMutation = useMutation({
     mutationFn: saveAiSettings,
     onSuccess: () => {
@@ -82,7 +86,7 @@ function AiConnectionCard() {
           <BotIcon />
           AI 连接设置
         </CardTitle>
-        <CardDescription>OpenAI-compatible URL、模型和本地密钥</CardDescription>
+        <CardDescription>OpenAI-compatible URL、分层模型和本地密钥</CardDescription>
         <Badge variant={settingsQuery.data?.hasApiKey ? "secondary" : "outline"}>
           {settingsQuery.data?.hasApiKey ? "密钥已保存" : "未配置密钥"}
         </Badge>
@@ -104,18 +108,34 @@ function AiConnectionCard() {
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor="ai-settings-model">模型</FieldLabel>
+            <FieldLabel htmlFor="ai-settings-complex-model">复杂任务模型</FieldLabel>
             <Input
-              id="ai-settings-model"
-              value={model}
+              id="ai-settings-complex-model"
+              value={complexModel}
               onChange={(event) =>
                 setDraft((current) => ({
                   ...current,
-                  model: event.target.value,
+                  complexModel: event.target.value,
                 }))
               }
-              placeholder="gpt-5.1"
+              placeholder="gpt-5.6-sol"
             />
+            <FieldDescription>研究经理、组合经理、AI 日历与 AI 建议。</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="ai-settings-simple-model">简单任务模型</FieldLabel>
+            <Input
+              id="ai-settings-simple-model"
+              value={simpleModel}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  simpleModel: event.target.value,
+                }))
+              }
+              placeholder="gpt-5.6-luna"
+            />
+            <FieldDescription>分析师、辩论、交易与风险角色。</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="ai-settings-api-key">API Key</FieldLabel>
@@ -163,7 +183,8 @@ function AiConnectionCard() {
               onClick={() =>
                 saveMutation.mutate({
                   baseUrl,
-                  model,
+                  complexModel,
+                  simpleModel,
                   apiKey: draft.apiKey || undefined,
                   clearApiKey: draft.clearApiKey,
                 })
@@ -178,7 +199,8 @@ function AiConnectionCard() {
               onClick={() =>
                 testMutation.mutate({
                   baseUrl,
-                  model,
+                  complexModel,
+                  simpleModel,
                   apiKey: draft.apiKey || undefined,
                   clearApiKey: false,
                 })

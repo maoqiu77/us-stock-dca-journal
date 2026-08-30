@@ -185,12 +185,14 @@ class AiAdvicePromptTest(unittest.TestCase):
         self.assertIn("Do not show internal field names", prompt)
         self.assertIn("Do not output English enum values", prompt)
         self.assertIn("Do not use a table", prompt)
-        self.assertIn("at most 3 tickers", prompt)
-        self.assertIn("Skip tickers with no action", prompt)
         self.assertIn("Keep the entire answer under 500 Chinese characters", prompt)
         self.assertNotIn("Provide one decision row per ticker", prompt)
         self.assertNotIn("Cite relevant AIContext field paths", prompt)
         self.assertNotIn("strategy-feedback section", prompt)
+        self.assertIn("CURRENT_HOLDING_TICKERS", prompt)
+        self.assertIn("cover every ticker", prompt)
+        self.assertNotIn("at most 3 tickers", prompt)
+        self.assertNotIn("Skip tickers with no action", prompt)
 
         system_prompt = ai_advice.daily_advice_system_prompt()
         self.assertIn("Never expose internal English keys", system_prompt)
@@ -210,6 +212,50 @@ class AiAdvicePromptTest(unittest.TestCase):
         )
         self.assertIn("under 300 Chinese characters", chat_prompt)
         self.assertIn("Do not expose internal English keys", chat_prompt)
+
+    def test_external_prompt_lists_only_actual_holdings_in_overview_order(self) -> None:
+        prompt = ai_advice.build_external_advice_prompt(
+            brief="",
+            summary={"totalAssets": 10000.0, "holdingCost": 3000.0, "cash": 7000.0},
+            state={"trades": []},
+            positions=[
+                {"ticker": "QQQM", "shares": 3},
+                {"ticker": "NVDA", "shares": 0},
+                {"ticker": "MSFT", "shares": 2},
+            ],
+            settings={},
+            strategy_config={},
+            risk_config={},
+            quotes=[],
+            signals=[],
+            intraday_context=[],
+            context={"beijing_time": "2026-08-30 12:00"},
+        )
+
+        holdings_section = prompt.split("CURRENT_HOLDING_TICKERS (authoritative overview holdings):\n", 1)[1]
+        self.assertTrue(holdings_section.startswith("QQQM, MSFT\n"))
+        self.assertNotIn("NVDA", holdings_section.split("\n", 1)[0])
+
+    def test_local_draft_gives_one_simple_action_for_every_actual_holding(self) -> None:
+        content = ai_advice.build_local_advice_content(
+            "",
+            {"totalAssets": 10000.0, "holdingCost": 3000.0, "cash": 7000.0},
+            [
+                {"ticker": "QQQM", "shares": 3},
+                {"ticker": "NVDA", "shares": 0},
+                {"ticker": "MSFT", "shares": 2},
+            ],
+            {},
+            [
+                {"ticker": "QQQM", "action": "允许分批加仓", "reasons": ["回撤进入配置区间"]},
+                {"ticker": "MSFT", "action": "观察等待"},
+            ],
+            {"beijing_time": "2026-08-30 12:00", "estimated_session_status": "休市", "timing_suggestion": "等待"},
+        )
+
+        self.assertIn("- QQQM：加仓，回撤进入配置区间。", content)
+        self.assertIn("- MSFT：持有不动，当前没有触发加仓或减仓条件。", content)
+        self.assertNotIn("- NVDA：", content)
 
     def test_chat_history_budget_keeps_latest_question_and_marks_truncation(self) -> None:
         messages = [
@@ -435,7 +481,8 @@ class AiAdvicePromptTest(unittest.TestCase):
                 "load_ai_settings",
                 return_value={
                     "baseUrl": "https://example.test/v1",
-                    "model": "gpt-test",
+                    "complexModel": "gpt-complex",
+                    "simpleModel": "gpt-5.6-luna",
                     "apiKey": "sk-test",
                 },
             ),
@@ -464,6 +511,7 @@ class AiAdvicePromptTest(unittest.TestCase):
 
         self.assertEqual(content, "ok")
         self.assertEqual(post.call_args.args[0], "https://example.test/v1/responses")
+        self.assertEqual(post.call_args.kwargs["json"]["model"], "gpt-complex")
         self.assertIs(post.call_args.kwargs["json"]["store"], False)
         self.assertEqual(post.call_args.kwargs["json"]["instructions"], "system rules")
         self.assertEqual(post.call_args.kwargs["json"]["input"], [{"role": "user", "content": "user prompt"}])

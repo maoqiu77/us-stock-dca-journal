@@ -263,6 +263,11 @@ def quant_analysis_run(run_id: str) -> dict[str, object]:
     return quant_analysis_manager.get(run_id)
 
 
+@app.delete("/api/quant-analysis/runs/{run_id}")
+def delete_quant_analysis_run(run_id: str) -> dict[str, object]:
+    return quant_analysis_manager.delete(run_id)
+
+
 @app.post("/api/quant-analysis/runs/{run_id}/cancel")
 def cancel_quant_analysis_run(run_id: str) -> dict[str, object]:
     return quant_analysis_manager.cancel(run_id)

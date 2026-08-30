@@ -13,6 +13,56 @@ from app.modules import ai_settings
 
 
 class AiSettingsTest(unittest.TestCase):
+    def test_legacy_luna_settings_migrate_to_tiered_defaults(self) -> None:
+        settings = ai_settings.sanitize_ai_settings(
+            {
+                "schemaVersion": 1,
+                "baseUrl": "https://example.test/v1",
+                "model": "gpt-5.6-luna",
+                "apiKey": "sk-test",
+            }
+        )
+
+        self.assertEqual(settings["schemaVersion"], 2)
+        self.assertEqual(settings["complexModel"], "gpt-5.6-sol")
+        self.assertEqual(settings["simpleModel"], "gpt-5.6-luna")
+
+    def test_connection_test_checks_both_tiered_models(self) -> None:
+        completions = [
+            {"content": "ok", "endpoint": "responses"},
+            {"content": "ok", "endpoint": "responses"},
+        ]
+        with (
+            patch.object(ai_settings, "load_ai_settings", return_value={}),
+            patch.object(
+                requests,
+                "get",
+                return_value=FakeResponse(
+                    {"data": [{"id": "gpt-5.6-sol"}, {"id": "gpt-5.6-luna"}]}
+                ),
+            ),
+            patch.object(
+                ai_settings,
+                "call_openai_compatible_completion",
+                side_effect=completions,
+            ) as completion,
+        ):
+            result = ai_settings.test_ai_settings_connection(
+                {
+                    "baseUrl": "https://example.test/v1",
+                    "complexModel": "gpt-5.6-sol",
+                    "simpleModel": "gpt-5.6-luna",
+                    "apiKey": "sk-test",
+                }
+            )
+
+        self.assertEqual(
+            [call.kwargs["model"] for call in completion.call_args_list],
+            ["gpt-5.6-sol", "gpt-5.6-luna"],
+        )
+        self.assertTrue(result["modelResults"]["complex"]["modelMatched"])
+        self.assertTrue(result["modelResults"]["simple"]["modelMatched"])
+
     def test_connection_test_checks_responses_api(self) -> None:
         captured: dict[str, object] = {}
 

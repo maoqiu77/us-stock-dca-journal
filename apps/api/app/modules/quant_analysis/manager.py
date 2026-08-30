@@ -16,6 +16,7 @@ from app.modules.quant_analysis.reflection import generate_reflection
 from app.modules.quant_analysis.sources import InstrumentResolutionError, resolve_instrument
 from app.modules.quant_analysis.store import (
     create_analysis_run,
+    delete_analysis_run,
     find_reusable_analysis_run,
     get_analysis_run,
     list_analysis_runs,
@@ -29,6 +30,8 @@ class QuantAnalysisManager:
         self._queue: queue.Queue[str | None] = queue.Queue()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._delete_lock = threading.Lock()
+        self._deleted_run_ids: set[str] = set()
 
     def start(self) -> None:
         with self._lock:
@@ -53,10 +56,12 @@ class QuantAnalysisManager:
 
     def submit(self, request: QuantAnalysisRunRequest) -> dict[str, Any]:
         settings = load_ai_settings()
-        model = str(settings.get("model") or "").strip()
+        simple_model = str(settings.get("simpleModel") or settings.get("model") or "").strip()
+        complex_model = str(settings.get("complexModel") or settings.get("model") or "").strip()
         if not (
             str(settings.get("baseUrl") or "").strip()
-            and model
+            and simple_model
+            and complex_model
             and str(settings.get("apiKey") or "").strip()
         ):
             raise HTTPException(status_code=400, detail="请先在数据管理中配置完整的 AI 接口。")
@@ -74,7 +79,8 @@ class QuantAnalysisManager:
             effective_date=effective_date,
             mode=request.mode.value,
             analysts=analysts,
-            model=model,
+            simple_model=simple_model,
+            complex_model=complex_model,
         )
         if not request.forceRegenerate:
             reusable = find_reusable_analysis_run(signature)
@@ -92,8 +98,9 @@ class QuantAnalysisManager:
             mode=request.mode.value,
             analysts=analysts,
             reflection_enabled=request.reflectionEnabled,
-            model=model,
             input_signature=signature,
+            simple_model=simple_model,
+            complex_model=complex_model,
         )
         run = update_analysis_run(run["id"], asset_type=instrument["assetType"])
         self._queue.put(run["id"])
@@ -122,6 +129,16 @@ class QuantAnalysisManager:
             effective_date=effective_date,
             status=status,
         )
+
+    def delete(self, run_id: str) -> dict[str, Any]:
+        run = self.get(run_id)
+        if run["status"] in {"queued", "running", "cancel_requested"}:
+            with self._delete_lock:
+                self._deleted_run_ids.add(run_id)
+        try:
+            return delete_analysis_run(run_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="量化分析任务不存在。") from exc
 
     def cancel(self, run_id: str) -> dict[str, Any]:
         run = self.get(run_id)
@@ -164,6 +181,17 @@ class QuantAnalysisManager:
                     except Exception:
                         pass
             finally:
+                if run_id:
+                    with self._delete_lock:
+                        deleted = run_id in self._deleted_run_ids
+                    if deleted:
+                        try:
+                            delete_analysis_run(run_id)
+                        except KeyError:
+                            pass
+                        finally:
+                            with self._delete_lock:
+                                self._deleted_run_ids.discard(run_id)
                 self._queue.task_done()
 
 

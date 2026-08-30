@@ -37,6 +37,7 @@ ROLE_LABELS = {
     "risk_conservative": "保守风险研究员",
     "portfolio_manager": "组合研究经理",
 }
+COMPLEX_ROLES = frozenset({"research_manager", "portfolio_manager"})
 
 
 def execute_analysis_run(run_id: str) -> dict[str, Any]:
@@ -46,9 +47,10 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
 
     settings = load_ai_settings()
     base_url = str(settings.get("baseUrl") or "").strip()
-    model = str(settings.get("model") or run.get("model") or "").strip()
+    simple_model = str(run.get("simpleModel") or run.get("model") or "").strip()
+    complex_model = str(run.get("complexModel") or run.get("model") or "").strip()
     api_key = str(settings.get("apiKey") or "").strip()
-    if not (base_url and model and api_key):
+    if not (base_url and simple_model and complex_model and api_key):
         return update_analysis_run(
             run_id,
             status="interrupted",
@@ -70,6 +72,7 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
         ticker=str(run["ticker"]),
         asset_type=str(run["assetType"]),
         effective_date=str(run["effectiveDate"]),
+        requested_date=str(run["requestedDate"]),
         analysts=list(run["analysts"]),
     )
     evidence = {
@@ -93,6 +96,11 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
             return _finish_canceled(run_id)
 
         step_key = str(step["stepKey"])
+        step_model = model_for_role(
+            role=str(step["role"]),
+            simple_model=simple_model,
+            complex_model=complex_model,
+        )
         existing = existing_steps.get(step_key)
         if existing and existing["status"] in TERMINAL_STEP_STATUSES:
             _update_progress(run_id, plan)
@@ -163,6 +171,7 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
             sequence=int(step["sequence"]),
             role=str(step["role"]),
             status="running",
+            model=step_model,
             input_summary=_input_summary(run, step, context),
             data_sources=data_sources,
             started_at=step_started,
@@ -172,7 +181,7 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
                 role=str(step["role"]),
                 context=context,
                 base_url=base_url,
-                model=model,
+                model=step_model,
                 api_key=api_key,
             )
         except (OpenAICompatibleRequestError, ValueError, json.JSONDecodeError) as exc:
@@ -183,6 +192,7 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
                 sequence=int(step["sequence"]),
                 role=str(step["role"]),
                 status="failed",
+                model=step_model,
                 input_summary=_input_summary(run, step, context),
                 data_sources=data_sources,
                 error_message=str(exc),
@@ -206,6 +216,7 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
             sequence=int(step["sequence"]),
             role=str(step["role"]),
             status="completed",
+            model=step_model,
             input_summary=_input_summary(run, step, context),
             output=output,
             data_sources=data_sources,
@@ -244,6 +255,10 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
     )
     export_analysis_run(run_id)
     return result
+
+
+def model_for_role(*, role: str, simple_model: str, complex_model: str) -> str:
+    return complex_model if role in COMPLEX_ROLES else simple_model
 
 
 def call_structured_ai(

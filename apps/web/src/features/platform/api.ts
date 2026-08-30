@@ -118,9 +118,11 @@ export type AiAdviceCalendarResponse = {
 };
 
 export type AiSettings = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   baseUrl: string;
   model: string;
+  complexModel: string;
+  simpleModel: string;
   hasApiKey: boolean;
   apiKeyMasked: string;
   updatedAt: string;
@@ -128,7 +130,8 @@ export type AiSettings = {
 
 export type AiSettingsInput = {
   baseUrl: string;
-  model: string;
+  complexModel: string;
+  simpleModel: string;
   apiKey?: string;
   clearApiKey?: boolean;
 };
@@ -137,10 +140,21 @@ export type AiSettingsTestResult = {
   ok: boolean;
   baseUrl: string;
   model: string;
+  complexModel: string;
+  simpleModel: string;
   modelMatched: boolean | null;
   modelCount: number;
   responsesOk: boolean;
   generationEndpoint?: string;
+  modelResults: Record<
+    "complex" | "simple",
+    {
+      model: string;
+      modelMatched: boolean | null;
+      generationEndpoint: string;
+      ok: boolean;
+    }
+  >;
   message: string;
 };
 

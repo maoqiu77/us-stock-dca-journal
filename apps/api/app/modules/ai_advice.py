@@ -291,7 +291,12 @@ def build_local_advice_content(
         for signal in signals
         if signal.get("action") and not str(signal["action"]).startswith("不")
     ]
-    watched = signals[:5]
+    held_positions = [position for position in positions if number(position.get("shares")) > 0]
+    signal_by_ticker = {
+        context_ticker(signal): signal
+        for signal in signals
+        if context_ticker(signal)
+    }
     lines = [
         f"生成时间：{context['beijing_time']}（北京时间）",
         "",
@@ -314,18 +319,17 @@ def build_local_advice_content(
         f"- 深回撤区间：{number(settings.get('deeperPullbackMin'), 0.10):.0%}-{number(settings.get('deeperPullbackMax'), 0.18):.0%}",
         f"- 单次加仓上限：总资产 {number(settings.get('singleAddAssetRatio'), 0.05):.0%} / 现金 {number(settings.get('singleAddCashRatio'), 0.20):.0%}",
         "",
-        "## 今日信号",
+        "## 今日持仓建议",
         "",
     ]
-    if watched:
-        for signal in watched:
-            reason = signal.get("reasons") or signal.get("blocked_reasons") or signal.get("risk_notes") or ""
-            lines.append(
-                f"- {signal.get('ticker', '')}: {signal.get('action', '')} / {signal.get('status', '')}，"
-                f"建议金额 ${number(signal.get('suggested_amount')):,.2f}。{reason}"
-            )
+    if held_positions:
+        for position in held_positions:
+            ticker = context_ticker(position)
+            signal = signal_by_ticker.get(ticker, {})
+            action, reason = local_holding_advice(signal)
+            lines.append(f"- {ticker}：{action}，{reason}")
     else:
-        lines.append("- 暂无信号数据。")
+        lines.append("- 当前没有实际持仓。")
     lines.extend(
         [
             "",
@@ -349,9 +353,42 @@ def build_local_advice_content(
     return "\n".join(lines)
 
 
+def local_holding_advice(signal: dict[str, Any]) -> tuple[str, str]:
+    action_text = str(signal.get("action", "")).strip()
+    status_text = str(signal.get("status", "")).strip()
+    raw_action = f"{action_text} {status_text}"
+    if any(keyword in raw_action for keyword in ("减仓", "卖出")):
+        action = "减仓"
+        fallback = "当前风险或仓位信号提示需要收缩敞口。"
+    elif action_text in {"允许加仓", "允许建仓", "允许分批加仓", "买入"} or status_text in {
+        "允许加仓",
+        "允许建仓",
+        "允许分批加仓",
+    }:
+        action = "加仓"
+        fallback = "当前信号允许继续分批配置。"
+    else:
+        action = "持有不动"
+        fallback = "当前没有触发加仓或减仓条件。"
+    reason = first_advice_reason(
+        signal.get("reasons") or signal.get("blocked_reasons") or signal.get("risk_notes")
+    )
+    return action, reason or fallback
+
+
+def first_advice_reason(value: Any) -> str:
+    if isinstance(value, list):
+        value = next((item for item in value if str(item).strip()), "")
+    reason = str(value or "").strip()
+    if not reason:
+        return ""
+    return reason if reason.endswith(("。", "！", "？")) else f"{reason}。"
+
+
 def ensure_external_ai_allowed(state: dict[str, Any]) -> None:
     ai_settings = load_ai_settings()
-    if not ai_settings.get("apiKey") or not ai_settings.get("baseUrl") or not ai_settings.get("model"):
+    complex_model = ai_settings.get("complexModel") or ai_settings.get("model")
+    if not ai_settings.get("apiKey") or not ai_settings.get("baseUrl") or not complex_model:
         raise HTTPException(status_code=400, detail="请先在数据管理配置 AI Base URL、模型和 API Key。")
 
 
@@ -359,7 +396,7 @@ def call_ai_response(messages: list[dict[str, str]]) -> str:
     ai_settings = load_ai_settings()
     api_key = str(ai_settings.get("apiKey", "")).strip()
     base_url = str(ai_settings.get("baseUrl", "")).strip().rstrip("/")
-    model = str(ai_settings.get("model", "")).strip()
+    model = str(ai_settings.get("complexModel") or ai_settings.get("model") or "").strip()
     if not api_key or not base_url or not model:
         raise HTTPException(status_code=400, detail="AI 设置不完整。")
     try:
@@ -674,15 +711,21 @@ def build_external_advice_prompt(
         context=context,
     )
     extra_question = brief.strip() or "none"
+    held_tickers = [
+        context_ticker(position)
+        for position in positions
+        if context_ticker(position) and number(position.get("shares")) > 0
+    ]
+    held_ticker_text = ", ".join(held_tickers) or "none"
     return f"""Create today's final manual US-equity allocation advice from the context below.
 Respond in Simplified Chinese. Preserve ticker symbols and indicator abbreviations.
 
 Requirements:
 1. Start with a Simplified Chinese generation-time line containing `YYYY-MM-DD HH:MM` and the Beijing-time label.
 2. Keep the entire answer under 500 Chinese characters. Use short paragraphs or bullets only. Do not use a table.
-3. Give the conclusion in 2-4 sentences. Answer the extra question directly when present.
-4. Mention at most 3 tickers: only actual buy/reduce actions or important risk warnings. Skip tickers with no action and no urgent warning.
-5. For each mentioned ticker, state only the Chinese action, amount/shares when actionable, and one short reason.
+3. After the generation-time line, cover every ticker in CURRENT_HOLDING_TICKERS exactly once and in the listed order. Never omit a current holding, even when no trade is needed.
+4. Write exactly one compact bullet sentence per current holding in this format: `- TICKER：加仓/减仓/持有不动，one short reason。` Choose exactly one of those three Chinese actions.
+5. Include amount or shares only when useful and actionable. If there are no current holdings, say that in one short sentence. Answer the extra question in at most one additional sentence when present.
 6. Do not show internal field names, JSON paths, source-text labels, or implementation details.
 7. Do not output English enum values such as `do_not_add`, `allow_batch_add`, `risk_pause`, or `wait_for_pullback`. Translate all user-facing labels into natural Chinese.
 8. Do not repeat the full account, strategy, position list, or evidence chain. Mention estimated-cash uncertainty once only when relevant.
@@ -693,6 +736,9 @@ Requirements:
 
 Extra user question (verbatim):
 {extra_question}
+
+CURRENT_HOLDING_TICKERS (authoritative overview holdings):
+{held_ticker_text}
 
 {AI_CONTEXT_VERSION}:
 {json.dumps(ai_context, ensure_ascii=False, separators=(",", ":"))}

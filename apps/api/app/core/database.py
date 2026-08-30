@@ -8,7 +8,7 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
-CURRENT_DB_SCHEMA_VERSION = 3
+CURRENT_DB_SCHEMA_VERSION = 4
 
 
 def connect() -> sqlite3.Connection:
@@ -125,6 +125,39 @@ def migrate_db(connection: sqlite3.Connection) -> None:
         if "duration_ms" not in step_columns:
             connection.execute(
                 "alter table quant_analysis_steps add column duration_ms integer not null default 0"
+            )
+        connection.execute("pragma user_version = 3")
+        version = 3
+    if version < 4:
+        run_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "pragma table_info(quant_analysis_runs)"
+            ).fetchall()
+        }
+        if "simple_model" not in run_columns:
+            connection.execute(
+                "alter table quant_analysis_runs add column simple_model text not null default ''"
+            )
+        if "complex_model" not in run_columns:
+            connection.execute(
+                "alter table quant_analysis_runs add column complex_model text not null default ''"
+            )
+        connection.execute(
+            "update quant_analysis_runs set simple_model = model where simple_model = ''"
+        )
+        connection.execute(
+            "update quant_analysis_runs set complex_model = model where complex_model = ''"
+        )
+        step_columns = {
+            str(row["name"])
+            for row in connection.execute(
+                "pragma table_info(quant_analysis_steps)"
+            ).fetchall()
+        }
+        if "model" not in step_columns:
+            connection.execute(
+                "alter table quant_analysis_steps add column model text not null default ''"
             )
         connection.execute(f"pragma user_version = {CURRENT_DB_SCHEMA_VERSION}")
 

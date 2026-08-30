@@ -28,6 +28,7 @@ export type QuantAnalysisStep = {
   sequence: number;
   role: string;
   status: string;
+  model: string;
   attempt: number;
   inputSummary: Record<string, unknown>;
   output: Record<string, unknown> | null;
@@ -82,6 +83,8 @@ export type QuantAnalysisRun = {
   reflectionEnabled: boolean;
   inputSignature: string;
   model: string;
+  simpleModel: string;
+  complexModel: string;
   version: number;
   status: QuantRunStatus;
   currentStage: string;

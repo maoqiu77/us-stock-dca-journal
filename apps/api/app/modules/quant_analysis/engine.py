@@ -14,14 +14,17 @@ def build_input_signature(
     effective_date: str,
     mode: str,
     analysts: list[str],
-    model: str,
+    model: str = "",
+    simple_model: str = "",
+    complex_model: str = "",
 ) -> str:
     payload = {
         "ticker": ticker.upper(),
         "effectiveDate": effective_date,
         "mode": mode,
         "analysts": sorted(set(analysts)),
-        "model": model,
+        "simpleModel": simple_model or model,
+        "complexModel": complex_model or model,
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

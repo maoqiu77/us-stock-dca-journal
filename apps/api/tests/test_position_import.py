@@ -72,9 +72,18 @@ class PositionImportTest(unittest.TestCase):
             patch.object(
                 position_import,
                 "load_ai_settings",
-                return_value={"baseUrl": "https://example.test/v1", "model": "vision", "apiKey": "sk-test"},
+                return_value={
+                    "baseUrl": "https://example.test/v1",
+                    "complexModel": "gpt-5.6-sol",
+                    "simpleModel": "gpt-5.6-luna",
+                    "apiKey": "sk-test",
+                },
             ),
-            patch.object(position_import, "call_openai_compatible_completion", return_value=completion),
+            patch.object(
+                position_import,
+                "call_openai_compatible_completion",
+                return_value=completion,
+            ) as caller,
         ):
             result = position_import.recognize_position_screenshot("data:image/png;base64,AAAA")
 
@@ -82,6 +91,7 @@ class PositionImportTest(unittest.TestCase):
         self.assertEqual(result["positions"][0]["ticker"], "QQQM")
         self.assertEqual(result["positions"][0]["confidence"], 1.0)
         self.assertIn("核对成本", result["warnings"])
+        self.assertEqual(caller.call_args.kwargs["model"], "gpt-5.6-luna")
 
     def test_recognition_requires_configured_ai(self) -> None:
         with patch.object(position_import, "load_ai_settings", return_value={}):

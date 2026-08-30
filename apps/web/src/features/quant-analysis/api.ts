@@ -40,6 +40,14 @@ export function fetchQuantAnalysisRun(runId: string): Promise<QuantAnalysisRun> 
   return requestJson(`/api/quant-analysis/runs/${encodeURIComponent(runId)}`);
 }
 
+export function deleteQuantAnalysisRun(
+  runId: string
+): Promise<{ id: string; deleted: boolean }> {
+  return requestJson(`/api/quant-analysis/runs/${encodeURIComponent(runId)}`, {
+    method: "DELETE",
+  });
+}
+
 export function createQuantAnalysisRun(
   payload: CreateQuantAnalysisRunInput
 ): Promise<QuantAnalysisRun> {

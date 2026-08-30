@@ -37,7 +37,13 @@ def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, A
 
     settings = load_ai_settings()
     base_url = str(settings.get("baseUrl") or "").strip()
-    model = str(settings.get("model") or run.get("model") or "").strip()
+    model = str(
+        run.get("complexModel")
+        or run.get("model")
+        or settings.get("complexModel")
+        or settings.get("model")
+        or ""
+    ).strip()
     api_key = str(settings.get("apiKey") or "").strip()
     if not (base_url and model and api_key):
         raise HTTPException(status_code=400, detail="请先配置完整的 AI 接口。")

@@ -45,7 +45,8 @@ REPAIR_PROMPT = """你刚才的结果无法被导入。请仅重新输出一个�
 def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> dict[str, object]:
     validate_image_data_url(image_data_url)
     settings = load_ai_settings()
-    if not settings.get("baseUrl") or not settings.get("model") or not settings.get("apiKey"):
+    model = str(settings.get("simpleModel") or settings.get("model") or "").strip()
+    if not settings.get("baseUrl") or not model or not settings.get("apiKey"):
         raise HTTPException(status_code=400, detail="请先在数据管理中配置并测试 AI 接口。")
 
     messages = [
@@ -64,7 +65,7 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
     try:
         completion = call_openai_compatible_completion(
             base_url=str(settings["baseUrl"]),
-            model=str(settings["model"]),
+            model=model,
             api_key=str(settings["apiKey"]),
             messages=messages,
             timeout=AI_TIMEOUT_SECONDS,
@@ -91,7 +92,7 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
         try:
             completion = call_openai_compatible_completion(
                 base_url=str(settings["baseUrl"]),
-                model=str(settings["model"]),
+                model=model,
                 api_key=str(settings["apiKey"]),
                 messages=[
                     *messages,

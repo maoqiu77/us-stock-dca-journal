@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import csv
+import html
 import json
 import math
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timezone
+from io import StringIO
 from typing import Any
 from urllib.parse import urlencode
 
@@ -17,9 +21,12 @@ from app.modules.research_settings import load_research_settings
 
 YAHOO_SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
+FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv"
 POLYMARKET_URL = "https://gamma-api.polymarket.com/markets"
 STOCKTWITS_URL = "https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
 REDDIT_SEARCH_URL = "https://www.reddit.com/search.json"
+HACKER_NEWS_SEARCH_URL = "https://hn.algolia.com/api/v1/search_by_date"
+NASDAQ_SUMMARY_URL = "https://api.nasdaq.com/api/quote/{ticker}/summary"
 REQUEST_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "StockLab/0.1 public-research-client",
@@ -121,10 +128,11 @@ def collect_analysis_sources(
     ticker: str,
     asset_type: str,
     effective_date: str,
+    requested_date: str | None = None,
     analysts: list[str],
     today: str | None = None,
 ) -> dict[str, dict[str, Any]]:
-    policy = analyst_source_policy(effective_date, today=today)
+    policy = analyst_source_policy(requested_date or effective_date, today=today)
     selected = [item for item in ANALYST_ORDER if item in set(analysts)]
     results: dict[str, dict[str, Any]] = {}
     tasks: dict[str, Any] = {}
@@ -206,63 +214,113 @@ def collect_technical(ticker: str, effective_date: str) -> dict[str, Any]:
 def collect_fundamentals(
     ticker: str, asset_type: str, effective_date: str
 ) -> dict[str, Any]:
+    yahoo_error = ""
     try:
         import yfinance as yf
 
         instrument = yf.Ticker(ticker)
         info = instrument.info or {}
     except Exception as exc:
-        return _unavailable("fundamentals", f"Yahoo 基本面数据不可用：{exc}")
+        info = {}
+        yahoo_error = str(exc)
 
-    if not isinstance(info, dict) or not info:
-        return _unavailable("fundamentals", "Yahoo 基本面数据为空。")
-    if asset_type.upper() == "ETF":
-        keys = (
-            "category",
-            "fundFamily",
-            "annualReportExpenseRatio",
-            "totalAssets",
-            "navPrice",
-            "yield",
-            "threeYearAverageReturn",
-            "fiveYearAverageReturn",
-            "beta3Year",
-        )
-    else:
-        keys = (
-            "marketCap",
-            "enterpriseValue",
-            "trailingPE",
-            "forwardPE",
-            "priceToBook",
-            "enterpriseToEbitda",
-            "revenueGrowth",
-            "earningsGrowth",
-            "profitMargins",
-            "operatingMargins",
-            "freeCashflow",
-            "operatingCashflow",
-            "totalCash",
-            "totalDebt",
-            "dividendYield",
-            "beta",
-        )
-    data = {key: _json_safe(info.get(key)) for key in keys if info.get(key) is not None}
-    data.update(
-        {
-            "role": fundamentals_role(asset_type),
-            "currency": str(info.get("currency") or "USD"),
-            "asOf": effective_date,
+    if isinstance(info, dict) and info:
+        if asset_type.upper() == "ETF":
+            keys = (
+                "category",
+                "fundFamily",
+                "annualReportExpenseRatio",
+                "totalAssets",
+                "navPrice",
+                "yield",
+                "threeYearAverageReturn",
+                "fiveYearAverageReturn",
+                "beta3Year",
+            )
+        else:
+            keys = (
+                "marketCap",
+                "enterpriseValue",
+                "trailingPE",
+                "forwardPE",
+                "priceToBook",
+                "enterpriseToEbitda",
+                "revenueGrowth",
+                "earningsGrowth",
+                "profitMargins",
+                "operatingMargins",
+                "freeCashflow",
+                "operatingCashflow",
+                "totalCash",
+                "totalDebt",
+                "dividendYield",
+                "beta",
+            )
+        data = {
+            key: _json_safe(info.get(key))
+            for key in keys
+            if info.get(key) is not None
         }
+        data.update(
+            {
+                "role": fundamentals_role(asset_type),
+                "currency": str(info.get("currency") or "USD"),
+                "asOf": effective_date,
+            }
+        )
+        if len(data) > 3:
+            return {
+                "analyst": "fundamentals",
+                "status": "available",
+                "data": data,
+                "sources": [_source("yahoo", "", effective_date, True)],
+            }
+
+    try:
+        url = NASDAQ_SUMMARY_URL.format(ticker=ticker)
+        payload = _fetch_json(
+            url,
+            params={"assetclass": "etf" if asset_type.upper() == "ETF" else "stocks"},
+            timeout=12,
+        )
+        root = payload.get("data") if isinstance(payload, dict) else None
+        summary = root.get("summaryData") if isinstance(root, dict) else None
+        fields = {
+            key: {
+                "label": str(value.get("label") or key),
+                "value": _json_safe(value.get("value")),
+            }
+            for key, value in summary.items()
+            if isinstance(value, dict) and value.get("value") not in (None, "", "N/A")
+        } if isinstance(summary, dict) else {}
+        if fields:
+            return {
+                "analyst": "fundamentals",
+                "status": "available",
+                "data": {
+                    "role": fundamentals_role(asset_type),
+                    "currency": "USD",
+                    "asOf": effective_date,
+                    "summaryFields": fields,
+                    "dataLimitations": [
+                        "Yahoo 基本面数据不可用，已降级为 Nasdaq 公开摘要字段。"
+                    ],
+                },
+                "sources": [_source("nasdaq", url, effective_date, True)],
+            }
+    except Exception as exc:
+        nasdaq_error = str(exc)
+    else:
+        nasdaq_error = "Nasdaq 可用基本面字段不足。"
+    details = "；".join(
+        item
+        for item in (
+            f"Yahoo: {yahoo_error}" if yahoo_error else "Yahoo 可用基本面字段不足",
+            f"Nasdaq: {nasdaq_error}",
+        )
+        if item
     )
-    if len(data) <= 3:
-        return _unavailable("fundamentals", "Yahoo 可用基本面字段不足。")
-    return {
-        "analyst": "fundamentals",
-        "status": "available",
-        "data": data,
-        "sources": [_source("yahoo", "", effective_date, True)],
-    }
+    return _unavailable("fundamentals", details)
 
 
 def collect_news(ticker: str, effective_date: str) -> dict[str, Any]:
@@ -352,6 +410,46 @@ def collect_social(ticker: str) -> dict[str, Any]:
             )
     except Exception as exc:
         errors.append(f"Reddit: {exc}")
+    if not items:
+        try:
+            payload = _fetch_json(
+                HACKER_NEWS_SEARCH_URL,
+                params={
+                    "query": f"${ticker}",
+                    "tags": "(story,comment)",
+                    "hitsPerPage": 100,
+                },
+                timeout=12,
+            )
+            ticker_pattern = re.compile(
+                rf"\${re.escape(ticker)}(?![A-Za-z0-9])", re.IGNORECASE
+            )
+            for hit in payload.get("hits", []) if isinstance(payload, dict) else []:
+                if not isinstance(hit, dict):
+                    continue
+                raw_text = str(hit.get("title") or hit.get("comment_text") or "")
+                if not ticker_pattern.search(raw_text):
+                    continue
+                text = _plain_text(raw_text)
+                if not text:
+                    continue
+                object_id = str(hit.get("objectID") or "")
+                items.append(
+                    {
+                        "source": "Hacker News",
+                        "title": text[:280],
+                        "summary": "",
+                        "publishedAt": str(hit.get("created_at") or ""),
+                        "sentiment": "",
+                        "url": (
+                            f"https://news.ycombinator.com/item?id={object_id}"
+                            if object_id
+                            else str(hit.get("url") or hit.get("story_url") or "")
+                        ),
+                    }
+                )
+        except Exception as exc:
+            errors.append(f"Hacker News: {exc}")
     items = [item for item in items if item["title"]]
     if not items:
         return _unavailable("social", "；".join(errors) or "无社交样本。")
@@ -369,8 +467,13 @@ def collect_social(ticker: str) -> dict[str, Any]:
             "items": items,
         },
         "sources": [
-            _source("stocktwits", STOCKTWITS_URL.format(ticker=ticker), date.today().isoformat(), True),
-            _source("reddit", REDDIT_SEARCH_URL, date.today().isoformat(), True),
+            _source(name.lower().replace(" ", "-"), url, date.today().isoformat(), True)
+            for name, url in (
+                ("StockTwits", STOCKTWITS_URL.format(ticker=ticker)),
+                ("Reddit", REDDIT_SEARCH_URL),
+                ("Hacker News", HACKER_NEWS_SEARCH_URL),
+            )
+            if any(item.get("source") == name for item in items)
         ],
     }
 
@@ -409,6 +512,16 @@ def collect_macro(effective_date: str, *, include_polymarket: bool) -> dict[str,
                     )
             except Exception as exc:
                 errors.append(f"FRED {series_id}: {exc}")
+    collected_series = {str(item.get("series")) for item in fred}
+    for series_id, label in FRED_SERIES.items():
+        if series_id in collected_series:
+            continue
+        try:
+            observation = _fetch_fred_csv_observation(series_id, effective_date)
+            if observation:
+                fred.append({"series": series_id, "label": label, **observation})
+        except Exception as exc:
+            errors.append(f"FRED CSV {series_id}: {exc}")
     try:
         payload = _fetch_json(
             YAHOO_SEARCH_URL,
@@ -465,7 +578,14 @@ def collect_macro(effective_date: str, *, include_polymarket: bool) -> dict[str,
         return _unavailable("macro", "；".join(errors) or "宏观数据不可用。")
     sources = []
     if fred:
-        sources.append(_source("fred", FRED_OBSERVATIONS_URL, effective_date, True))
+        sources.append(
+            _source(
+                "fred",
+                FRED_OBSERVATIONS_URL if fred_key else FRED_CSV_URL,
+                effective_date,
+                True,
+            )
+        )
     if news:
         sources.append(_source("yahoo", YAHOO_SEARCH_URL, effective_date, True))
     if markets:
@@ -493,6 +613,31 @@ def _fetch_json(
     response = requests.get(url, params=params, headers=REQUEST_HEADERS, timeout=timeout)
     response.raise_for_status()
     return response.json()
+
+
+def _fetch_fred_csv_observation(
+    series_id: str, effective_date: str
+) -> dict[str, str] | None:
+    response = requests.get(
+        FRED_CSV_URL,
+        params={"id": series_id},
+        headers=REQUEST_HEADERS,
+        timeout=12,
+    )
+    response.raise_for_status()
+    latest: dict[str, str] | None = None
+    for row in csv.DictReader(StringIO(response.text)):
+        observation_date = str(row.get("observation_date") or "")
+        value = str(row.get(series_id) or "")
+        if not observation_date or observation_date > effective_date or value in {"", "."}:
+            continue
+        latest = {"date": observation_date, "value": value}
+    return latest
+
+
+def _plain_text(value: str) -> str:
+    without_tags = re.sub(r"<[^>]+>", " ", value)
+    return " ".join(html.unescape(without_tags).split())
 
 
 def _bars_through_date(raw_bars: Any, effective_date: str) -> list[dict[str, Any]]:

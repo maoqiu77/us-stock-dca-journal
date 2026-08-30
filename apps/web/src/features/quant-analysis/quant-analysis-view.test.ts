@@ -27,6 +27,8 @@ test("quant view exposes full run lifecycle and historical safeguards", () => {
   assert.match(source, /cancelQuantAnalysisRun/);
   assert.match(source, /resumeQuantAnalysisRun/);
   assert.match(source, /createQuantAnalysisReflection/);
+  assert.match(source, /deleteQuantAnalysisRun/);
+  assert.match(source, /删除历史记录/);
   assert.match(source, /历史日期不使用当前社交情绪/);
   assert.match(source, /当前 Polymarket 已排除/);
   assert.match(source, /预计 AI 调用/);

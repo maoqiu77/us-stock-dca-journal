@@ -24,9 +24,10 @@ AI_REQUEST_HEADERS = {
 }
 
 DEFAULT_AI_SETTINGS: dict[str, Any] = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "baseUrl": "",
-    "model": "",
+    "complexModel": "gpt-5.6-sol",
+    "simpleModel": "gpt-5.6-luna",
     "apiKey": "",
     "updatedAt": "",
 }
@@ -57,10 +58,20 @@ def get_ai_settings_public() -> dict[str, Any]:
 
 def update_ai_settings(payload: dict[str, Any]) -> dict[str, Any]:
     current = load_ai_settings()
+    legacy_model = str(payload.get("model") or "").strip()
     next_settings = {
         **current,
         "baseUrl": str(payload.get("baseUrl", current.get("baseUrl", ""))).strip(),
-        "model": str(payload.get("model", current.get("model", ""))).strip(),
+        "complexModel": str(
+            payload.get("complexModel")
+            or legacy_model
+            or current.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])
+        ).strip(),
+        "simpleModel": str(
+            payload.get("simpleModel")
+            or legacy_model
+            or current.get("simpleModel", DEFAULT_AI_SETTINGS["simpleModel"])
+        ).strip(),
         "updatedAt": beijing_timestamp(),
     }
     if payload.get("clearApiKey"):
@@ -75,15 +86,33 @@ def update_ai_settings(payload: dict[str, Any]) -> dict[str, Any]:
 def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
     current = load_ai_settings()
     base_url = str(payload.get("baseUrl") or current.get("baseUrl", "")).strip().rstrip("/")
-    model = str(payload.get("model") or current.get("model", "")).strip()
     api_key = str(payload.get("apiKey") or current.get("apiKey", "")).strip()
-    if not base_url or not model or not api_key:
-        raise HTTPException(status_code=400, detail="请先提供 AI Base URL、模型和 API Key。")
+    has_tiered_payload = "complexModel" in payload or "simpleModel" in payload
+    legacy_model = str(payload.get("model") or "").strip()
+    complex_model = str(
+        payload.get("complexModel")
+        or legacy_model
+        or current.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])
+    ).strip()
+    simple_model = str(
+        payload.get("simpleModel")
+        or legacy_model
+        or current.get("simpleModel", DEFAULT_AI_SETTINGS["simpleModel"])
+    ).strip()
+    models_to_test = (
+        [("complex", complex_model), ("simple", simple_model)]
+        if has_tiered_payload
+        else [("complex", complex_model)]
+    )
+    if not base_url or not api_key or any(not model for _, model in models_to_test):
+        raise HTTPException(
+            status_code=400,
+            detail="请先提供 AI Base URL、复杂任务模型、简单任务模型和 API Key。",
+        )
 
     normalized_base_url, preferred_endpoint = normalize_openai_base_url(base_url)
     headers = build_ai_request_headers(api_key)
     models: list[str] = []
-    model_matched: bool | None = None
     models_error = ""
     try:
         response = requests.get(
@@ -94,45 +123,46 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
         response.raise_for_status()
         payload_json = response.json()
         models = extract_model_ids(payload_json)
-        model_matched = model in models if models else None
     except requests.exceptions.RequestException as exc:
         models_error = f"；/models 测试失败：{describe_ai_request_error(exc)}"
     except ValueError as exc:
         models_error = "；/models 测试返回的 JSON 格式无效。"
 
-    try:
-        completion = call_openai_compatible_completion(
-            base_url=normalized_base_url,
-            model=model,
-            api_key=api_key,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "你是测试助手。",
-                },
-                {
-                    "role": "user",
-                    "content": "请只回复 ok。",
-                },
-            ],
-            timeout=AI_SETTINGS_TEST_TIMEOUT_SECONDS,
-            preferred_endpoint=preferred_endpoint,
-        )
-    except OpenAICompatibleRequestError as exc:
-        detail = f"AI 生成接口测试失败：{exc}"
-        if models_error:
-            detail += models_error
-        raise HTTPException(
-            status_code=502,
-            detail=detail,
-        ) from exc
+    model_results: dict[str, dict[str, Any]] = {}
+    for tier, model in models_to_test:
+        model_matched = model in models if models else None
+        try:
+            completion = call_openai_compatible_completion(
+                base_url=normalized_base_url,
+                model=model,
+                api_key=api_key,
+                messages=[
+                    {"role": "system", "content": "你是测试助手。"},
+                    {"role": "user", "content": "请只回复 ok。"},
+                ],
+                timeout=AI_SETTINGS_TEST_TIMEOUT_SECONDS,
+                preferred_endpoint=preferred_endpoint,
+            )
+        except OpenAICompatibleRequestError as exc:
+            tier_label = "复杂任务模型" if tier == "complex" else "简单任务模型"
+            detail = f"AI 生成接口测试失败（{tier_label}）：{exc}"
+            if models_error:
+                detail += models_error
+            raise HTTPException(status_code=502, detail=detail) from exc
+        model_results[tier] = {
+            "model": model,
+            "modelMatched": model_matched,
+            "generationEndpoint": completion["endpoint"],
+            "ok": True,
+        }
 
-    generation_endpoint = completion["endpoint"]
-    endpoint_label = (
-        "Responses API" if generation_endpoint == "responses" else "chat/completions API"
-    )
-
-    if model_matched is False:
+    primary = model_results["complex"]
+    generation_endpoint = str(primary["generationEndpoint"])
+    endpoint_label = "Responses API" if generation_endpoint == "responses" else "chat/completions API"
+    model_matched = primary["modelMatched"]
+    if has_tiered_payload:
+        message = "连接成功，复杂任务模型和简单任务模型均可用。"
+    elif model_matched is False:
         message = f"连接成功，{endpoint_label} 可用，但 /models 返回列表中没有当前模型。"
     elif model_matched is True:
         message = f"连接成功，当前模型存在，{endpoint_label} 可用。"
@@ -143,11 +173,14 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "baseUrl": normalized_base_url,
-        "model": model,
+        "model": complex_model,
+        "complexModel": complex_model,
+        "simpleModel": simple_model,
         "modelMatched": model_matched,
         "modelCount": len(models),
         "responsesOk": True,
         "generationEndpoint": generation_endpoint,
+        "modelResults": model_results,
         "message": message,
     }
 
@@ -155,9 +188,11 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
 def public_ai_settings(settings: dict[str, Any]) -> dict[str, Any]:
     api_key = str(settings.get("apiKey", ""))
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "baseUrl": str(settings.get("baseUrl", "")),
-        "model": str(settings.get("model", "")),
+        "complexModel": str(settings.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])),
+        "simpleModel": str(settings.get("simpleModel", DEFAULT_AI_SETTINGS["simpleModel"])),
+        "model": str(settings.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])),
         "hasApiKey": bool(api_key),
         "apiKeyMasked": mask_api_key(api_key),
         "updatedAt": str(settings.get("updatedAt", "")),
@@ -167,10 +202,22 @@ def public_ai_settings(settings: dict[str, Any]) -> dict[str, Any]:
 def sanitize_ai_settings(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return DEFAULT_AI_SETTINGS.copy()
+    legacy_model = str(value.get("model", "")).strip()
+    if legacy_model == DEFAULT_AI_SETTINGS["simpleModel"]:
+        legacy_model = ""
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "baseUrl": str(value.get("baseUrl", "")).strip(),
-        "model": str(value.get("model", "")).strip(),
+        "complexModel": str(
+            value.get("complexModel")
+            or legacy_model
+            or DEFAULT_AI_SETTINGS["complexModel"]
+        ).strip(),
+        "simpleModel": str(
+            value.get("simpleModel")
+            or legacy_model
+            or DEFAULT_AI_SETTINGS["simpleModel"]
+        ).strip(),
         "apiKey": str(value.get("apiKey", "")).strip(),
         "updatedAt": str(value.get("updatedAt", "")).strip(),
     }

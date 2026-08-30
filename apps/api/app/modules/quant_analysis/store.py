@@ -37,8 +37,10 @@ def create_analysis_run(
     mode: str,
     analysts: list[str],
     reflection_enabled: bool,
-    model: str,
     input_signature: str,
+    model: str = "",
+    simple_model: str = "",
+    complex_model: str = "",
 ) -> dict[str, Any]:
     database.init_db()
     run_id = uuid.uuid4().hex
@@ -57,9 +59,10 @@ def create_analysis_run(
             """
             insert into quant_analysis_runs (
               id, ticker, requested_date, effective_date, mode, analysts_json,
-              reflection_enabled, input_signature, model, version, status,
+              reflection_enabled, input_signature, model, simple_model,
+              complex_model, version, status,
               reflection_status, created_at, updated_at
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?)
             """,
             (
                 run_id,
@@ -70,7 +73,9 @@ def create_analysis_run(
                 json.dumps(analysts, ensure_ascii=False),
                 1 if reflection_enabled else 0,
                 input_signature,
-                model,
+                complex_model or model,
+                simple_model or model,
+                complex_model or model,
                 version,
                 "pending" if reflection_enabled else "disabled",
                 now,
@@ -127,6 +132,28 @@ def list_analysis_runs(
     return [get_analysis_run(str(row["id"])) for row in rows]
 
 
+def delete_analysis_run(run_id: str) -> dict[str, Any]:
+    database.init_db()
+    with database.connect() as connection:
+        row = connection.execute(
+            "select ticker, effective_date from quant_analysis_runs where id = ?", (run_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        connection.execute("delete from quant_analysis_steps where run_id = ?", (run_id,))
+        connection.execute("delete from quant_analysis_runs where id = ?", (run_id,))
+
+    safe_ticker = re.sub(r"[^A-Z0-9.-]", "_", str(row["ticker"]).upper())
+    report_path = REPORT_HOME / safe_ticker / str(row["effective_date"]) / f"{run_id}.json"
+    report_path.unlink(missing_ok=True)
+    for directory in (report_path.parent, report_path.parent.parent):
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
+    return {"id": run_id, "deleted": True}
+
+
 def find_reusable_analysis_run(input_signature: str) -> dict[str, Any] | None:
     database.init_db()
     with database.connect() as connection:
@@ -176,6 +203,7 @@ def upsert_analysis_step(
     sequence: int,
     role: str,
     status: str,
+    model: str = "",
     input_summary: dict[str, Any] | None = None,
     output: dict[str, Any] | None = None,
     data_sources: list[dict[str, Any]] | None = None,
@@ -191,14 +219,15 @@ def upsert_analysis_step(
         connection.execute(
             """
             insert into quant_analysis_steps (
-              run_id, step_key, sequence, role, status, input_summary_json,
+              run_id, step_key, sequence, role, status, model, input_summary_json,
               output_json, data_sources_json, error_message, tokens_in, tokens_out,
               started_at, completed_at, duration_ms
-            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             on conflict(run_id, step_key) do update set
               sequence = excluded.sequence,
               role = excluded.role,
               status = excluded.status,
+              model = excluded.model,
               input_summary_json = excluded.input_summary_json,
               output_json = excluded.output_json,
               data_sources_json = excluded.data_sources_json,
@@ -215,6 +244,7 @@ def upsert_analysis_step(
                 int(sequence),
                 role,
                 status,
+                model,
                 json.dumps(input_summary or {}, ensure_ascii=False),
                 json.dumps(output, ensure_ascii=False) if output is not None else "",
                 json.dumps(data_sources or [], ensure_ascii=False),
@@ -265,6 +295,8 @@ def _run_to_public(row: dict[str, Any], steps: list[dict[str, Any]]) -> dict[str
         "reflectionEnabled": bool(row["reflection_enabled"]),
         "inputSignature": row["input_signature"],
         "model": row["model"],
+        "simpleModel": row.get("simple_model") or row["model"],
+        "complexModel": row.get("complex_model") or row["model"],
         "version": int(row["version"]),
         "status": row["status"],
         "currentStage": row["current_stage"],
@@ -291,6 +323,7 @@ def _step_to_public(row: dict[str, Any]) -> dict[str, Any]:
         "sequence": int(row["sequence"]),
         "role": row["role"],
         "status": row["status"],
+        "model": row.get("model") or "",
         "attempt": int(row["attempt"]),
         "inputSummary": _json_value(row["input_summary_json"], {}),
         "output": _json_value(row["output_json"], None),

@@ -25,8 +25,9 @@ class QuantAnalysisReflectionTest(unittest.TestCase):
             mode="quick",
             analysts=["technical"],
             reflection_enabled=True,
-            model="gpt-test",
             input_signature="reflection-signature",
+            simple_model="gpt-5.6-luna",
+            complex_model="gpt-5.6-sol",
         )
         store.update_analysis_run(
             self.run["id"],
@@ -82,6 +83,7 @@ class QuantAnalysisReflectionTest(unittest.TestCase):
         self.assertEqual(first["reflection"]["performance"]["excessReturnPct"], 3.0)
         self.assertEqual(second["reflection"], first["reflection"])
         completion.assert_called_once()
+        self.assertEqual(completion.call_args.kwargs["model"], "gpt-5.6-sol")
 
 
 if __name__ == "__main__":

@@ -69,8 +69,9 @@ class QuantAnalysisStoreTest(unittest.TestCase):
             mode="deep",
             analysts=["technical", "macro"],
             reflection_enabled=True,
-            model="gpt-test",
             input_signature="export-signature",
+            simple_model="gpt-5.6-luna",
+            complex_model="gpt-5.6-sol",
         )
         self.store.upsert_analysis_step(
             run["id"],
@@ -78,6 +79,7 @@ class QuantAnalysisStoreTest(unittest.TestCase):
             sequence=1,
             role="技术分析师",
             status="completed",
+            model="gpt-5.6-luna",
             output={"summary": "趋势向上"},
             data_sources=[{"name": "Yahoo", "status": "real"}],
         )
@@ -104,6 +106,9 @@ class QuantAnalysisStoreTest(unittest.TestCase):
         self.assertEqual(export_path.parent.name, "2026-08-28")
         self.assertEqual(export_path.parent.parent.name, "SPY")
         self.assertEqual(exported["finalResult"], {"rating": "增持"})
+        self.assertEqual(saved["simpleModel"], "gpt-5.6-luna")
+        self.assertEqual(saved["complexModel"], "gpt-5.6-sol")
+        self.assertEqual(saved["steps"][0]["model"], "gpt-5.6-luna")
         self.assertEqual(len(exported["steps"]), 2)
 
     def test_startup_marks_running_jobs_interrupted_without_touching_completed_jobs(self) -> None:
@@ -135,6 +140,57 @@ class QuantAnalysisStoreTest(unittest.TestCase):
         self.assertEqual(changed, 1)
         self.assertEqual(self.store.get_analysis_run(running["id"])["status"], "interrupted")
         self.assertEqual(self.store.get_analysis_run(completed["id"])["status"], "completed")
+
+    def test_delete_run_removes_database_steps_and_exported_report(self) -> None:
+        run = self.store.create_analysis_run(
+            ticker="AAPL",
+            requested_date="2026-08-28",
+            effective_date="2026-08-28",
+            mode="quick",
+            analysts=["technical"],
+            reflection_enabled=False,
+            model="gpt-test",
+            input_signature="delete-completed",
+        )
+        self.store.upsert_analysis_step(
+            run["id"],
+            step_key="analyst:technical",
+            sequence=1,
+            role="analyst_technical",
+            status="completed",
+        )
+        report_path = self.store.export_analysis_run(run["id"])
+
+        result = self.store.delete_analysis_run(run["id"])
+
+        self.assertEqual(result, {"id": run["id"], "deleted": True})
+        self.assertFalse(report_path.exists())
+        with self.assertRaises(KeyError):
+            self.store.get_analysis_run(run["id"])
+        with database.connect() as connection:
+            step_count = connection.execute(
+                "select count(*) from quant_analysis_steps where run_id = ?", (run["id"],)
+            ).fetchone()[0]
+        self.assertEqual(step_count, 0)
+
+    def test_delete_failed_run_succeeds_without_exported_report(self) -> None:
+        run = self.store.create_analysis_run(
+            ticker="MSFT",
+            requested_date="2026-08-28",
+            effective_date="2026-08-28",
+            mode="quick",
+            analysts=["technical"],
+            reflection_enabled=False,
+            model="gpt-test",
+            input_signature="delete-failed",
+        )
+        self.store.update_analysis_run(run["id"], status="failed")
+
+        result = self.store.delete_analysis_run(run["id"])
+
+        self.assertTrue(result["deleted"])
+        with self.assertRaises(KeyError):
+            self.store.get_analysis_run(run["id"])
 
 
 if __name__ == "__main__":

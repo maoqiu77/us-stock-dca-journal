@@ -29,6 +29,8 @@ class PositionScreenshotRequest(BaseModel):
 class AiSettingsUpdateRequest(BaseModel):
     baseUrl: Optional[StrictStr] = None
     model: Optional[StrictStr] = None
+    complexModel: Optional[StrictStr] = None
+    simpleModel: Optional[StrictStr] = None
     apiKey: Optional[StrictStr] = None
     clearApiKey: Optional[StrictBool] = None
 
@@ -36,6 +38,8 @@ class AiSettingsUpdateRequest(BaseModel):
 class AiSettingsTestRequest(BaseModel):
     baseUrl: Optional[StrictStr] = None
     model: Optional[StrictStr] = None
+    complexModel: Optional[StrictStr] = None
+    simpleModel: Optional[StrictStr] = None
     apiKey: Optional[StrictStr] = None
 
 

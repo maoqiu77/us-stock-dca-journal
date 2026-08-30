@@ -45,6 +45,17 @@ class QuantAnalysisApiTest(unittest.TestCase):
         request = submit.call_args.args[0]
         self.assertEqual(request.ticker, "AAPL")
 
+    @patch("app.main.quant_analysis_manager.delete")
+    def test_delete_run_returns_manager_result(self, delete) -> None:
+        delete.return_value = {"id": "run-1", "deleted": True}
+
+        with TestClient(app) as client:
+            response = client.delete("/api/quant-analysis/runs/run-1")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"id": "run-1", "deleted": True})
+        delete.assert_called_once_with("run-1")
+
 
 if __name__ == "__main__":
     unittest.main()

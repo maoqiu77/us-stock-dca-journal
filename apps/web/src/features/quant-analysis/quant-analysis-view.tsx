@@ -23,6 +23,7 @@ import {
   RotateCcwIcon,
   ShieldAlertIcon,
   SquareIcon,
+  Trash2Icon,
   WalletCardsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -57,6 +58,7 @@ import {
   cancelQuantAnalysisRun,
   createQuantAnalysisReflection,
   createQuantAnalysisRun,
+  deleteQuantAnalysisRun,
   fetchQuantAnalysisRun,
   fetchQuantAnalysisRuns,
   resumeQuantAnalysisRun,
@@ -101,7 +103,7 @@ const ANALYSTS: Array<{
     id: "fundamentals",
     title: "基本面 / ETF 结构",
     description: "个股财务估值；ETF 费用、规模与基金结构",
-    sources: "Yahoo Finance",
+    sources: "Yahoo Finance / Nasdaq",
     scope: "按资产类型自动切换 · 约 1 次 AI 调用",
     icon: Building2Icon,
   },
@@ -117,7 +119,7 @@ const ANALYSTS: Array<{
     id: "social",
     title: "社交情绪",
     description: "样本情绪、讨论热度与观点分歧",
-    sources: "StockTwits / Reddit",
+    sources: "StockTwits / Reddit / Hacker News",
     scope: "仅当前日期 · 约 1 次 AI 调用",
     icon: MessagesSquareIcon,
   },
@@ -245,6 +247,23 @@ export function QuantAnalysisView() {
     onSuccess: (run) => {
       updateRunCaches(run);
       toast.success("结果反思已生成");
+    },
+    onError: (error) => toast.error(error.message),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: deleteQuantAnalysisRun,
+    onSuccess: ({ id }) => {
+      const runs = queryClient.getQueryData<QuantAnalysisRun[]>([
+        "quant-analysis-runs",
+      ]) ?? [];
+      const remainingRuns = runs.filter((run) => run.id !== id);
+      queryClient.setQueryData(["quant-analysis-runs"], remainingRuns);
+      queryClient.removeQueries({ queryKey: ["quant-analysis-run", id], exact: true });
+      setSelectedRunId((current) =>
+        current === id ? remainingRuns[0]?.id ?? null : current
+      );
+      void queryClient.invalidateQueries({ queryKey: ["quant-analysis-runs"] });
+      toast.success("历史记录已删除");
     },
     onError: (error) => toast.error(error.message),
   });
@@ -465,15 +484,31 @@ export function QuantAnalysisView() {
                 </CardHeader>
                 <CardContent className="grid gap-2">
                   {group.runs.map((run) => (
-                    <Button
-                      key={run.id}
-                      variant={run.id === effectiveSelectedRunId ? "secondary" : "ghost"}
-                      className="h-auto justify-between px-2 py-2"
-                      onClick={() => setSelectedRunId(run.id)}
-                    >
-                      <span>版本 {run.version} · {run.mode === "deep" ? "深度" : "快速"}</span>
-                      <StatusBadge status={run.status} />
-                    </Button>
+                    <div key={run.id} className="relative">
+                      <Button
+                        variant={run.id === effectiveSelectedRunId ? "secondary" : "ghost"}
+                        className="h-auto w-full justify-between px-2 py-2 pr-11"
+                        onClick={() => setSelectedRunId(run.id)}
+                      >
+                        <span>版本 {run.version} · {run.mode === "deep" ? "深度" : "快速"}</span>
+                        <StatusBadge status={run.status} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-1 top-1 text-muted-foreground hover:text-destructive"
+                        aria-label={`删除 ${run.ticker} ${run.effectiveDate} 版本 ${run.version}`}
+                        title="删除历史记录"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => deleteMutation.mutate(run.id)}
+                      >
+                        {deleteMutation.isPending && deleteMutation.variables === run.id ? (
+                          <LoaderCircleIcon className="animate-spin" />
+                        ) : (
+                          <Trash2Icon />
+                        )}
+                      </Button>
+                    </div>
                   ))}
                 </CardContent>
               </Card>
@@ -530,8 +565,10 @@ function RunWorkspace({
             <Badge variant="outline">{run.assetType || "解析中"}</Badge>
             <StatusBadge status={run.status} />
           </div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {run.effectiveDate} · 版本 {run.version} · {run.model || "未记录模型"}
+          <div className="mt-1 grid gap-0.5 text-sm text-muted-foreground">
+            <span>{run.effectiveDate} · 版本 {run.version}</span>
+            <span>复杂：{run.complexModel || run.model || "未记录"}</span>
+            <span>简单：{run.simpleModel || run.model || "未记录"}</span>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -733,6 +770,9 @@ function StageTimeline({ run }: { run: QuantAnalysisRun }) {
                   {stepStatusName(step.status)}
                   {step.durationMs ? ` · ${(step.durationMs / 1000).toFixed(1)}s` : ""}
                 </div>
+                {step.model ? (
+                  <div className="truncate text-xs text-muted-foreground">{step.model}</div>
+                ) : null}
               </div>
             </div>
           ))
@@ -772,7 +812,10 @@ function StepReport({ step }: { step: QuantAnalysisStep }) {
     <Card size="sm">
       <CardHeader>
         <CardTitle>{ROLE_NAMES[step.role] ?? step.role}</CardTitle>
-        <CardDescription>{summary || reason || stepStatusName(step.status)}</CardDescription>
+        <CardDescription>
+          {summary || reason || stepStatusName(step.status)}
+          {step.model ? ` · ${step.model}` : ""}
+        </CardDescription>
         <CardAction><StatusBadge status={step.status} /></CardAction>
       </CardHeader>
       <CardContent className="grid gap-3">

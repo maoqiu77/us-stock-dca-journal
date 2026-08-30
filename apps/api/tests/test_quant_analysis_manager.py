@@ -41,7 +41,8 @@ class QuantAnalysisManagerTest(unittest.TestCase):
     ) -> None:
         load_settings.return_value = {
             "baseUrl": "https://example.test/v1",
-            "model": "gpt-test",
+            "simpleModel": "gpt-5.6-luna",
+            "complexModel": "gpt-5.6-sol",
             "apiKey": "secret",
         }
         resolve.return_value = {
@@ -60,6 +61,8 @@ class QuantAnalysisManagerTest(unittest.TestCase):
         self.assertEqual(first["effectiveDate"], "2026-08-28")
         self.assertTrue(first["dateAdjusted"])
         self.assertEqual(first["assetType"], "ETF")
+        self.assertEqual(first["simpleModel"], "gpt-5.6-luna")
+        self.assertEqual(first["complexModel"], "gpt-5.6-sol")
         self.assertTrue(reused["reused"])
         self.assertEqual(reused["id"], first["id"])
         self.assertFalse(forced["reused"])
