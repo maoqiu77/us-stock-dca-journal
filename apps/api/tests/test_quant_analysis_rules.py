@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from app.modules.quant_analysis.calendar import (
     add_us_trading_days,
@@ -12,6 +15,7 @@ from app.modules.quant_analysis.engine import (
     build_stage_plan,
     parse_structured_response,
 )
+from app.modules.quant_analysis import engine
 from app.modules.quant_analysis.sources import (
     analyst_source_policy,
     evidence_for_ai,
@@ -28,12 +32,29 @@ class QuantAnalysisRulesTest(unittest.TestCase):
         self.assertEqual(add_us_trading_days("2026-08-21", 5), "2026-08-28")
         self.assertFalse(reflection_eligible("2026-08-21", "2026-08-27"))
         self.assertTrue(reflection_eligible("2026-08-21", "2026-08-28"))
+        self.assertFalse(
+            reflection_eligible(
+                "2026-08-21",
+                now=datetime(2026, 8, 28, 15, 59, tzinfo=ZoneInfo("America/New_York")),
+            )
+        )
+        self.assertTrue(
+            reflection_eligible(
+                "2026-08-21",
+                now=datetime(2026, 8, 28, 16, 0, tzinfo=ZoneInfo("America/New_York")),
+            )
+        )
 
     def test_historical_policy_disables_current_social_and_prediction_markets(self) -> None:
         policy = analyst_source_policy("2026-08-20", today="2026-08-29")
 
         self.assertFalse(policy["social"]["enabled"])
         self.assertEqual(policy["social"]["reason"], "historical_date")
+        self.assertFalse(policy["fundamentals"]["enabled"])
+        self.assertEqual(
+            policy["fundamentals"]["reason"],
+            "historical_point_in_time_unavailable",
+        )
         self.assertTrue(policy["macro"]["enabled"])
         self.assertFalse(policy["macro"]["polymarketEnabled"])
 
@@ -88,6 +109,15 @@ class QuantAnalysisRulesTest(unittest.TestCase):
             complex_model="test-model",
         )
         self.assertNotEqual(first, different_simple_model)
+        with patch.object(engine, "ANALYSIS_PIPELINE_VERSION", "next-version"):
+            next_version = build_input_signature(
+                ticker="AAPL",
+                effective_date="2026-08-28",
+                mode="quick",
+                analysts=["technical", "news"],
+                model="test-model",
+            )
+        self.assertNotEqual(first, next_version)
         self.assertEqual(
             parse_structured_response('```json\n{"rating":"持有"}\n```'),
             {"rating": "持有"},

@@ -6,6 +6,7 @@ from typing import Any
 
 
 ANALYST_ORDER = ("technical", "fundamentals", "news", "social", "macro")
+ANALYSIS_PIPELINE_VERSION = "quant-analysis-v5-news-summaries-units"
 
 
 def build_input_signature(
@@ -19,6 +20,7 @@ def build_input_signature(
     complex_model: str = "",
 ) -> str:
     payload = {
+        "pipelineVersion": ANALYSIS_PIPELINE_VERSION,
         "ticker": ticker.upper(),
         "effectiveDate": effective_date,
         "mode": mode,

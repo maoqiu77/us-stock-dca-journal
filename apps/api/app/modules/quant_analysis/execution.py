@@ -38,6 +38,7 @@ ROLE_LABELS = {
     "portfolio_manager": "组合研究经理",
 }
 COMPLEX_ROLES = frozenset({"research_manager", "portfolio_manager"})
+QUANT_AI_MAX_OUTPUT_TOKENS = 8192
 
 
 def execute_analysis_run(run_id: str) -> dict[str, Any]:
@@ -271,6 +272,7 @@ def call_structured_ai(
         api_key=api_key,
         messages=messages,
         timeout=120,
+        max_output_tokens=QUANT_AI_MAX_OUTPUT_TOKENS,
     )
     try:
         parsed = parse_structured_response(completion["content"])
@@ -292,6 +294,7 @@ def call_structured_ai(
                 },
             ],
             timeout=120,
+            max_output_tokens=QUANT_AI_MAX_OUTPUT_TOKENS,
         )
         try:
             parsed = parse_structured_response(repaired["content"])
@@ -324,19 +327,29 @@ def _stage_messages(role: str, context: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _role_task(role: str) -> str:
+    if role == "analyst_fundamentals":
+        return (
+            "区分当前估值快照、最新季度报告和预测修订，优先使用 freshnessStatus 为 fresh 的证据；"
+            "对 aging 数据明确降权，不得把已排除或过期财务数据当作当前事实。"
+        )
+    if role == "analyst_news":
+        return (
+            "提取最近 7 天的公司事件和风险，按 importanceScore 优先引用直接相关且更新的新闻；"
+            "不得把泛市场关联标题与标的直接新闻等权，也不得补充未提供的正文事实。"
+        )
     if role.startswith("analyst_"):
         return "提取主要事实、信号、限制和数据质量，形成可供后续辩论引用的研究报告。"
     if role == "bull":
-        return "基于已有研究提出多头论据，并回应已出现的空头论点。"
+        return "基于已有研究提出多头论据；仅在已有空头论点时回应，否则只做开场陈述，不得虚构对手观点。"
     if role == "bear":
-        return "基于已有研究提出空头论据，并回应已出现的多头论点。"
+        return "基于已有研究提出空头论据；仅在已有多头论点时回应，否则只做开场陈述，不得虚构对手观点。"
     if role == "research_manager":
-        return "综合多空论据，给出五档研究评级和理由。"
+        return "综合多空论据，给出五档研究评级和理由；证据矛盾或不足时选择持有，不得强行给出方向。"
     if role == "trader":
         return "给出研究用途的方向、观察条件、风险条件和时间周期；缺少真实价格时不得给出精确价位。"
     if role.startswith("risk_"):
         return "从指定风险偏好复核交易方案，指出可接受条件、否决条件和调整建议。"
-    return "综合全部公开证据与风险复核，输出最终五档评级、置信度、核心证据、主要风险和时间周期。"
+    return "综合全部公开证据与风险复核，输出最终五档评级、置信度、核心证据、主要风险和时间周期；证据矛盾或不足时选择持有，不得强行给出方向。"
 
 
 def _role_schema(role: str) -> dict[str, str]:

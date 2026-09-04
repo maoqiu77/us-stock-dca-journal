@@ -19,7 +19,9 @@ export function normalizeAnalystsForDate(
   if (!analysisDate || analysisDate >= today) {
     return analysts;
   }
-  return analysts.filter((analyst) => analyst !== "social");
+  return analysts.filter(
+    (analyst) => analyst !== "fundamentals" && analyst !== "social"
+  );
 }
 
 type GroupableRun = Pick<

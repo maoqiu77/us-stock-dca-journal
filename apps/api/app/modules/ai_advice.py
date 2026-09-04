@@ -19,11 +19,9 @@ from app.modules.market import get_chart, get_quotes
 from app.modules.research import get_signal_rows
 from app.modules.trading_data import (
     account_summary,
-    active_strategy_settings,
     derive_positions,
     get_effective_watchlist,
     load_trading_state,
-    strategy_settings_to_engine_config,
 )
 
 
@@ -31,32 +29,12 @@ APP_STATE_KEY = "ai_advice_v1"
 BEIJING_TZ = ZoneInfo("Asia/Shanghai")
 NEW_YORK_TZ = ZoneInfo("America/New_York")
 AI_TIMEOUT_SECONDS = 120
-AI_CONTEXT_VERSION = "AIContext v2"
+AI_CONTEXT_VERSION = "AIContext v3"
 AI_CONTEXT_RECENT_TRADE_LIMIT = 20
 CHAT_HISTORY_MAX_CHARS = 12_000
 CHAT_MESSAGE_MAX_CHARS = 4_000
 
 TRADE_ACTIONS = {"买入": "buy", "卖出": "sell", "buy": "buy", "sell": "sell"}
-SIGNAL_ACTIONS = {
-    "允许加仓": "allow_add",
-    "允许建仓": "allow_open",
-    "允许分批加仓": "allow_batch_add",
-    "建议减仓": "reduce",
-    "风险减仓": "risk_reduce",
-    "不加仓": "do_not_add",
-}
-SIGNAL_STATUSES = {
-    **SIGNAL_ACTIONS,
-    "观察等待": "observe",
-    "风险暂停": "risk_pause",
-    "禁止加仓": "add_blocked",
-}
-ENTRY_TIMINGS = {
-    "小额分批": "small_batch",
-    "等待回踩": "wait_for_pullback",
-    "暂不动": "hold",
-    "分批观察": "observe_in_batches",
-}
 
 
 def load_ai_advice_state() -> dict[str, Any]:
@@ -106,9 +84,8 @@ def create_local_ai_advice_draft(brief: str = "") -> dict[str, Any]:
     state = load_trading_state()
     summary = account_summary(state)
     positions = derive_positions(state)
-    settings = active_strategy_settings(state)
     signals = get_signal_rows()
-    content = build_local_advice_content(brief, summary, positions, settings, signals, context)
+    content = build_local_advice_content(brief, summary, positions, signals, context)
     record = {
         "date": target_date,
         "generated_at": context["beijing_time"],
@@ -138,8 +115,6 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
     target_date = advice_date_from_context(context)
     summary = account_summary(state)
     positions = derive_positions(state)
-    settings = active_strategy_settings(state)
-    strategy_config, risk_config = strategy_settings_to_engine_config(settings)
     signals = get_signal_rows()
     watchlist = get_effective_watchlist()
     quotes = get_quotes(watchlist)
@@ -149,9 +124,6 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
         summary=summary,
         state=state,
         positions=positions,
-        settings=settings,
-        strategy_config=strategy_config,
-        risk_config=risk_config,
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
@@ -206,12 +178,10 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     target_date = advice_date_from_context(context)
     current_record = get_ai_advice_record(target_date)
     if not current_record or not current_record.get("messages"):
-        raise HTTPException(status_code=409, detail="请先生成今日 AI 综合建议，再继续追问。")
+        raise HTTPException(status_code=409, detail="请先生成今日 AI 分析，再继续追问。")
 
     summary = account_summary(state)
     positions = derive_positions(state)
-    settings = active_strategy_settings(state)
-    strategy_config, risk_config = strategy_settings_to_engine_config(settings)
     signals = get_signal_rows()
     watchlist = get_effective_watchlist()
     quotes = get_quotes(watchlist)
@@ -237,9 +207,6 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
                     summary=summary,
                     state=state,
                     positions=positions,
-                    settings=settings,
-                    strategy_config=strategy_config,
-                    risk_config=risk_config,
                     quotes=quotes,
                     signals=signals,
                     intraday_context=intraday_context,
@@ -256,9 +223,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     }
     updated_record = {
         **current_record,
-        "generated_at": context["beijing_time"],
         "messages": [*current_record.get("messages", []), user_message, assistant_message],
-        "beijing_context": context,
         "source": "external-ai",
     }
     advice_state = load_ai_advice_state()
@@ -282,15 +247,9 @@ def build_local_advice_content(
     brief: str,
     summary: dict[str, float],
     positions: list[dict[str, Any]],
-    settings: dict[str, Any],
     signals: list[dict[str, Any]],
     context: dict[str, Any],
 ) -> str:
-    actionable = [
-        signal
-        for signal in signals
-        if signal.get("action") and not str(signal["action"]).startswith("不")
-    ]
     held_positions = [position for position in positions if number(position.get("shares")) > 0]
     signal_by_ticker = {
         context_ticker(signal): signal
@@ -302,32 +261,24 @@ def build_local_advice_content(
         "",
         "## 本地 AI 日历草案",
         "",
-        brief.strip() or "研究目标：根据本地账户、持仓、信号和策略参数生成今日复盘草案。",
+        brief.strip() or "研究目标：根据本地账户、持仓和市场数据生成今日复盘草案。",
         "",
         "## 账户摘要",
         "",
         f"- 总资产：${summary['totalAssets']:,.2f}",
         f"- 持仓成本：${summary['holdingCost']:,.2f}",
         f"- 推算现金：${summary['cash']:,.2f}",
-        f"- 持仓目标数量：{len(positions)}",
+        f"- 当前持仓数量：{len(held_positions)}",
         "",
-        "## 策略参数",
-        "",
-        f"- RSI 周期：{int(number(settings.get('rsiPeriod'), 14))}",
-        f"- 加仓 RSI 上限：{number(settings.get('rsiMax'), 72):.0f}",
-        f"- 普通回撤区间：{number(settings.get('pullbackMin'), 0.03):.0%}-{number(settings.get('pullbackMax'), 0.10):.0%}",
-        f"- 深回撤区间：{number(settings.get('deeperPullbackMin'), 0.10):.0%}-{number(settings.get('deeperPullbackMax'), 0.18):.0%}",
-        f"- 单次加仓上限：总资产 {number(settings.get('singleAddAssetRatio'), 0.05):.0%} / 现金 {number(settings.get('singleAddCashRatio'), 0.20):.0%}",
-        "",
-        "## 今日持仓建议",
+        "## 今日技术观察",
         "",
     ]
     if held_positions:
         for position in held_positions:
             ticker = context_ticker(position)
             signal = signal_by_ticker.get(ticker, {})
-            action, reason = local_holding_advice(signal)
-            lines.append(f"- {ticker}：{action}，{reason}")
+            status, reason = local_holding_observation(signal)
+            lines.append(f"- {ticker}：{status}，{reason}")
     else:
         lines.append("- 当前没有实际持仓。")
     lines.extend(
@@ -336,44 +287,19 @@ def build_local_advice_content(
             "## 执行提醒",
             "",
             f"- 当前交易时段判断：{context['estimated_session_status']}",
-            f"- 操作节奏：{context['timing_suggestion']}",
+            "- 本页不读取隐藏策略，也不生成具体买卖金额或股数。",
             "- 本地草案不调用外部模型；接入 OpenAI-compatible 服务后可复用同一条日历记录结构。",
         ]
     )
-    if actionable:
-        lines.extend(
-            [
-                "",
-                "## 需要重点复核",
-                "",
-            ]
-        )
-        for signal in actionable:
-            lines.append(f"- {signal.get('manual_instruction', '')}")
     return "\n".join(lines)
 
 
-def local_holding_advice(signal: dict[str, Any]) -> tuple[str, str]:
-    action_text = str(signal.get("action", "")).strip()
-    status_text = str(signal.get("status", "")).strip()
-    raw_action = f"{action_text} {status_text}"
-    if any(keyword in raw_action for keyword in ("减仓", "卖出")):
-        action = "减仓"
-        fallback = "当前风险或仓位信号提示需要收缩敞口。"
-    elif action_text in {"允许加仓", "允许建仓", "允许分批加仓", "买入"} or status_text in {
-        "允许加仓",
-        "允许建仓",
-        "允许分批加仓",
-    }:
-        action = "加仓"
-        fallback = "当前信号允许继续分批配置。"
-    else:
-        action = "持有不动"
-        fallback = "当前没有触发加仓或减仓条件。"
+def local_holding_observation(signal: dict[str, Any]) -> tuple[str, str]:
+    status = str(signal.get("status") or "数据不足").strip()
     reason = first_advice_reason(
-        signal.get("reasons") or signal.get("blocked_reasons") or signal.get("risk_notes")
+        signal.get("reasons") or signal.get("risk_notes")
     )
-    return action, reason or fallback
+    return status, reason or "当前数据不足以判断技术状态。"
 
 
 def first_advice_reason(value: Any) -> str:
@@ -415,14 +341,11 @@ def call_ai_response(messages: list[dict[str, str]]) -> str:
         ) from exc
 
 
-def build_ai_context_v2(
+def build_ai_context_v3(
     *,
     summary: dict[str, float],
     state: dict[str, Any],
     positions: list[dict[str, Any]],
-    settings: dict[str, Any],
-    strategy_config: dict[str, Any],
-    risk_config: dict[str, Any],
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
@@ -450,73 +373,17 @@ def build_ai_context_v2(
                 "it is not broker-reported buying power."
             ),
         },
-        "strategy_policy": build_strategy_policy(settings, strategy_config, risk_config),
-        "positions": build_context_positions(positions, strategy_config),
+        "positions": build_context_positions(positions),
         "trade_context": build_trade_context(state.get("trades", [])),
-        "market_decisions": build_market_decisions(quotes, signals, intraday_context),
+        "market_observations": build_market_observations(quotes, signals, intraday_context),
     }
 
 
-def build_strategy_policy(
-    settings: dict[str, Any],
-    strategy_config: dict[str, Any],
-    risk_config: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "decision_priority": [
-            "account_and_trade_facts",
-            "cash_position_and_weight_limits",
-            "role_specific_strategy",
-            "platform_signal",
-            "reliable_current_market_data",
-            "ai_override_with_cited_evidence",
-        ],
-        "core_etf": {
-            "purpose": "long_term_core",
-            "buy_rule": "Use the funded 52-week drawdown plan and never exceed its platform allocation.",
-            "ma120_rule": (
-                "MA60, MA120, ordinary RSI, and ordinary stop loss are background context; "
-                "MA120 does not independently block a funded long-term drawdown purchase."
-            ),
-            "sell_rule": "Prioritize target/max-weight excess and extreme take-profit conditions.",
-            "max_weight": number(risk_config.get("max_etf_weight"), 0.60),
-            "recent_funding_amount": number(settings.get("recentEtfInvestmentAmount")),
-            "recent_funding_start_date": str(settings.get("recentEtfInvestmentStartDate", "")),
-        },
-        "core_stock": {
-            "purpose": "long_term_growth",
-            "risk_priority": ["stop_loss", "below_ma120", "over_target_weight", "overheated_rsi"],
-            "add_style": "trend_aligned_and_batched",
-        },
-        "satellite": {
-            "purpose": "higher_volatility_satellite",
-            "risk_priority": ["stop_loss", "below_ma120", "over_target_weight", "overheated_rsi"],
-            "add_style": "smaller_and_slower_than_core_stock",
-            "reduce_style": "earlier_than_core_stock",
-        },
-        "thresholds": {
-            key: strategy_config.get(key)
-            for key in (
-                "single_add_asset_ratio",
-                "single_add_cash_ratio",
-                "take_profit_trim_ratio",
-                "hard_stop_ma_break_ratio",
-                "core_rsi_max",
-                "core_take_profit_rsi",
-                "satellite_rsi_max",
-                "satellite_take_profit_rsi",
-            )
-            if key in strategy_config
-        },
-    }
-
-
-def build_context_positions(
-    positions: list[dict[str, Any]],
-    strategy_config: dict[str, Any],
-) -> list[dict[str, Any]]:
+def build_context_positions(positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
-    for row in enrich_rows_with_strategy_roles(positions, strategy_config):
+    for row in positions:
+        if not isinstance(row, dict):
+            continue
         ticker = context_ticker(row)
         if not ticker:
             continue
@@ -524,13 +391,10 @@ def build_context_positions(
             {
                 "ticker": ticker,
                 "asset_type": "etf" if str(row.get("assetType", "")).upper() == "ETF" else "stock",
-                "strategy_role": str(row.get("strategy_role", "core")).replace(" ", "_"),
                 "shares": number(row.get("shares")),
+                "position_state": "held" if number(row.get("shares")) > 0 else "watching",
                 "cost_basis": number(row.get("costBasis")),
                 "holding_historical_cost": number(row.get("holdingCost")),
-                "target_weight": number(row.get("targetWeight")),
-                "take_profit_pct": number(row.get("takeProfitPct")),
-                "stop_loss_pct": number(row.get("stopLossPct")),
                 "purchase_date": str(row.get("purchaseDate", "")),
             }
         )
@@ -579,7 +443,7 @@ def build_trade_context(value: Any) -> dict[str, Any]:
     }
 
 
-def build_market_decisions(
+def build_market_observations(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
@@ -604,35 +468,29 @@ def build_market_decisions(
                     "precise_trigger_prices_allowed": not is_sample and bool(sources),
                 },
                 "quote": compact_fields(quote, ("price", "change", "changePct", "updatedAt", "source")),
-                "intraday": {
-                    **compact_fields(
-                        intraday,
-                        (
-                            "latest",
-                            "high",
-                            "low",
-                            "change_pct",
-                            "range_position",
-                            "recent_30m_change_pct",
-                            "support_levels",
-                            "resistance_levels",
-                            "last_bar_time",
-                            "source",
-                        ),
+                "intraday": compact_fields(
+                    intraday,
+                    (
+                        "latest",
+                        "high",
+                        "low",
+                        "change_pct",
+                        "range_position",
+                        "recent_30m_change_pct",
+                        "support_levels",
+                        "resistance_levels",
+                        "last_bar_time",
+                        "source",
                     ),
-                    "entry_timing": ENTRY_TIMINGS.get(
-                        str(intraday.get("entry_timing", "")),
-                        str(intraday.get("entry_timing", "")),
-                    ),
-                },
-                "platform_signal": {
+                ),
+                "technical_observation": {
                     **compact_fields(
                         signal,
                         (
-                            "suggested_amount",
-                            "suggested_shares",
-                            "current_weight",
-                            "target_weight",
+                            "current_price",
+                            "trend_status",
+                            "action",
+                            "status",
                             "ma20",
                             "ma60",
                             "ma120",
@@ -642,14 +500,6 @@ def build_market_decisions(
                             "drawdown252",
                             "source",
                         ),
-                    ),
-                    "action": SIGNAL_ACTIONS.get(
-                        str(signal.get("action", "")),
-                        str(signal.get("action", "")),
-                    ),
-                    "status": SIGNAL_STATUSES.get(
-                        str(signal.get("status", "")),
-                        str(signal.get("status", "")),
                     ),
                     **source_text_fields(signal),
                 },
@@ -690,55 +540,50 @@ def build_external_advice_prompt(
     summary: dict[str, float],
     state: dict[str, Any],
     positions: list[dict[str, Any]],
-    settings: dict[str, Any],
-    strategy_config: dict[str, Any],
-    risk_config: dict[str, Any],
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
     context: dict[str, Any],
 ) -> str:
-    ai_context = build_ai_context_v2(
+    ai_context = build_ai_context_v3(
         summary=summary,
         state=state,
         positions=positions,
-        settings=settings,
-        strategy_config=strategy_config,
-        risk_config=risk_config,
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
         context=context,
     )
     extra_question = brief.strip() or "none"
-    held_tickers = [
-        context_ticker(position)
+    overview_tickers = [
+        f"- {context_ticker(position)}: "
+        f"{'held' if number(position.get('shares')) > 0 else 'watching'}"
         for position in positions
-        if context_ticker(position) and number(position.get("shares")) > 0
+        if context_ticker(position)
     ]
-    held_ticker_text = ", ".join(held_tickers) or "none"
-    return f"""Create today's final manual US-equity allocation advice from the context below.
+    overview_ticker_text = "\n".join(overview_tickers) or "none"
+    return f"""Create today's concise US-equity overview analysis from the context below.
 Respond in Simplified Chinese. Preserve ticker symbols and indicator abbreviations.
 
 Requirements:
 1. Start with a Simplified Chinese generation-time line containing `YYYY-MM-DD HH:MM` and the Beijing-time label.
 2. Keep the entire answer under 500 Chinese characters. Use short paragraphs or bullets only. Do not use a table.
-3. After the generation-time line, cover every ticker in CURRENT_HOLDING_TICKERS exactly once and in the listed order. Never omit a current holding, even when no trade is needed.
-4. Write exactly one compact bullet sentence per current holding in this format: `- TICKER：加仓/减仓/持有不动，one short reason。` Choose exactly one of those three Chinese actions.
-5. Include amount or shares only when useful and actionable. If there are no current holdings, say that in one short sentence. Answer the extra question in at most one additional sentence when present.
+3. After the generation-time line, cover every ticker in CURRENT_OVERVIEW_TICKERS exactly once and in the listed order. Never omit a ticker.
+4. Write exactly one compact bullet sentence per ticker in this format: `- TICKER：技术状态，one short factual reason；结论：ACTION。` Use the current price, MA, RSI, drawdown, return, or intraday data as evidence.
+5. Choose one clear non-binding conclusion from current market facts and position state, using independent model judgment rather than a hidden strategy. For `held`, ACTION must be one of `持有不动`, `加仓`, `减仓`, or `减仓一半`. For `watching`, ACTION must be either `保持观望` or `可以建仓`.
 6. Do not show internal field names, JSON paths, source-text labels, or implementation details.
-7. Do not output English enum values such as `do_not_add`, `allow_batch_add`, `risk_pause`, or `wait_for_pullback`. Translate all user-facing labels into natural Chinese.
-8. Do not repeat the full account, strategy, position list, or evidence chain. Mention estimated-cash uncertainty once only when relevant.
-9. Adds must be batched. Never exceed estimated cash, target weight, ETF max weight, or a platform-funded ETF allocation.
-10. For core ETFs, MA60/MA120 and ordinary stop loss are background only and do not independently block a funded drawdown purchase.
-11. For stocks, stop loss, below-MA120, excess weight, and overheated RSI take priority over ordinary adds.
+7. Do not output English enum values. Translate all user-facing labels into natural Chinese.
+8. Do not repeat the full account, position list, or evidence chain. Mention estimated-cash uncertainty once only when relevant.
+9. There is no active portfolio strategy, target allocation, ETF funding pool, or drawdown tranche plan in this context. Never invent or infer one from trade history.
+10. Do not provide a specific buy/sell amount, percentage, or share count, except for the allowed proportional phrase `减仓一半`, unless the latest extra question explicitly supplies a budget or position size and asks for a calculation.
+11. Treat earlier reports as timestamped snapshots. When current data differs, explain that the market data changed rather than declaring an earlier snapshot incorrect.
 12. When precise prices are not allowed, omit prices instead of explaining the internal flag. Follow the session state exactly and never imply that you placed a trade.
 
 Extra user question (verbatim):
 {extra_question}
 
-CURRENT_HOLDING_TICKERS (authoritative overview holdings):
-{held_ticker_text}
+CURRENT_OVERVIEW_TICKERS (authoritative overview order and position state):
+{overview_ticker_text}
 
 {AI_CONTEXT_VERSION}:
 {json.dumps(ai_context, ensure_ascii=False, separators=(",", ":"))}
@@ -750,21 +595,15 @@ def build_chat_context_prompt(
     summary: dict[str, float],
     state: dict[str, Any],
     positions: list[dict[str, Any]],
-    settings: dict[str, Any],
-    strategy_config: dict[str, Any],
-    risk_config: dict[str, Any],
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
     context: dict[str, Any],
 ) -> str:
-    ai_context = build_ai_context_v2(
+    ai_context = build_ai_context_v3(
         summary=summary,
         state=state,
         positions=positions,
-        settings=settings,
-        strategy_config=strategy_config,
-        risk_config=risk_config,
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
@@ -772,10 +611,13 @@ def build_chat_context_prompt(
     )
     return f"""Use the current {AI_CONTEXT_VERSION} below to answer only the user's latest question.
 Respond in Simplified Chinese and keep the answer under 300 Chinese characters. Answer directly and do not repeat the full daily report.
-Treat estimated cash as non-broker-reported. Respect role-specific risk priority and all funding/weight limits.
+Treat estimated cash as non-broker-reported. Use holdings, trades, and current market observations as evidence.
 Do not expose internal English keys, JSON paths, enum values, or source-text labels. Translate all user-facing labels into natural Chinese.
 When precise prices are not allowed, omit them instead of explaining the internal flag.
-If overriding a platform action, state that briefly in Chinese without showing implementation details.
+There is no active portfolio strategy, target allocation, ETF funding pool, or drawdown tranche plan. Never invent or infer one.
+You may give a clear non-binding conclusion based on current facts and position state, but do not use or invent a hidden strategy.
+Do not provide a specific buy/sell amount, percentage, or share count, except for the proportional phrase `减仓一半`, unless the latest user question explicitly supplies a budget or position size and asks for a calculation.
+Treat the daily report and earlier replies as timestamped snapshots. If current data differs, explain the time/data change rather than calling the earlier snapshot wrong.
 
 {AI_CONTEXT_VERSION}:
 {json.dumps(ai_context, ensure_ascii=False, separators=(",", ":"))}
@@ -784,117 +626,23 @@ If overriding a platform action, state that briefly in Chinese without showing i
 
 def daily_advice_system_prompt() -> str:
     return (
-        "You are a cautious, manual-only US equity allocation assistant. "
-        "Never place or imply trades, promise returns, or recommend margin, loans, options, shorting, or leverage. "
-        "Facts and hard funding/weight limits outrank role policy, platform signals, market timing, and AI judgment. "
+        "You are a cautious, manual-only US equity analysis assistant. "
+        "Give clear non-binding conclusions from the supplied facts, but never claim to place or execute trades, invent portfolio strategies or budgets, promise returns, or recommend margin, loans, options, shorting, or leverage. "
+        "Current holdings and reliable market facts outrank AI judgment. "
         "Sample data is not real market evidence and cannot support prices, MA, RSI, levels, or signals. "
-        "Respond in Simplified Chinese with clear, concise, manually verifiable advice under 500 Chinese characters. "
+        "Respond in Simplified Chinese with clear, concise, manually verifiable analysis under 500 Chinese characters. "
         "Never expose internal English keys, JSON paths, enum values, or source-text labels to the user."
     )
 
 
 def chat_system_prompt() -> str:
     return (
-        "You are a cautious, manual-only US equity allocation chat assistant. "
-        "Answer the latest user question from the supplied AIContext only. Never place or imply trades, "
-        "promise returns, or recommend margin, loans, options, shorting, or leverage. "
+        "You are a cautious, manual-only US equity analysis chat assistant. "
+        "Answer the latest user question from the supplied AIContext only. You may give a clear non-binding conclusion, but never claim to place or execute trades, "
+        "invent portfolio strategies or budgets, promise returns, or recommend margin, loans, options, shorting, or leverage. "
         "Sample data is not real market evidence. Respond in Simplified Chinese, be brief, and do not repeat the full daily report. "
         "Never expose internal English keys, JSON paths, enum values, or source-text labels to the user."
     )
-
-
-def build_layered_strategy_summary(settings: dict[str, Any], risk_config: dict[str, Any]) -> str:
-    core_holdings = normalized_role_map(settings.get("coreHoldings", {}))
-    core_symbols = [symbol for symbol, role in core_holdings.items() if role == "core"]
-    satellite_symbols = sorted(
-        {
-            symbol
-            for symbol, role in core_holdings.items()
-            if role == "satellite"
-        }
-        | {str(symbol).upper().strip() for symbol in settings.get("satelliteSymbols", []) if str(symbol).strip()}
-    )
-    return "\n".join(
-        [
-            (
-                "1. 核心 ETF：长期底仓优先，趋势未破坏时可分批配置；"
-                f"正常回撤区间约 {format_ratio(settings.get('etfPullbackMin', 0.02))}-"
-                f"{format_ratio(settings.get('etfPullbackMax', 0.08))}，"
-                f"深回撤区间约 {format_ratio(settings.get('etfDeeperPullbackMin', 0.08))}-"
-                f"{format_ratio(settings.get('etfDeeperPullbackMax', 0.15))}，"
-                f"RSI 超过 {number(settings.get('etfRsiMax'), 74):.0f} 后不追高。"
-            ),
-            (
-                f"2. 核心科技仓（{', '.join(core_symbols) if core_symbols else '用户定义的主线标的'}）："
-                "长期持有但必须顺势、分批；"
-                f"正常回撤区间约 {format_ratio(settings.get('corePullbackMin', 0.03))}-"
-                f"{format_ratio(settings.get('corePullbackMax', 0.10))}，"
-                f"深回撤区间约 {format_ratio(settings.get('coreDeeperPullbackMin', 0.10))}-"
-                f"{format_ratio(settings.get('coreDeeperPullbackMax', 0.18))}，"
-                f"RSI 超过 {number(settings.get('coreRsiMax'), 72):.0f} 后停止追高。"
-            ),
-            (
-                f"3. 卫星仓（{', '.join(satellite_symbols) if satellite_symbols else '用户定义的高波动补充仓位'}）："
-                "波动更大，必须更轻仓、更慢加、更早减仓降温；"
-                f"正常回撤区间约 {format_ratio(settings.get('satellitePullbackMin', 0.05))}-"
-                f"{format_ratio(settings.get('satellitePullbackMax', 0.14))}，"
-                f"深回撤区间约 {format_ratio(settings.get('satelliteDeeperPullbackMin', 0.14))}-"
-                f"{format_ratio(settings.get('satelliteDeeperPullbackMax', 0.24))}，"
-                f"RSI 超过 {number(settings.get('satelliteRsiMax'), 68):.0f} 就不要追高。"
-            ),
-            (
-                f"4. 统一风控：单只 ETF 上限 {format_ratio(risk_config.get('max_etf_weight', 0.60))}；"
-                f"跌破 MA120 或触发止损线时默认先按风险信号减仓约 "
-                f"{format_ratio(settings.get('hardStopMaBreakRatio', 0.50))}。"
-            ),
-        ]
-    )
-
-
-def enrich_rows_with_strategy_roles(
-    rows: list[dict[str, Any]],
-    strategy_config: dict[str, Any],
-) -> list[dict[str, Any]]:
-    return [
-        {
-            **row,
-            "strategy_role": strategy_role_for_row(row, strategy_config),
-        }
-        for row in rows
-        if isinstance(row, dict)
-    ]
-
-
-def strategy_role_for_row(row: dict[str, Any], strategy_config: dict[str, Any]) -> str:
-    ticker = str(row.get("ticker") or row.get("symbol") or row.get("标的") or "").upper().strip()
-    asset_type = str(row.get("assetType") or row.get("asset_type") or "").upper().strip()
-    if asset_type == "ETF":
-        return "core etf"
-    core_holdings = normalized_role_map(strategy_config.get("core_holdings", {}))
-    satellite_symbols = {
-        str(symbol).upper().strip()
-        for symbol in strategy_config.get("satellite_symbols", [])
-        if str(symbol).strip()
-    }
-    if core_holdings.get(ticker) == "satellite" or ticker in satellite_symbols:
-        return "satellite"
-    return "core"
-
-
-def normalized_role_map(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        return {}
-    roles: dict[str, str] = {}
-    for key, raw_role in value.items():
-        ticker = str(key).upper().strip()
-        role = str(raw_role).lower().strip()
-        if ticker and role in {"core", "satellite"}:
-            roles[ticker] = role
-    return roles
-
-
-def format_ratio(value: Any) -> str:
-    return f"{number(value):.0%}"
 
 
 def build_intraday_market_context(watchlist: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1178,6 +926,8 @@ def sanitize_ai_advice_record(record: dict[str, Any]) -> dict[str, Any]:
             )
     if not messages and content:
         messages.append({"role": "assistant", "content": content, "created_at": generated_at})
+    if messages and messages[0]["role"] == "assistant" and messages[0]["created_at"]:
+        generated_at = messages[0]["created_at"]
     news = []
     for item in record.get("news", []) or []:
         if isinstance(item, dict):

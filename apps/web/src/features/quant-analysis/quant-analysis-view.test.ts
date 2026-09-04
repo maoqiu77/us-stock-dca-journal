@@ -29,8 +29,13 @@ test("quant view exposes full run lifecycle and historical safeguards", () => {
   assert.match(source, /createQuantAnalysisReflection/);
   assert.match(source, /deleteQuantAnalysisRun/);
   assert.match(source, /删除历史记录/);
-  assert.match(source, /历史日期不使用当前社交情绪/);
+  assert.match(source, /历史日期不使用当前基本面快照和社交情绪/);
+  assert.match(source, /宏观数据固定历史 vintage/);
   assert.match(source, /当前 Polymarket 已排除/);
+  assert.match(source, /最新季报 45 天内优先/);
+  assert.match(source, /最近 7 天 · 越新权重越高/);
+  assert.match(source, /Yahoo News \/ Nasdaq/);
+  assert.match(source, /最近 14 天/);
   assert.match(source, /预计 AI 调用/);
   assert.match(source, /nativeButton=\{false\}/);
 });

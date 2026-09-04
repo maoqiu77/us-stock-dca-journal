@@ -80,9 +80,9 @@ http://192.168.1.20:3000
 - 量化事实：均线、RSI、MACD、布林带、ATR、VWMA、回撤和相对 SPY 收益等可复算数据。
 - AI 研判：技术、基本面或 ETF 结构、新闻、社交情绪、宏观事件，以及多空和风险讨论形成的非确定性研究结论。
 
-可选公开来源包括 Yahoo Finance、Nasdaq、StockTwits、Reddit、FRED 和 Polymarket。历史日期不会使用当前 StockTwits、Reddit 或当前 Polymarket 数据，避免把未来信息混入历史报告。外部行情降级为 sample 时只保留界面预览，不会发送给 AI；没有任何真实数据时会停止后续决策链。
+可选公开来源包括 Yahoo Finance、Nasdaq、StockTwits、Reddit、FRED 和 Polymarket。历史日期不会使用当前基本面快照、社交情绪或当前 Polymarket 数据；配置 FRED Key 时宏观序列会固定到分析日期的数据 vintage，无 Key 时历史分析不会用当前修订值 CSV 冒充历史数据。外部行情降级为 sample 时只保留界面预览，不会发送给 AI；没有任何真实数据时会停止后续决策链。
 
-快速模式通常调用“分析师数量 + 8”次 AI，深度模式通常调用“分析师数量 + 18”次 AI；结构化 JSON 修复可能额外调用一次。报告、阶段状态和可选的五日结果反思保存在 `storage/local/quant-analysis/` 与本地 SQLite 中。FRED Key 和 AI Key 只保存在本机，API 仅返回掩码。
+快速模式通常调用“分析师数量 + 8”次 AI，深度模式通常调用“分析师数量 + 18”次 AI；结构化 JSON 修复可能额外调用一次。每次调用最多生成 8192 个总输出 token。结果反思只在第 5 个后续交易日收盘并取得该日精确收盘价后生成。报告、阶段状态和反思保存在 `storage/local/quant-analysis/` 与本地 SQLite 中。FRED Key 和 AI Key 只保存在本机，API 仅返回掩码。
 
 量化分析只发送标的代码、公开市场数据和公开新闻摘要，不发送账户金额、持仓、现金或交易流水。它不会自动下单，也不构成投资建议。多智能体角色架构的来源说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
@@ -143,7 +143,7 @@ This is a local research and trading-assistance tool for US equities and ETFs. I
 
 This is a local stock research and trading-assistance tool for watchlists, candlestick charts, account summaries, strategy signals, backtests, and AI-generated advice.
 
-The Quant Analysis workspace supports Yahoo-recognized US equities and ETFs. It separates reproducible market facts from non-deterministic multi-agent interpretation, archives successful reports locally, excludes current social and prediction-market data from historical runs, and never sends account balances, positions, cash, or trading logs into its research prompts. Quick runs normally use `analyst count + 8` AI calls; deep runs use `analyst count + 18`, with a possible extra call for JSON repair. It does not place trades and is not investment advice.
+The Quant Analysis workspace supports Yahoo-recognized US equities and ETFs. It separates reproducible market facts from non-deterministic multi-agent interpretation, archives successful reports locally, excludes current fundamentals, social, and prediction-market data from historical runs, and pins FRED vintages when a key is configured. It never sends account balances, positions, cash, or trading logs into its research prompts. Quick runs normally use `analyst count + 8` AI calls; deep runs use `analyst count + 18`, with a possible extra call for JSON repair. It does not place trades and is not investment advice.
 
 Data is stored on your computer by default and is not automatically uploaded to the cloud. Public releases contain sample data only and do not include real accounts, positions, trade records, or API keys.
 

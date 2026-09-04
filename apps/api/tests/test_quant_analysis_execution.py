@@ -35,7 +35,7 @@ class QuantAnalysisExecutionTest(unittest.TestCase):
             reflection_enabled=True,
             input_signature=f"{mode}-signature",
             simple_model="gpt-5.6-luna",
-            complex_model="gpt-5.6-sol",
+            complex_model="gpt-5.6-luna",
         )
 
     @patch("app.modules.quant_analysis.execution.collect_analysis_sources")
@@ -91,11 +91,10 @@ class QuantAnalysisExecutionTest(unittest.TestCase):
         self.assertEqual(len(calls), 9)
         self.assertEqual(len(result["steps"]), 9)
         self.assertTrue((store.REPORT_HOME / "AAPL" / "2026-08-28" / f"{run['id']}.json").exists())
-        self.assertEqual([call["model"] for call in calls].count("gpt-5.6-luna"), 7)
-        self.assertEqual([call["model"] for call in calls].count("gpt-5.6-sol"), 2)
+        self.assertEqual([call["model"] for call in calls], ["gpt-5.6-luna"] * 9)
         self.assertEqual(
-            {step["role"] for step in result["steps"] if step["model"] == "gpt-5.6-sol"},
-            {"research_manager", "portfolio_manager"},
+            {call["max_output_tokens"] for call in calls},
+            {execution.QUANT_AI_MAX_OUTPUT_TOKENS},
         )
         serialized_prompts = json.dumps(
             [call["messages"] for call in calls], ensure_ascii=False
@@ -103,6 +102,8 @@ class QuantAnalysisExecutionTest(unittest.TestCase):
         self.assertNotIn("账户", serialized_prompts)
         self.assertNotIn("持仓", serialized_prompts)
         self.assertNotIn("交易流水", serialized_prompts)
+        self.assertIn("不得虚构对手观点", serialized_prompts)
+        self.assertIn("不得强行给出方向", serialized_prompts)
 
     @patch("app.modules.quant_analysis.execution.collect_analysis_sources")
     @patch("app.modules.quant_analysis.execution.load_ai_settings")
@@ -209,8 +210,7 @@ class QuantAnalysisExecutionTest(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(caller.call_count, 19)
         models = [call.kwargs["model"] for call in caller.call_args_list]
-        self.assertEqual(models.count("gpt-5.6-luna"), 17)
-        self.assertEqual(models.count("gpt-5.6-sol"), 2)
+        self.assertEqual(models, ["gpt-5.6-luna"] * 19)
         self.assertEqual(len([step for step in result["steps"] if step["role"] == "bull"]), 3)
         self.assertEqual(
             len([step for step in result["steps"] if step["role"] == "risk_neutral"]),

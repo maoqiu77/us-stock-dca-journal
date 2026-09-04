@@ -179,6 +179,37 @@ class MarketCacheTest(unittest.TestCase):
         self.assertEqual(chart["source"], "yahoo")
         self.assertEqual(chart["bars"][0]["time"], "2026-03-03")
 
+    def test_yahoo_parser_surfaces_unsettled_latest_bar(self) -> None:
+        payload = {
+            "chart": {
+                "result": [
+                    {
+                        "timestamp": [1772496000, 1772582400],
+                        "meta": {"exchangeTimezoneName": "America/New_York"},
+                        "indicators": {
+                            "quote": [
+                                {
+                                    "open": [31.0, None],
+                                    "high": [32.0, None],
+                                    "low": [30.5, None],
+                                    "close": [31.5, None],
+                                    "volume": [123456, None],
+                                }
+                            ]
+                        },
+                    }
+                ]
+            }
+        }
+
+        timezone_name, bars, incomplete = market._parse_yahoo_chart_bars(
+            payload, "SMCI", "1d"
+        )
+
+        self.assertEqual(timezone_name, "America/New_York")
+        self.assertEqual(len(bars), 1)
+        self.assertEqual(incomplete, "2026-03-04")
+
     def test_yahoo_history_chart_merges_newer_tail_bar(self) -> None:
         base_payload = {
             "chart": {

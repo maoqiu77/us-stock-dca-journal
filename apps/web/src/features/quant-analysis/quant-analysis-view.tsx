@@ -104,15 +104,15 @@ const ANALYSTS: Array<{
     title: "基本面 / ETF 结构",
     description: "个股财务估值；ETF 费用、规模与基金结构",
     sources: "Yahoo Finance / Nasdaq",
-    scope: "按资产类型自动切换 · 约 1 次 AI 调用",
+    scope: "当前快照 · 最新季报 45 天内优先",
     icon: Building2Icon,
   },
   {
     id: "news",
     title: "标的新闻",
     description: "公司事件、行业催化剂与主要新闻风险",
-    sources: "Yahoo News",
-    scope: "保存标题、短摘要与链接 · 约 1 次 AI 调用",
+    sources: "Yahoo News / Nasdaq",
+    scope: "最近 7 天 · 越新权重越高",
     icon: NewspaperIcon,
   },
   {
@@ -120,7 +120,7 @@ const ANALYSTS: Array<{
     title: "社交情绪",
     description: "样本情绪、讨论热度与观点分歧",
     sources: "StockTwits / Reddit / Hacker News",
-    scope: "仅当前日期 · 约 1 次 AI 调用",
+    scope: "仅当前日期 · 最近 14 天 · 约 1 次 AI 调用",
     icon: MessagesSquareIcon,
   },
   {
@@ -128,7 +128,7 @@ const ANALYSTS: Array<{
     title: "宏观事件",
     description: "利率、通胀、就业、宏观新闻与事件概率",
     sources: "FRED / Yahoo / Polymarket",
-    scope: "历史日期排除当前预测市场 · 约 1 次 AI 调用",
+    scope: "历史 FRED 需 Key · 排除当前预测市场",
     icon: LandmarkIcon,
   },
 ];
@@ -377,7 +377,7 @@ export function QuantAnalysisView() {
           <CalendarDaysIcon />
           <AlertTitle>历史时点保护已启用</AlertTitle>
           <AlertDescription>
-            历史日期不使用当前社交情绪；宏观分析中的当前 Polymarket 已排除。
+            历史日期不使用当前基本面快照和社交情绪；宏观数据固定历史 vintage，当前 Polymarket 已排除。
           </AlertDescription>
         </Alert>
       ) : null}
@@ -401,7 +401,8 @@ export function QuantAnalysisView() {
         </div>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           {ANALYSTS.map((analyst) => {
-            const disabled = analyst.id === "social" && historical;
+            const disabled =
+              historical && ["fundamentals", "social"].includes(analyst.id);
             const checked = analysts.includes(analyst.id);
             return (
               <Card key={analyst.id} size="sm" className={disabled ? "opacity-60" : ""}>

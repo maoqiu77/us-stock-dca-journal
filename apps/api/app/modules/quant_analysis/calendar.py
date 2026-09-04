@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
+
+
+US_MARKET_TIMEZONE = ZoneInfo("America/New_York")
+REGULAR_MARKET_CLOSE = time(hour=16)
 
 
 def normalize_us_trading_date(value: str | date) -> str:
@@ -20,10 +25,23 @@ def add_us_trading_days(value: str | date, count: int) -> str:
     return candidate.isoformat()
 
 
-def reflection_eligible(effective_date: str, today: str | None = None) -> bool:
-    current = date.fromisoformat(today) if today else date.today()
+def reflection_eligible(
+    effective_date: str,
+    today: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> bool:
     unlock_date = date.fromisoformat(add_us_trading_days(effective_date, 5))
-    return current >= unlock_date
+    if today is not None:
+        return date.fromisoformat(today) >= unlock_date
+
+    current = now or datetime.now(US_MARKET_TIMEZONE)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=US_MARKET_TIMEZONE)
+    market_now = current.astimezone(US_MARKET_TIMEZONE)
+    if market_now.date() != unlock_date:
+        return market_now.date() > unlock_date
+    return market_now.time().replace(tzinfo=None) >= REGULAR_MARKET_CLOSE
 
 
 def is_us_trading_day(value: date) -> bool:

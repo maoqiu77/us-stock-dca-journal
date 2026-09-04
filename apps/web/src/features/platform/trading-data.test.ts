@@ -15,6 +15,7 @@ import {
   replaceStockPool,
   sortPositionPlans,
   sortTradesNewestFirst,
+  trackTickerForObservation,
   updateTradeCalculation,
   upsertPositionPlan,
   type TradingDataState,
@@ -150,13 +151,27 @@ test("removeTrackedTicker removes a ticker from positions and stock pool", () =>
     purchaseDate: "",
   });
 
-  const next = removeTrackedTicker(withDram, "dram");
+  const historicalTrade = {
+    id: "dram-sold",
+    date: "2026-08-01",
+    ticker: "DRAM",
+    action: "卖出" as const,
+    shares: 1,
+    unitPrice: 10,
+    amount: 10,
+    note: "历史流水",
+  };
+  const next = removeTrackedTicker(
+    { ...withDram, trades: [historicalTrade] },
+    "dram"
+  );
 
   assert.deepEqual(next.stockPool, ["VOO"]);
   assert.deepEqual(
     next.positions.map((position) => position.ticker),
     ["VOO"]
   );
+  assert.deepEqual(next.trades, [historicalTrade]);
 });
 
 test("replaceStockPool removes position targets for deleted pool tickers", () => {
@@ -211,6 +226,26 @@ test("recordTrade automatically tracks a newly entered holding", () => {
   assert.equal(next.positions.at(-1)?.ticker, "QQQM");
   assert.equal(next.positions.at(-1)?.assetType, "ETF");
   assert.equal(derivePositions(next).at(-1)?.holdingCost, 500);
+});
+
+test("trackTickerForObservation adds an overview ticker without a trade", () => {
+  const current = testState();
+  const next = trackTickerForObservation(current, "nvda", "STOCK");
+
+  assert.deepEqual(next.stockPool, ["VOO", "NVDA"]);
+  assert.equal(next.positions.at(-1)?.ticker, "NVDA");
+  assert.equal(next.positions.at(-1)?.assetType, "STOCK");
+  assert.equal(next.positions.at(-1)?.targetWeight, 0);
+  assert.equal(next.trades.length, current.trades.length);
+  assert.equal(derivePositions(next).at(-1)?.shares, 0);
+});
+
+test("trackTickerForObservation leaves an existing ticker unchanged", () => {
+  const current = testState();
+  const next = trackTickerForObservation(current, "voo", "STOCK");
+
+  assert.deepEqual(next, current);
+  assert.equal(next.positions[0].assetType, "ETF");
 });
 
 test("derivePositions removes sold shares from oldest lots first", () => {

@@ -23,6 +23,7 @@ import {
   replaceRecordedTrade,
   replaceStockPool,
   sanitizeTradingData,
+  trackTickerForObservation,
   upsertPositionPlan,
   uniqueTickers,
   validateTradingData,
@@ -50,6 +51,7 @@ type TradingDataContextValue = {
   updateStockPoolText: (value: string) => void;
   upsertPosition: (position: PositionPlan) => void;
   removePosition: (ticker: string) => void;
+  observeTicker: (ticker: string, assetType?: AssetType) => void;
   addTrade: (input: TradeInput, assetType?: AssetType) => void;
   importTrades: (inputs: TradeInput[]) => void;
   importPositions: (inputs: PositionSnapshotInput[], importDate: string) => void;
@@ -245,6 +247,15 @@ export function TradingDataProvider({
     [commitState]
   );
 
+  const observeTicker = React.useCallback(
+    (ticker: string, assetType: AssetType = "STOCK") => {
+      commitState((current) =>
+        trackTickerForObservation(current, ticker, assetType)
+      );
+    },
+    [commitState]
+  );
+
   const addTrade = React.useCallback(
     (input: TradeInput, assetType: AssetType = "STOCK") => {
       commitState((current) => recordTrade(current, input, assetType));
@@ -350,6 +361,7 @@ export function TradingDataProvider({
       updateStockPoolText,
       upsertPosition,
       removePosition,
+      observeTicker,
       addTrade,
       importTrades,
       importPositions,
@@ -370,6 +382,7 @@ export function TradingDataProvider({
       importTrades,
       importPositions,
       isHydrated,
+      observeTicker,
       removePosition,
       removeTrade,
       setActiveStrategyProfile,

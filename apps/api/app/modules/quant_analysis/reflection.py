@@ -17,6 +17,9 @@ from app.modules.quant_analysis.engine import parse_structured_response
 from app.modules.quant_analysis.store import get_analysis_run, update_analysis_run
 
 
+QUANT_AI_MAX_OUTPUT_TOKENS = 8192
+
+
 def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, Any]:
     try:
         run = get_analysis_run(run_id)
@@ -83,6 +86,7 @@ def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, A
             api_key=api_key,
             messages=messages,
             timeout=120,
+            max_output_tokens=QUANT_AI_MAX_OUTPUT_TOKENS,
         )
         try:
             review = parse_structured_response(completion["content"])
@@ -100,6 +104,7 @@ def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, A
                     },
                 ],
                 timeout=120,
+                max_output_tokens=QUANT_AI_MAX_OUTPUT_TOKENS,
             )
             review = parse_structured_response(repaired["content"])
     except (OpenAICompatibleRequestError, ValueError, json.JSONDecodeError) as exc:
@@ -139,21 +144,22 @@ def _instrument_return(ticker: str, start_date: str, end_date: str) -> float:
     bars = chart.get("bars")
     if not isinstance(bars, list):
         raise HTTPException(status_code=409, detail=f"{ticker} 历史行情不可用。")
-    start_close = _close_on_or_before(bars, start_date)
-    end_close = _close_on_or_before(bars, end_date)
+    start_close = _close_on_date(bars, start_date)
+    end_close = _close_on_date(bars, end_date)
     if start_close is None or end_close is None or start_close <= 0:
         raise HTTPException(status_code=409, detail=f"{ticker} 缺少反思区间价格。")
     return round((end_close / start_close - 1) * 100, 4)
 
 
-def _close_on_or_before(bars: list[dict[str, Any]], target_date: str) -> float | None:
-    candidates: list[tuple[str, float]] = []
+def _close_on_date(bars: list[dict[str, Any]], target_date: str) -> float | None:
     for bar in bars:
         bar_date = str(bar.get("time") or "")[:10]
-        if not bar_date or bar_date > target_date:
+        if bar_date != target_date:
             continue
         try:
-            candidates.append((bar_date, float(bar.get("close"))))
+            close = float(bar.get("close"))
         except (TypeError, ValueError):
             continue
-    return max(candidates, default=("", None), key=lambda item: item[0])[1]
+        if close > 0:
+            return close
+    return None

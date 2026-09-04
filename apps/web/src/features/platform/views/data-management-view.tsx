@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  EyeIcon,
   HistoryIcon,
   PencilIcon,
   PlusIcon,
@@ -57,6 +58,7 @@ type TradeDraft = Omit<TradeRecord, "id" | "shares" | "unitPrice" | "amount"> & 
   unitPrice: string;
   amount: string;
 };
+type EntryAction = TradeAction | "仅观察";
 
 const initialTradeDraft: TradeDraft = {
   date: todayIsoDate(),
@@ -69,8 +71,9 @@ const initialTradeDraft: TradeDraft = {
 };
 
 export function DataManagementView() {
-  const { state, addTrade, updateTrade, removeTrade } = useTradingData();
+  const { state, observeTicker, addTrade, updateTrade, removeTrade } = useTradingData();
   const [tradeDraft, setTradeDraft] = React.useState(initialTradeDraft);
+  const [entryAction, setEntryAction] = React.useState<EntryAction>("买入");
   const [assetType, setAssetType] = React.useState<AssetType>("STOCK");
   const [recentTradeFields, setRecentTradeFields] = React.useState<
     TradeCalculationField[]
@@ -87,6 +90,7 @@ export function DataManagementView() {
 
   const resetDraft = () => {
     setTradeDraft(initialTradeDraft);
+    setEntryAction("买入");
     setAssetType("STOCK");
     setRecentTradeFields([]);
     setEditingTradeId(null);
@@ -104,9 +108,15 @@ export function DataManagementView() {
     setTradeDraft((current) => ({ ...current, ...result.draft }));
     setRecentTradeFields(result.recentFields);
   };
-  const saveTrade = () => {
+  const saveEntry = () => {
+    if (entryAction === "仅观察") {
+      observeTicker(tradeDraft.ticker, assetType);
+      resetDraft();
+      return;
+    }
     const normalizedTradeDraft = {
       ...tradeDraft,
+      action: entryAction,
       amount: tradeAmount,
       unitPrice: tradeUnitPrice,
       shares: tradeShares,
@@ -129,7 +139,7 @@ export function DataManagementView() {
             {isEditingTrade ? "编辑交易" : "手动录入交易"}
           </CardTitle>
           <CardDescription>
-            新标的会自动加入持仓；交易金额、单支成本和股数任填两项即可
+            买卖会写入交易流水；仅观察只把标的加入总览
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -141,6 +151,7 @@ export function DataManagementView() {
                   id="trade-date"
                   type="date"
                   value={tradeDraft.date}
+                  disabled={entryAction === "仅观察"}
                   onChange={(event) =>
                     setTradeDraft((current) => ({
                       ...current,
@@ -183,14 +194,17 @@ export function DataManagementView() {
               <Field>
                 <FieldLabel htmlFor="trade-action">动作</FieldLabel>
                 <ToggleGroup
-                  value={[tradeDraft.action]}
+                  value={[entryAction]}
                   onValueChange={(value) => {
                     const nextValue = Array.isArray(value) ? value[0] : value;
                     if (nextValue === "买入" || nextValue === "卖出") {
+                      setEntryAction(nextValue);
                       setTradeDraft((current) => ({
                         ...current,
                         action: nextValue,
                       }));
+                    } else if (nextValue === "仅观察" && !isEditingTrade) {
+                      setEntryAction(nextValue);
                     }
                   }}
                   variant="outline"
@@ -211,6 +225,12 @@ export function DataManagementView() {
                   >
                     卖出
                   </ToggleGroupItem>
+                  {!isEditingTrade ? (
+                    <ToggleGroupItem value="仅观察" aria-label="仅观察">
+                      <EyeIcon data-icon="inline-start" />
+                      仅观察
+                    </ToggleGroupItem>
+                  ) : null}
                 </ToggleGroup>
               </Field>
               <Field>
@@ -221,6 +241,7 @@ export function DataManagementView() {
                   min="0"
                   step="0.0001"
                   value={tradeDraft.amount}
+                  disabled={entryAction === "仅观察"}
                   onChange={(event) =>
                     handleTradeCalculationChange("amount", event.target.value)
                   }
@@ -234,6 +255,7 @@ export function DataManagementView() {
                   min="0"
                   step="0.0001"
                   value={tradeDraft.unitPrice}
+                  disabled={entryAction === "仅观察"}
                   onChange={(event) =>
                     handleTradeCalculationChange("unitPrice", event.target.value)
                   }
@@ -247,6 +269,7 @@ export function DataManagementView() {
                   min="0"
                   step="0.000001"
                   value={tradeDraft.shares}
+                  disabled={entryAction === "仅观察"}
                   onChange={(event) =>
                     handleTradeCalculationChange("shares", event.target.value)
                   }
@@ -257,6 +280,7 @@ export function DataManagementView() {
                 <Input
                   id="trade-note"
                   value={tradeDraft.note}
+                  disabled={entryAction === "仅观察"}
                   onChange={(event) =>
                     setTradeDraft((current) => ({
                       ...current,
@@ -274,16 +298,25 @@ export function DataManagementView() {
                 </Button>
               ) : null}
               <Button
-                onClick={saveTrade}
+                onClick={saveEntry}
                 disabled={
                   !tradeDraft.ticker.trim() ||
-                  tradeAmount <= 0 ||
-                  tradeUnitPrice <= 0 ||
-                  tradeShares <= 0
+                  (entryAction !== "仅观察" &&
+                    (tradeAmount <= 0 ||
+                      tradeUnitPrice <= 0 ||
+                      tradeShares <= 0))
                 }
               >
-                <PlusIcon data-icon="inline-start" />
-                {isEditingTrade ? "保存修改" : "添加流水"}
+                {entryAction === "仅观察" ? (
+                  <EyeIcon data-icon="inline-start" />
+                ) : (
+                  <PlusIcon data-icon="inline-start" />
+                )}
+                {entryAction === "仅观察"
+                  ? "加入总览"
+                  : isEditingTrade
+                    ? "保存修改"
+                    : "添加流水"}
               </Button>
             </div>
           </FieldGroup>
@@ -348,6 +381,7 @@ export function DataManagementView() {
                             amount: formatTradeNumberInput(trade.amount),
                             note: trade.note,
                           });
+                          setEntryAction(trade.action);
                           setAssetType(
                             state.positions.find(
                               (position) => position.ticker === trade.ticker

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -13,12 +14,10 @@ from app.modules.backtest_engine import (
 )
 from app.modules.indicators import add_indicators, latest_metrics
 from app.modules.market import get_chart
-from app.modules.signal_engine import evaluate_add_signal
 from app.modules.trading_data import (
     account_summary,
     active_strategy_settings,
     derive_positions,
-    etf_investment_pool,
     load_trading_state,
     strategy_settings_to_engine_config,
 )
@@ -27,8 +26,6 @@ from app.modules.trading_data import (
 def get_signal_rows() -> list[dict[str, Any]]:
     state = load_trading_state()
     summary = account_summary(state)
-    settings = active_strategy_settings(state)
-    strategy_config, risk_config = strategy_settings_to_engine_config(settings)
     positions = derive_positions(state)
 
     if not positions:
@@ -37,44 +34,10 @@ def get_signal_rows() -> list[dict[str, Any]]:
     max_workers = min(len(positions), 6)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         contexts = list(executor.map(load_signal_context, positions))
-    pool = etf_investment_pool(state, settings)
-    trades = state.get("trades", [])
-    candidates = []
-    for context in contexts:
-        position = context["position"]
-        price = finite_metric(context["metrics"].get("Close")) or 0.0
-        market_value = price * float(position["shares"])
-        target_gap = max(float(summary["totalAssets"]) * float(position["targetWeight"]) - market_value, 0.0)
-        candidates.append(
-            {
-                "ticker": position["ticker"],
-                "assetType": position["assetType"],
-                "drawdown252": finite_metric(context["metrics"].get("Drawdown252")) or 0.0,
-                "targetGap": target_gap,
-                "etfLimitGap": max(
-                    float(summary["totalAssets"]) * float(risk_config.get("max_etf_weight", 0.6))
-                    - market_value,
-                    0.0,
-                ),
-                "cycleInvested": sum(
-                    max(float(trade.get("amount", 0.0)), 0.0)
-                    for trade in trades
-                    if trade.get("action") == "买入"
-                    and str(trade.get("ticker", "")).upper() == str(position["ticker"]).upper()
-                    and (
-                        not context["metrics"].get("High252Date")
-                        or str(trade.get("date", "")) >= str(context["metrics"]["High252Date"])
-                    )
-                ),
-            }
-        )
-    allocations = allocate_etf_investments(candidates, pool, float(summary["cash"]))
     return [
-        build_signal_row(
+        build_market_observation_row(
             context["position"],
             summary,
-            {**strategy_config, "etf_allocation_amount": allocations.get(context["position"]["ticker"], 0.0)},
-            risk_config,
             chart=context["chart"],
             metrics=context["metrics"],
         )
@@ -153,46 +116,79 @@ def load_signal_context(position: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_signal_row(
+def build_market_observation_row(
     position: dict[str, Any],
     summary: dict[str, Any],
-    strategy_config: dict[str, Any],
-    risk_config: dict[str, Any],
     chart: dict[str, Any] | None = None,
     metrics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     chart = chart or get_chart(position["ticker"], "1y", "1d")
     if metrics is None:
         prices = bars_to_dataframe(chart.get("bars", []))
-        indicators = (
-            add_indicators(prices, int(strategy_config.get("rsi_period", 14)))
-            if not prices.empty
-            else prices
-        )
+        indicators = add_indicators(prices) if not prices.empty else prices
         metrics = latest_metrics(indicators) if not indicators.empty else {}
-    signal = evaluate_add_signal(
-        ticker=position["ticker"],
-        metrics=metrics,
-        shares=float(position["shares"]),
-        target_weight=float(position["targetWeight"]),
-        asset_type=str(position["assetType"]),
-        total_assets=float(summary["totalAssets"]),
-        cash=float(summary["cash"]),
-        strategy_config=strategy_config,
-        risk_config=risk_config,
-        cost_basis=float(position["costBasis"]),
-        take_profit_pct=float(position["takeProfitPct"]),
-        stop_loss_pct=float(position["stopLossPct"]),
-    )
-    row = signal.to_row()
-    row["source"] = chart.get("source")
-    row["ma20"] = finite_metric(metrics.get("MA20"))
-    row["ma60"] = finite_metric(metrics.get("MA60"))
-    row["ma120"] = finite_metric(metrics.get("MA120"))
-    row["ma200"] = finite_metric(metrics.get("MA200"))
-    row["drawdown252"] = finite_metric(metrics.get("Drawdown252"))
-    row["high252_date"] = metrics.get("High252Date")
-    return row
+    price = finite_metric(metrics.get("Close")) or 0.0
+    shares = max(float(position.get("shares", 0.0)), 0.0)
+    cost_basis = max(float(position.get("costBasis", 0.0)), 0.0)
+    market_value = price * shares
+    total_assets = max(float(summary.get("totalAssets", 0.0)), 0.0)
+    status, observation, reasons = classify_technical_observation(metrics)
+    return {
+        "ticker": str(position.get("ticker", "")).upper(),
+        "current_price": price,
+        "trend_status": status,
+        "drawdown": finite_metric(metrics.get("Drawdown20")) or 0.0,
+        "drawdown252": finite_metric(metrics.get("Drawdown252")),
+        "high252_date": metrics.get("High252Date"),
+        "rsi": finite_metric(metrics.get("RSI14")) or 0.0,
+        "ma20": finite_metric(metrics.get("MA20")),
+        "ma60": finite_metric(metrics.get("MA60")),
+        "ma120": finite_metric(metrics.get("MA120")),
+        "ma200": finite_metric(metrics.get("MA200")),
+        "market_value": market_value,
+        "cost_basis": cost_basis,
+        "return_from_cost": price / cost_basis - 1 if price > 0 and cost_basis > 0 else 0.0,
+        "take_profit_pct": 0.0,
+        "stop_loss_pct": 0.0,
+        "unrealized_pnl": (price - cost_basis) * shares,
+        "current_weight": market_value / total_assets if total_assets > 0 else 0.0,
+        "target_weight": 0.0,
+        "action": observation,
+        "status": status,
+        "suggested_amount": 0.0,
+        "suggested_shares": 0.0,
+        "reasons": "；".join(reasons),
+        "blocked_reasons": "",
+        "risk_notes": "技术状态仅描述当前行情，不构成具体交易指令。",
+        "manual_instruction": "未生成具体交易指令。",
+        "date": date.today().isoformat(),
+        "source": chart.get("source"),
+    }
+
+
+def classify_technical_observation(
+    metrics: dict[str, Any],
+) -> tuple[str, str, list[str]]:
+    price = finite_metric(metrics.get("Close"))
+    ma60 = finite_metric(metrics.get("MA60"))
+    ma120 = finite_metric(metrics.get("MA120"))
+    rsi = finite_metric(metrics.get("RSI14"))
+    drawdown252 = finite_metric(metrics.get("Drawdown252"))
+    if price is None or ma60 is None or ma120 is None or rsi is None:
+        return "数据不足", "等待有效行情", ["当前数据不足以判断技术状态"]
+
+    reasons = [f"现价 {price:.2f}，MA60 {ma60:.2f}，MA120 {ma120:.2f}，RSI {rsi:.1f}"]
+    if drawdown252 is not None:
+        reasons.append(f"52 周回撤 {drawdown252:.2%}")
+    if price < ma120:
+        return "趋势偏弱", "关注长期趋势风险", reasons
+    if rsi >= 70:
+        return "短期偏热", "关注波动风险", reasons
+    if price >= ma60 and ma60 >= ma120:
+        return "趋势偏强", "保持观察", reasons
+    if price < ma60:
+        return "中期走弱", "关注趋势变化", reasons
+    return "趋势中性", "保持观察", reasons
 
 
 def get_backtest_result(

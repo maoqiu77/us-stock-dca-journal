@@ -329,19 +329,29 @@ def _try_yfinance_chart(
 
     timezone_name = str(getattr(history.index, "tz", None) or _infer_market_timezone(ticker))
     bars: list[dict[str, Any]] = []
+    incomplete_latest_bar = ""
     for index, row in history.iterrows():
-        if math.isnan(float(row["Close"])):
-            continue
         timestamp = index.to_pydatetime()
         if timestamp.tzinfo is None:
             timestamp = timestamp.replace(tzinfo=timezone.utc)
+        time_value = _format_time(timestamp, interval)
+        close = _finite_number(row.get("Close"))
+        if close is None:
+            incomplete_latest_bar = max(incomplete_latest_bar, time_value)
+            continue
+        open_ = _finite_number(row.get("Open"))
+        high = _finite_number(row.get("High"))
+        low = _finite_number(row.get("Low"))
+        if None in {open_, high, low}:
+            incomplete_latest_bar = max(incomplete_latest_bar, time_value)
+            continue
         bars.append(
             {
-                "time": _format_time(timestamp, interval),
-                "open": round(float(row["Open"]), 4),
-                "high": round(float(row["High"]), 4),
-                "low": round(float(row["Low"]), 4),
-                "close": round(float(row["Close"]), 4),
+                "time": time_value,
+                "open": round(open_, 4),
+                "high": round(high, 4),
+                "low": round(low, 4),
+                "close": round(close, 4),
                 "volume": int(row.get("Volume", 0)),
             }
         )
@@ -350,7 +360,7 @@ def _try_yfinance_chart(
         return None
 
     series_type = "line" if range_ == "5d" and interval not in {"1d", "1wk", "1mo"} else "candlestick"
-    return {
+    chart = {
         "ticker": ticker.upper(),
         "range": range_,
         "interval": interval,
@@ -360,6 +370,9 @@ def _try_yfinance_chart(
         "lastUpdated": datetime.now(timezone.utc).isoformat(),
         "bars": bars,
     }
+    if incomplete_latest_bar and incomplete_latest_bar >= str(bars[-1]["time"]):
+        chart["incompleteLatestBar"] = incomplete_latest_bar
+    return chart
 
 
 def _try_yahoo_chart(
@@ -387,11 +400,11 @@ def _try_yahoo_chart(
     if not parsed:
         return None
 
-    timezone_name, bars = parsed
+    timezone_name, bars, incomplete_latest_bar = parsed
     if not bars:
         return None
 
-    return {
+    chart = {
         "ticker": ticker.upper(),
         "range": range_,
         "interval": interval,
@@ -401,6 +414,9 @@ def _try_yahoo_chart(
         "lastUpdated": datetime.now(timezone.utc).isoformat(),
         "bars": bars,
     }
+    if incomplete_latest_bar:
+        chart["incompleteLatestBar"] = incomplete_latest_bar
+    return chart
 
 
 def _try_yahoo_history_chart(
@@ -420,7 +436,7 @@ def _try_yahoo_history_chart(
     if not base_parsed:
         return None
 
-    timezone_name, daily_bars = base_parsed
+    timezone_name, daily_bars, incomplete_latest_bar = base_parsed
     tail_payload = _fetch_yahoo_chart_payload(
         ticker,
         "1mo",
@@ -429,9 +445,12 @@ def _try_yahoo_history_chart(
     )
     tail_parsed = _parse_yahoo_chart_bars(tail_payload, ticker, "1mo")
     if tail_parsed:
-        tail_timezone_name, tail_bars = tail_parsed
+        tail_timezone_name, tail_bars, tail_incomplete_latest_bar = tail_parsed
         timezone_name = tail_timezone_name or timezone_name
         daily_bars = _merge_daily_bars(daily_bars, tail_bars)
+        incomplete_latest_bar = max(
+            incomplete_latest_bar, tail_incomplete_latest_bar
+        )
 
     if interval == "1d":
         bars = daily_bars
@@ -443,7 +462,7 @@ def _try_yahoo_history_chart(
     if not bars:
         return None
 
-    return {
+    chart = {
         "ticker": ticker.upper(),
         "range": range_,
         "interval": interval,
@@ -453,6 +472,9 @@ def _try_yahoo_history_chart(
         "lastUpdated": datetime.now(timezone.utc).isoformat(),
         "bars": bars,
     }
+    if incomplete_latest_bar:
+        chart["incompleteLatestBar"] = incomplete_latest_bar
+    return chart
 
 
 def _merge_daily_bars(
@@ -499,7 +521,7 @@ def _parse_yahoo_chart_bars(
     payload: Any,
     ticker: str,
     interval: str,
-) -> Optional[tuple[str, list[dict[str, Any]]]]:
+) -> Optional[tuple[str, list[dict[str, Any]], str]]:
     chart = payload.get("chart") if isinstance(payload, dict) else None
     results = chart.get("result") if isinstance(chart, dict) else None
     if not isinstance(results, list) or not results:
@@ -520,6 +542,7 @@ def _parse_yahoo_chart_bars(
     market_zone = ZoneInfo(timezone_name)
     is_intraday = interval not in {"1d", "1wk", "1mo"}
     bars: list[dict[str, Any]] = []
+    incomplete_latest_bar = ""
     for index, raw_timestamp in enumerate(timestamps):
         timestamp = _parse_epoch_seconds(raw_timestamp)
         if timestamp is None:
@@ -533,6 +556,9 @@ def _parse_yahoo_chart_bars(
         low = _finite_quote_value(quote.get("low"), index)
         close = _finite_quote_value(quote.get("close"), index)
         if None in {open_, high, low, close}:
+            incomplete_latest_bar = max(
+                incomplete_latest_bar, _format_time(timestamp, interval)
+            )
             continue
         volume = _finite_quote_value(quote.get("volume"), index) or 0
         bars.append(
@@ -549,7 +575,9 @@ def _parse_yahoo_chart_bars(
     if not bars:
         return None
 
-    return timezone_name, bars
+    if incomplete_latest_bar < str(bars[-1]["time"]):
+        incomplete_latest_bar = ""
+    return timezone_name, bars, incomplete_latest_bar
 
 
 def _try_nasdaq_chart(
@@ -781,6 +809,14 @@ def _finite_quote_value(values: Any, index: int) -> Optional[float]:
     except (TypeError, ValueError):
         return None
     return value if math.isfinite(value) else None
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _parse_nasdaq_intraday_millis(value: Any, timezone_name: str) -> Optional[datetime]:

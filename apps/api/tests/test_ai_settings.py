@@ -24,7 +24,7 @@ class AiSettingsTest(unittest.TestCase):
         )
 
         self.assertEqual(settings["schemaVersion"], 2)
-        self.assertEqual(settings["complexModel"], "gpt-5.6-sol")
+        self.assertEqual(settings["complexModel"], "gpt-5.6-luna")
         self.assertEqual(settings["simpleModel"], "gpt-5.6-luna")
 
     def test_connection_test_checks_both_tiered_models(self) -> None:
@@ -38,7 +38,7 @@ class AiSettingsTest(unittest.TestCase):
                 requests,
                 "get",
                 return_value=FakeResponse(
-                    {"data": [{"id": "gpt-5.6-sol"}, {"id": "gpt-5.6-luna"}]}
+                    {"data": [{"id": "gpt-5.6-luna"}]}
                 ),
             ),
             patch.object(
@@ -50,7 +50,7 @@ class AiSettingsTest(unittest.TestCase):
             result = ai_settings.test_ai_settings_connection(
                 {
                     "baseUrl": "https://example.test/v1",
-                    "complexModel": "gpt-5.6-sol",
+                    "complexModel": "gpt-5.6-luna",
                     "simpleModel": "gpt-5.6-luna",
                     "apiKey": "sk-test",
                 }
@@ -58,7 +58,7 @@ class AiSettingsTest(unittest.TestCase):
 
         self.assertEqual(
             [call.kwargs["model"] for call in completion.call_args_list],
-            ["gpt-5.6-sol", "gpt-5.6-luna"],
+            ["gpt-5.6-luna", "gpt-5.6-luna"],
         )
         self.assertTrue(result["modelResults"]["complex"]["modelMatched"])
         self.assertTrue(result["modelResults"]["simple"]["modelMatched"])
@@ -325,6 +325,21 @@ class AiSettingsTest(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 502)
         self.assertIn("Client not allowed", str(context.exception.detail))
+
+    def test_output_token_limit_maps_to_each_openai_endpoint(self) -> None:
+        messages = [{"role": "user", "content": "hello"}]
+
+        responses_payload = ai_settings.build_openai_compatible_payload(
+            "responses", "gpt-5.6-luna", messages, max_output_tokens=8192
+        )
+        chat_payload = ai_settings.build_openai_compatible_payload(
+            "chat/completions", "gpt-5.6-luna", messages, max_output_tokens=8192
+        )
+
+        self.assertEqual(responses_payload["max_output_tokens"], 8192)
+        self.assertNotIn("max_completion_tokens", responses_payload)
+        self.assertEqual(chat_payload["max_completion_tokens"], 8192)
+        self.assertNotIn("max_output_tokens", chat_payload)
 
 
 class FakeResponse:

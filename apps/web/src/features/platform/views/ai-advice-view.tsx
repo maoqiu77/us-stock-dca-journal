@@ -131,7 +131,6 @@ export function AiAdviceView() {
     mutationFn: sendAiAdviceChat,
     onMutate: getCurrentAiAdviceSignature,
     onSuccess: (response) => {
-      setChatPrompt("");
       applyCalendarResponse(response);
     },
     onError: (error, _variables, context) => {
@@ -173,7 +172,7 @@ export function AiAdviceView() {
   }, [chatMessages.length, pendingChatPrompt, chatMutation.isPending]);
   const generationPending =
     externalMutation.isPending || isRecoveringAiResponse;
-  let generateButtonLabel = "生成每日 AI 建议";
+  let generateButtonLabel = "生成每日 AI 分析";
   if (externalMutation.isPending) {
     generateButtonLabel = "生成中";
   }
@@ -193,6 +192,7 @@ export function AiAdviceView() {
     if (!prompt || !aiReady || chatMutation.isPending) {
       return;
     }
+    setChatPrompt("");
     chatMutation.mutate(prompt);
   };
 
@@ -203,7 +203,7 @@ export function AiAdviceView() {
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
               <CalendarDaysIcon />
-              AI 建议日历
+              AI 分析日历
             </CardTitle>
             <CardDescription>按本地持仓数据和 AI 模型配置生成</CardDescription>
             <CardAction>
@@ -253,7 +253,7 @@ export function AiAdviceView() {
                     onClick={() => setSelectedDate(day)}
                     className="relative h-9 min-w-0 px-1 text-base font-medium"
                     aria-label={`${day}${
-                      savedDates.has(day) ? "，已有 AI 建议" : "，无 AI 建议"
+                      savedDates.has(day) ? "，已有 AI 分析" : "，无 AI 分析"
                     }`}
                   >
                     {Number(day.slice(-2))}
@@ -274,7 +274,7 @@ export function AiAdviceView() {
           <CardHeader className="border-b">
             <CardTitle className="flex items-center gap-2">
               <FileTextIcon />
-              AI 建议
+              AI 分析
               <Button
                 className="ml-4 sm:ml-12 xl:ml-56"
                 variant="secondary"
@@ -289,7 +289,7 @@ export function AiAdviceView() {
             <CardDescription>
               {record
                 ? `${record.date}，生成时间 ${record.generated_at}`
-                : "尚未选择或保存 AI 建议"}
+                : "尚未选择或保存 AI 分析"}
             </CardDescription>
             <CardAction>
               <Badge variant="outline">{record?.source ?? "local"}</Badge>
@@ -320,7 +320,7 @@ export function AiAdviceView() {
               </div>
             ) : (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                生成今日 AI 建议后，这里会保存记录并开启追问。
+                生成今日 AI 分析后，这里会保存记录并开启追问。
               </div>
             )}
             {aiUnavailableReason ? (
@@ -358,9 +358,9 @@ export function AiAdviceView() {
             <CardDescription>
               {record
                 ? selectedIsToday
-                  ? "基于今日建议继续追问"
+                  ? "基于今日分析继续追问"
                   : `${record.date} 的历史对话`
-                : "生成今日 AI 建议后可继续追问"}
+                : "生成今日 AI 分析后可继续追问"}
             </CardDescription>
             <CardAction className="flex items-center gap-2">
               <Button
@@ -390,7 +390,7 @@ export function AiAdviceView() {
                 <div className="m-auto max-w-64 text-center text-sm text-muted-foreground">
                   {record
                     ? "在下方输入问题，AI 的回答会显示在这里。"
-                    : "请先生成今日 AI 建议。"}
+                    : "请先生成今日 AI 分析。"}
                 </div>
               ) : null}
               {chatMessages.map((message, index) => (
@@ -548,16 +548,16 @@ function AiSendConfirmDialog({
         </DialogHeader>
         <div className="grid gap-2 text-sm">
           <div className="rounded-lg bg-muted/50 p-3">账户摘要：账户规模、现金、持仓成本和仓位状态。</div>
-          <div className="rounded-lg bg-muted/50 p-3">持仓计划：股票池、目标仓位、止盈止损和资产类型。</div>
+          <div className="rounded-lg bg-muted/50 p-3">持仓快照：标的、资产类型、股数、成本与建仓日期。</div>
           <div className="rounded-lg bg-muted/50 p-3">交易流水：历史买卖记录和备注。</div>
-          <div className="rounded-lg bg-muted/50 p-3">行情与策略信号：报价、均线、RSI、回撤和平台信号。</div>
+          <div className="rounded-lg bg-muted/50 p-3">市场观察：报价、均线、RSI、回撤和日内走势。</div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             取消
           </Button>
           <Button onClick={onConfirm} disabled={isPending}>
-            确认生成建议
+            确认生成分析
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -642,11 +642,10 @@ function wait(milliseconds: number) {
 
 const AI_PROMPT_CONTEXT_ITEMS = [
   "账户摘要：账户规模、现金、持仓成本和当前仓位状态。",
-  "持仓计划：股票池、目标仓位、止盈止损和资产类型。",
+  "持仓快照：标的、资产类型、股数、成本与建仓日期。",
   "交易流水：历史买卖记录和备注。",
-  "策略配置：分层角色、加仓阈值、止损规则和风险参数。",
-  "行情信号：报价、均线、RSI、回撤、日内走势和平台建议。",
-  "北京时间上下文：当前交易时段和执行节奏建议。",
+  "市场观察：报价、均线、RSI、回撤和日内走势。",
+  "北京时间上下文：当前交易时段。",
   "用户额外问题：生成日报或追问时输入的补充问题。",
 ];
 

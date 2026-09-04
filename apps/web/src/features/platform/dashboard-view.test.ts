@@ -11,8 +11,13 @@ const overviewSource = readFileSync(
   "utf-8"
 );
 
-test("dashboard sorts held status rows by displayed return descending", () => {
+test("dashboard includes observed tickers and sorts rows by displayed return", () => {
   assert.match(dashboardSource, /position\.shares > 0/);
+  assert.match(dashboardSource, /const statusRows = derivedPositions/);
+  assert.match(dashboardSource, /未持仓/);
+  assert.match(dashboardSource, /!isHeld/);
+  assert.match(dashboardSource, /删除观察标的/);
+  assert.match(dashboardSource, /removePosition\(position\.ticker\)/);
   assert.match(dashboardSource, /comparePositionReturnsDescending\(/);
   assert.match(dashboardSource, /statusRows\.map\(/);
 });
@@ -24,7 +29,8 @@ test("dashboard only keeps the requested asset metrics and status fields", () =>
 
   assert.match(dashboardSource, /持仓成本/);
   assert.match(dashboardSource, /技术指标/);
-  assert.match(dashboardSource, /今日信号/);
+  assert.match(dashboardSource, /技术状态/);
+  assert.doesNotMatch(dashboardSource, /今日信号/);
   assert.doesNotMatch(dashboardSource, /账户总览|数据状态|工作流/);
   assert.doesNotMatch(dashboardSource, /currentWeight|目标仓位/);
 });

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
+from app.modules import research
 from app.modules.indicators import add_indicators, latest_metrics
-from app.modules.research import allocate_etf_investments
+from app.modules.research import allocate_etf_investments, build_market_observation_row
 from app.modules.signal_engine import evaluate_add_signal
 from app.modules.trading_data import (
     derive_positions,
@@ -15,6 +17,66 @@ from app.modules.trading_data import (
 
 
 class TradingDataTest(unittest.TestCase):
+    def test_signal_rows_do_not_load_active_strategy_settings(self) -> None:
+        position = {"ticker": "SMH", "shares": 1, "costBasis": 100}
+        with (
+            patch.object(research, "load_trading_state", return_value={}),
+            patch.object(research, "account_summary", return_value={"totalAssets": 1000}),
+            patch.object(research, "derive_positions", return_value=[position]),
+            patch.object(
+                research,
+                "load_signal_context",
+                return_value={
+                    "position": position,
+                    "chart": {"source": "sample"},
+                    "metrics": {},
+                },
+            ),
+            patch.object(
+                research,
+                "active_strategy_settings",
+                side_effect=AssertionError("signals must not load strategy settings"),
+            ) as strategy_settings,
+        ):
+            rows = research.get_signal_rows()
+
+        strategy_settings.assert_not_called()
+        self.assertEqual(rows[0]["status"], "数据不足")
+        self.assertEqual(rows[0]["suggested_amount"], 0)
+
+    def test_market_observation_does_not_emit_hidden_strategy_actions(self) -> None:
+        row = build_market_observation_row(
+            {
+                "ticker": "SMH",
+                "assetType": "ETF",
+                "shares": 1,
+                "costBasis": 100,
+                "targetWeight": 0.8,
+                "takeProfitPct": 0.2,
+                "stopLossPct": 0.1,
+            },
+            {"totalAssets": 1000, "cash": 900},
+            chart={"source": "yahoo"},
+            metrics={
+                "Close": 90,
+                "MA20": 94,
+                "MA60": 95,
+                "MA120": 100,
+                "MA200": 105,
+                "RSI14": 45,
+                "Drawdown20": 0.08,
+                "Drawdown252": 0.15,
+            },
+        )
+
+        self.assertEqual(row["status"], "趋势偏弱")
+        self.assertEqual(row["action"], "关注长期趋势风险")
+        self.assertEqual(row["suggested_amount"], 0)
+        self.assertEqual(row["suggested_shares"], 0)
+        self.assertEqual(row["target_weight"], 0)
+        self.assertNotIn("加仓", row["reasons"])
+        self.assertNotIn("资金", row["reasons"])
+
     def test_etf_investment_pool_counts_only_etf_buys_in_current_round(self) -> None:
         settings = sanitize_strategy_settings(
             {"recentEtfInvestmentAmount": 1000, "recentEtfInvestmentStartDate": "2026-08-01"}

@@ -27,7 +27,7 @@ class QuantAnalysisReflectionTest(unittest.TestCase):
             reflection_enabled=True,
             input_signature="reflection-signature",
             simple_model="gpt-5.6-luna",
-            complex_model="gpt-5.6-sol",
+            complex_model="gpt-5.6-luna",
         )
         store.update_analysis_run(
             self.run["id"],
@@ -83,7 +83,28 @@ class QuantAnalysisReflectionTest(unittest.TestCase):
         self.assertEqual(first["reflection"]["performance"]["excessReturnPct"], 3.0)
         self.assertEqual(second["reflection"], first["reflection"])
         completion.assert_called_once()
-        self.assertEqual(completion.call_args.kwargs["model"], "gpt-5.6-sol")
+        self.assertEqual(completion.call_args.kwargs["model"], "gpt-5.6-luna")
+        self.assertEqual(
+            completion.call_args.kwargs["max_output_tokens"],
+            reflection.QUANT_AI_MAX_OUTPUT_TOKENS,
+        )
+
+    @patch("app.modules.quant_analysis.reflection.get_chart")
+    def test_performance_requires_exact_fifth_day_close(self, get_chart) -> None:
+        get_chart.return_value = {
+            "source": "yahoo",
+            "bars": [
+                {"time": "2026-08-21", "close": 100},
+                {"time": "2026-08-27", "close": 105},
+            ],
+        }
+
+        with self.assertRaises(HTTPException) as context:
+            reflection.calculate_five_day_performance("AAPL", "2026-08-21")
+
+        self.assertEqual(context.exception.status_code, 409)
+        self.assertIn("缺少反思区间价格", str(context.exception.detail))
+        get_chart.assert_called_once_with("AAPL", "10y", "1d")
 
 
 if __name__ == "__main__":

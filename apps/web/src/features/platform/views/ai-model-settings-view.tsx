@@ -52,7 +52,7 @@ function AiConnectionCard() {
   const [message, setMessage] = React.useState("");
   const baseUrl = draft.baseUrl ?? settingsQuery.data?.baseUrl ?? "";
   const complexModel =
-    draft.complexModel ?? settingsQuery.data?.complexModel ?? "gpt-5.6-sol";
+    draft.complexModel ?? settingsQuery.data?.complexModel ?? "gpt-5.6-luna";
   const simpleModel =
     draft.simpleModel ?? settingsQuery.data?.simpleModel ?? "gpt-5.6-luna";
   const saveMutation = useMutation({
@@ -118,7 +118,7 @@ function AiConnectionCard() {
                   complexModel: event.target.value,
                 }))
               }
-              placeholder="gpt-5.6-sol"
+              placeholder="gpt-5.6-luna"
             />
             <FieldDescription>研究经理、组合经理、AI 日历与 AI 建议。</FieldDescription>
           </Field>

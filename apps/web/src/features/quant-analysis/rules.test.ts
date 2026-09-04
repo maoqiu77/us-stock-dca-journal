@@ -15,10 +15,10 @@ test("quant analysis estimates quick and deep AI calls", () => {
   );
 });
 
-test("historical dates automatically remove current social analysis", () => {
+test("historical dates remove current-only fundamentals and social analysis", () => {
   assert.deepEqual(
     normalizeAnalystsForDate(
-      ["technical", "social", "macro"],
+      ["technical", "fundamentals", "social", "macro"],
       "2026-08-28",
       "2026-08-29"
     ),

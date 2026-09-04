@@ -374,6 +374,40 @@ export function replaceStockPool(
   };
 }
 
+export function trackTickerForObservation(
+  state: TradingDataState,
+  ticker: string,
+  assetType: AssetType = "STOCK"
+): TradingDataState {
+  const normalizedTicker = normalizeTicker(ticker);
+  if (!normalizedTicker) {
+    return state;
+  }
+
+  const positionExists = state.positions.some(
+    (position) => normalizeTicker(position.ticker) === normalizedTicker
+  );
+  const positions = positionExists
+    ? state.positions
+    : [
+        ...state.positions,
+        {
+          ticker: normalizedTicker,
+          targetWeight: 0,
+          assetType,
+          takeProfitPct: 0,
+          stopLossPct: 0,
+          purchaseDate: "",
+        },
+      ];
+
+  return {
+    ...state,
+    stockPool: uniqueTickers([...state.stockPool, normalizedTicker]),
+    positions,
+  };
+}
+
 export function upsertPositionPlan(
   state: TradingDataState,
   position: PositionPlan

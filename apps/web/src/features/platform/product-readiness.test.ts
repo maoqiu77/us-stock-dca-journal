@@ -12,6 +12,7 @@ test("platform navigation exposes only the five focused work areas", () => {
   assert.match(source, /title: "总览"/);
   assert.match(source, /title: "量化分析"/);
   assert.match(source, /title: "AI 日历"/);
+  assert.match(source, /description: "每日分析与连续对话"/);
   assert.match(source, /title: "数据管理"/);
   assert.match(source, /title: "AI 模型配置"/);
   assert.doesNotMatch(source, /K线工作台|策略研究|检查更新/);
@@ -45,6 +46,8 @@ test("data management is focused on screenshot import and transaction history", 
   assert.match(source, /PositionScreenshotImport/);
   assert.match(source, /手动录入交易/);
   assert.match(source, /交易流水/);
+  assert.match(source, /仅观察/);
+  assert.match(source, /加入总览/);
   assert.doesNotMatch(source, /账户与股票池|持仓目标列表|AI 连接设置/);
 });
 
@@ -63,7 +66,7 @@ test("AI advice view confirms private context before sending to AI", () => {
   assert.match(source, /账户/);
   assert.match(source, /持仓/);
   assert.match(source, /交易流水/);
-  assert.match(source, /行情与策略信号/);
+  assert.match(source, /市场观察/);
 });
 
 test("AI advice follow-ups use an inline conversation without a confirmation dialog", () => {
@@ -77,11 +80,23 @@ test("AI advice follow-ups use an inline conversation without a confirmation dia
   assert.doesNotMatch(source, /setConfirmAction\("chat"\)/);
 });
 
-test("strategy view exposes the recent ETF funding pool and 52-week drawdown", () => {
-  const source = readSource("./views/strategy-view.tsx");
-  assert.match(source, /近期可新投入资金/);
-  assert.match(source, /开始新一轮/);
-  assert.match(source, /52 周回撤/);
+test("AI advice clears a submitted follow-up before waiting for the reply", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+  const clearIndex = source.indexOf('setChatPrompt("");', source.indexOf("const submitChat"));
+  const submitIndex = source.indexOf("chatMutation.mutate(prompt)", clearIndex);
+
+  assert.ok(clearIndex >= 0);
+  assert.ok(submitIndex > clearIndex);
+});
+
+test("visible market analysis does not advertise hidden strategy inputs", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+  assert.match(source, /市场观察/);
+  assert.match(source, /基于今日分析继续追问/);
+  assert.match(source, /北京时间上下文：当前交易时段。/);
+  assert.doesNotMatch(source, /策略配置/);
+  assert.doesNotMatch(source, /持仓计划/);
+  assert.doesNotMatch(source, /执行节奏建议/);
 });
 
 test("AI advice view can clear today's follow-up conversation without removing the summary", () => {
@@ -96,12 +111,12 @@ test("AI advice view can clear today's follow-up conversation without removing t
 test("AI advice calendar is full width and generation lives beside the advice title", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 
-  assert.match(source, /AI 建议日历/);
+  assert.match(source, /AI 分析日历/);
   assert.match(source, /xl:col-span-2/);
   assert.match(source, /grid-cols-8/);
   assert.match(source, /text-base font-medium/);
-  assert.match(source, />\s*AI 建议\s*</);
-  assert.match(source, /AI 建议\s*<Button/);
+  assert.match(source, />\s*AI 分析\s*</);
+  assert.match(source, /AI 分析\s*<Button/);
   assert.match(source, /ml-4 sm:ml-12 xl:ml-56/);
   assert.match(source, /variant="secondary"\s*size="default"/);
   assert.doesNotMatch(source, />\s*每日 AI 建议\s*</);
@@ -115,8 +130,8 @@ test("AI advice view shows summarized prompt context without duplicate chat hist
   assert.match(source, /AI-prompt/);
   assert.match(source, /AI_PROMPT_CONTEXT_ITEMS/);
   assert.match(source, /账户摘要/);
-  assert.match(source, /持仓计划/);
-  assert.match(source, /行情信号/);
+  assert.match(source, /持仓快照/);
+  assert.match(source, /市场观察/);
   assert.doesNotMatch(source, /新闻标题/);
   assert.doesNotMatch(source, /保存的新闻/);
   assert.doesNotMatch(source, /对话记录/);

@@ -1,8 +1,9 @@
 "use client";
 
-import { ActivityIcon } from "lucide-react";
+import { ActivityIcon, Trash2Icon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -41,7 +42,7 @@ export function DashboardView({
 }) {
   const signalsQuery = useSignalsQuery();
   const signals = signalsQuery.data ?? [];
-  const { state, derivedPositions, holdingCost } = useTradingData();
+  const { state, derivedPositions, holdingCost, removePosition } = useTradingData();
   const heldPositions = derivedPositions.filter((position) => position.shares > 0);
   const tickers = uniqueTickers([
     ...state.stockPool,
@@ -75,21 +76,24 @@ export function DashboardView({
         return change === undefined ? total : total + position.shares * change;
       }, 0)
     : undefined;
-  const statusRows = heldPositions
+  const statusRows = derivedPositions
     .map((position) => {
       const signal = signalByTicker.get(position.ticker);
       const realSignal = signal?.source === "sample" ? undefined : signal;
       const quotePrice = priceByTicker.get(position.ticker);
       const price =
         quotePrice ?? finiteNumber(realSignal?.current_price) ?? position.costBasis;
-      const isCostEstimate = !realSignal && quotePrice === undefined;
+      const isHeld = position.shares > 0;
+      const isCostEstimate = isHeld && !realSignal && quotePrice === undefined;
       const marketValue =
         quotePrice === undefined
           ? finiteNumber(realSignal?.market_value) ?? position.shares * price
           : position.shares * price;
-      const pnl = marketValue - position.holdingCost;
+      const pnl = isHeld ? marketValue - position.holdingCost : undefined;
       const returnFromCost =
-        position.holdingCost > 0 ? pnl / position.holdingCost : undefined;
+        pnl !== undefined && position.holdingCost > 0
+          ? pnl / position.holdingCost
+          : undefined;
 
       return {
         position,
@@ -98,6 +102,7 @@ export function DashboardView({
         isCostEstimate,
         pnl,
         returnFromCost,
+        isHeld,
       };
     })
     .sort((first, second) =>
@@ -122,7 +127,7 @@ export function DashboardView({
             标的状态
           </CardTitle>
           <CardDescription>
-            持仓成本、浮动盈亏、技术指标和今日信号
+            已持仓与仅观察标的的行情和客观技术指标
           </CardDescription>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -130,16 +135,19 @@ export function DashboardView({
             <TableHeader>
               <TableRow>
                 <TableHead>标的</TableHead>
+                <TableHead className="w-10">
+                  <span className="sr-only">删除观察标的</span>
+                </TableHead>
                 <TableHead className="text-right">现价</TableHead>
                 <TableHead className="text-right">持仓成本</TableHead>
                 <TableHead className="text-right">盈亏</TableHead>
                 <TableHead className="text-right">技术指标</TableHead>
-                <TableHead>今日信号</TableHead>
+                <TableHead>技术状态</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {statusRows.map(
-                ({ position, realSignal, price, isCostEstimate, pnl, returnFromCost }) => (
+                ({ position, realSignal, price, isCostEstimate, pnl, returnFromCost, isHeld }) => (
                   <TableRow key={position.ticker}>
                     <TableCell>
                       <div className="flex flex-col gap-1">
@@ -149,6 +157,20 @@ export function DashboardView({
                         </Badge>
                       </div>
                     </TableCell>
+                    <TableCell className="px-1">
+                      {!isHeld ? (
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-muted-foreground hover:text-foreground"
+                          onClick={() => removePosition(position.ticker)}
+                          aria-label={`删除观察标的 ${position.ticker}`}
+                          title={`从总览删除 ${position.ticker}`}
+                        >
+                          <Trash2Icon />
+                        </Button>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       <div>{formatMoney(price)}</div>
                       {isCostEstimate ? (
@@ -156,13 +178,19 @@ export function DashboardView({
                       ) : null}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      <div>{formatMoney(position.holdingCost)}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatShares(position.shares)} 股 x {formatMoney(position.costBasis)}
-                      </div>
+                      {isHeld ? (
+                        <>
+                          <div>{formatMoney(position.holdingCost)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatShares(position.shares)} 股 x {formatMoney(position.costBasis)}
+                          </div>
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">未持仓</span>
+                      )}
                     </TableCell>
                     <TableCell className={signedCellClass(pnl)}>
-                      {formatMoney(pnl)} / {formatRatio(returnFromCost)}
+                      {isHeld ? `${formatMoney(pnl)} / ${formatRatio(returnFromCost)}` : "--"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       <div>MA {maLine(realSignal)}</div>
@@ -186,8 +214,8 @@ export function DashboardView({
               )}
               {!statusRows.length ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                    暂无持仓，请到数据管理录入交易或导入券商截图。
+                  <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                    暂无跟踪标的，请到数据管理录入交易或选择仅观察。
                   </TableCell>
                 </TableRow>
               ) : null}
@@ -232,7 +260,5 @@ function signalVariant(status?: string): "secondary" | "outline" {
   if (!status) {
     return "outline";
   }
-  return ["允许加仓", "建议减仓", "风险减仓"].includes(status)
-    ? "secondary"
-    : "outline";
+  return status === "趋势偏强" ? "secondary" : "outline";
 }

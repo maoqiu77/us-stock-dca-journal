@@ -37,7 +37,7 @@ export const platformNavItems: PlatformNavItem[] = [
   {
     id: "ai",
     title: "AI 日历",
-    description: "每日建议与连续对话",
+    description: "每日分析与连续对话",
     icon: BotIcon,
   },
   {

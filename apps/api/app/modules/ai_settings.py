@@ -26,7 +26,7 @@ AI_REQUEST_HEADERS = {
 DEFAULT_AI_SETTINGS: dict[str, Any] = {
     "schemaVersion": 2,
     "baseUrl": "",
-    "complexModel": "gpt-5.6-sol",
+    "complexModel": "gpt-5.6-luna",
     "simpleModel": "gpt-5.6-luna",
     "apiKey": "",
     "updatedAt": "",
@@ -319,6 +319,7 @@ def call_openai_compatible_completion(
     messages: list[dict[str, Any]],
     timeout: int,
     preferred_endpoint: str | None = None,
+    max_output_tokens: int | None = None,
 ) -> dict[str, str]:
     normalized_base_url, detected_endpoint = normalize_openai_base_url(base_url)
     endpoint_preference = preferred_endpoint or detected_endpoint
@@ -329,6 +330,7 @@ def call_openai_compatible_completion(
             api_key=api_key,
             messages=messages,
             timeout=timeout,
+            max_output_tokens=max_output_tokens,
         )
 
     errors: list[str] = []
@@ -337,7 +339,12 @@ def call_openai_compatible_completion(
             response = requests.post(
                 f"{normalized_base_url}/{endpoint}",
                 headers=build_ai_request_headers(api_key),
-                json=build_openai_compatible_payload(endpoint, model, messages),
+                json=build_openai_compatible_payload(
+                    endpoint,
+                    model,
+                    messages,
+                    max_output_tokens=max_output_tokens,
+                ),
                 timeout=timeout,
             )
             response.raise_for_status()
@@ -360,6 +367,7 @@ def call_responses_completion_with_sdk(
     api_key: str,
     messages: list[dict[str, Any]],
     timeout: int,
+    max_output_tokens: int | None = None,
 ) -> dict[str, str]:
     client: OpenAI | None = None
     try:
@@ -370,7 +378,9 @@ def call_responses_completion_with_sdk(
             max_retries=0,
         )
         response = client.responses.create(
-            **build_responses_payload(model, messages),
+            **build_responses_payload(
+                model, messages, max_output_tokens=max_output_tokens
+            ),
         )
         content = str(response.output_text or "").strip()
         if not content:
@@ -404,17 +414,25 @@ def build_openai_compatible_payload(
     endpoint: str,
     model: str,
     messages: list[dict[str, Any]],
+    *,
+    max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
     if endpoint == "chat/completions":
-        return build_chat_completions_payload(model, messages)
-    return build_responses_payload(model, messages)
+        return build_chat_completions_payload(
+            model, messages, max_output_tokens=max_output_tokens
+        )
+    return build_responses_payload(
+        model, messages, max_output_tokens=max_output_tokens
+    )
 
 
 def build_chat_completions_payload(
     model: str,
     messages: list[dict[str, Any]],
+    *,
+    max_output_tokens: int | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "model": model,
         "messages": [
             {
@@ -425,9 +443,17 @@ def build_chat_completions_payload(
             if has_message_content(message.get("content"))
         ],
     }
+    if max_output_tokens is not None:
+        payload["max_completion_tokens"] = max(1, int(max_output_tokens))
+    return payload
 
 
-def build_responses_payload(model: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
+def build_responses_payload(
+    model: str,
+    messages: list[dict[str, Any]],
+    *,
+    max_output_tokens: int | None = None,
+) -> dict[str, Any]:
     instructions = "\n\n".join(
         str(message.get("content", "")).strip()
         for message in messages
@@ -448,6 +474,8 @@ def build_responses_payload(model: str, messages: list[dict[str, Any]]) -> dict[
     }
     if instructions:
         payload["instructions"] = instructions
+    if max_output_tokens is not None:
+        payload["max_output_tokens"] = max(1, int(max_output_tokens))
     if requires_responses_api(model):
         payload["reasoning"] = {"effort": "low"}
     return payload
