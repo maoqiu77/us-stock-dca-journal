@@ -31,17 +31,22 @@
 
 请到 [Release 页面](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载：
 
-- Windows：`stock-trading-platform-next-v1.1.0-windows-x64.zip`
-- Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v1.1.0-macos-arm64.zip`
-- Intel 芯片 Mac：`stock-trading-platform-next-v1.1.0-macos-x64.zip`
+- Windows：`stock-trading-platform-next-v1.2.0-windows-x64.zip`
+- Apple 芯片 Mac（M1/M2/M3/M4）：`stock-trading-platform-next-v1.2.0-macos-arm64.zip`
+- Intel 芯片 Mac：`stock-trading-platform-next-v1.2.0-macos-x64.zip`
 
 不要下载 GitHub 自动生成的 `Source code (zip)`，它是源码包，不是一键运行包。
 
-### Release V1.1.0
+### Release V1.2.0
 
-本版本新增左侧“量化分析”区域。这是一个面向美股个股和 ETF 的量化研究功能：先计算可复算的技术指标和相对表现，再由多个专门角色协作完成技术、基本面、新闻、情绪、宏观、辩论和风险复核，最后生成结构化研判报告。它只读取公开市场信息，不读取账户金额、持仓、现金或交易流水，也不会自动下单。
+本版本围绕日常使用效率、AI 建议和量化分析可靠性进行了集中升级：
 
-该多智能体研究流程借鉴了 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 的角色分工和研究辩论思路。TradingAgents 是一个开源的多智能体大语言模型金融交易研究框架，截至 2026-08-29 GitHub 显示约 101,567 stars（约 102k），采用 Apache License 2.0。本项目没有打包或运行 TradingAgents，而是在现有 Next.js + FastAPI、本地优先和隐私边界内做了独立实现；详细说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+- 将主工作区精简为五个核心区域，非当前页面按需加载；概览会纳入观察标的，并按显示收益排序。
+- 截图导入支持一次识别多个文件，强化持仓字段解析；交易记录默认按最新日期展示，新增标的时会同步加入跟踪池。
+- AI 建议在发送私密投资上下文前明确确认，支持当日连续追问、清空追问记录和中断后恢复；AI 与研究数据设置集中管理。
+- 量化分析增强 Yahoo、Nasdaq、FRED、StockTwits、Reddit 和 Polymarket 等公开数据源的采集、缓存与确定性降级，并严格隔离历史日期不能使用的当前数据。
+- 完善快速/深度运行阶段、AI 调用量提示、8192 token 输出上限、交易日历判断，以及第 5 个后续交易日收盘后的结果反思。
+- 继续保持本地优先：公开发布包只包含示例数据，不包含真实账户、持仓、交易记录、API 密钥或本地数据库。
 
 ## Windows 使用方法
 
@@ -151,17 +156,22 @@ Data is stored on your computer by default and is not automatically uploaded to 
 
 Download a ready-to-run package from the [Releases page](https://github.com/maoqiu77/us-stock-dca-journal/releases):
 
-- Windows: `stock-trading-platform-next-v1.1.0-windows-x64.zip`
-- Apple Silicon Mac: `stock-trading-platform-next-v1.1.0-macos-arm64.zip`
-- Intel Mac: `stock-trading-platform-next-v1.1.0-macos-x64.zip`
+- Windows: `stock-trading-platform-next-v1.2.0-windows-x64.zip`
+- Apple Silicon Mac: `stock-trading-platform-next-v1.2.0-macos-arm64.zip`
+- Intel Mac: `stock-trading-platform-next-v1.2.0-macos-x64.zip`
 
 Do not download GitHub's automatically generated `Source code (zip)` archive; it is for developers, not end users.
 
-### Release V1.1.0
+### Release V1.2.0
 
-This release adds the **Quant Analysis** workspace to the left navigation. It is a quantitative research feature for US equities and ETFs: reproducible indicators and relative performance are computed first, then specialist roles collaborate across technicals, fundamentals, news, sentiment, macro events, debate, and risk review to produce a structured report. It reads public market information only, never sends account balances, positions, cash, or trading logs into research prompts, and never places trades.
+This release focuses on daily workflow efficiency and more reliable AI and quantitative research:
 
-The multi-agent workflow is informed by the role architecture and research-debate pattern in [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents), an open-source multi-agent LLM financial-trading research framework with about 101,567 GitHub stars (about 102k as of 2026-08-29), released under Apache License 2.0. This project does not bundle or execute TradingAgents; it is an independent implementation adapted to this repository's Next.js + FastAPI stack, local-first operation, and privacy boundary. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the attribution details.
+- Streamlines the main workspace to five focused areas with lazy-loaded secondary views; the overview now includes watched symbols and sorts by displayed return.
+- Supports multi-file screenshot imports, hardens position-field recognition, sorts trades newest first, and automatically tracks newly entered symbols.
+- Adds an explicit privacy confirmation before AI advice sends investment context, plus same-day follow-ups, conversation clearing, interrupted-run recovery, and consolidated AI/research settings.
+- Improves collection, caching, and deterministic fallback behavior for public sources including Yahoo, Nasdaq, FRED, StockTwits, Reddit, and Polymarket, with stricter historical-date safeguards.
+- Clarifies quick/deep run stages and AI call estimates, caps model output at 8192 tokens, strengthens trading-calendar handling, and generates outcome reflection after the fifth following trading-day close.
+- Keeps the release local-first: bundles contain sample data only, never real accounts, positions, trade records, API keys, or local databases.
 
 ## Run the application
 
