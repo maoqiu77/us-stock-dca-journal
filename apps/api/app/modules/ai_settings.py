@@ -4,12 +4,14 @@ import json
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
+from urllib.parse import urlsplit
 
 import requests
 from fastapi import HTTPException
 from openai import OpenAI, OpenAIError
 
 from app.core.database import get_state_payload, set_state_payload
+from app.modules.ai_providers import PROVIDERS, PROVIDER_BY_ID, PROTOCOLS, build_anthropic_payload
 
 
 APP_STATE_KEY = "ai_settings_v1"
@@ -24,7 +26,9 @@ AI_REQUEST_HEADERS = {
 }
 
 DEFAULT_AI_SETTINGS: dict[str, Any] = {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
+    "provider": "custom",
+    "protocol": "auto",
     "baseUrl": "",
     "complexModel": "gpt-5.6-luna",
     "simpleModel": "gpt-5.6-luna",
@@ -36,11 +40,11 @@ DEFAULT_AI_SETTINGS: dict[str, Any] = {
 def load_ai_settings() -> dict[str, Any]:
     payload = get_state_payload(APP_STATE_KEY)
     if not payload:
-        return DEFAULT_AI_SETTINGS.copy()
+        return sanitize_ai_settings({})
     try:
         return sanitize_ai_settings(json.loads(payload))
     except (json.JSONDecodeError, TypeError):
-        return DEFAULT_AI_SETTINGS.copy()
+        return sanitize_ai_settings({})
 
 
 def save_ai_settings(settings: dict[str, Any]) -> dict[str, Any]:
@@ -56,49 +60,60 @@ def get_ai_settings_public() -> dict[str, Any]:
     return public_ai_settings(settings)
 
 
-def update_ai_settings(payload: dict[str, Any]) -> dict[str, Any]:
-    current = load_ai_settings()
-    legacy_model = str(payload.get("model") or "").strip()
-    next_settings = {
-        **current,
-        "baseUrl": str(payload.get("baseUrl", current.get("baseUrl", ""))).strip(),
-        "complexModel": str(
-            payload.get("complexModel")
-            or legacy_model
-            or current.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])
-        ).strip(),
-        "simpleModel": str(
-            payload.get("simpleModel")
-            or legacy_model
-            or current.get("simpleModel", DEFAULT_AI_SETTINGS["simpleModel"])
-        ).strip(),
-        "updatedAt": beijing_timestamp(),
-    }
+def resolve_ai_settings(payload: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+    current = sanitize_ai_settings(current)
+    provider = str(payload.get("provider") or current["provider"])
+    if provider not in PROVIDER_BY_ID:
+        raise HTTPException(status_code=400, detail="请选择有效的 AI 服务商。")
+    profile = sanitize_profile(current["profiles"].get(provider, {}), provider)
+    preset = PROVIDER_BY_ID[provider]
+    base_url = str(payload.get("baseUrl", profile["baseUrl"])).strip().rstrip("/")
+    if provider != "custom" and base_url != preset["baseUrl"]:
+        raise HTTPException(status_code=400, detail="官方接口地址已自动配置；自定义地址请选择第三方 API。")
+    if base_url:
+        try:
+            parsed = urlsplit(base_url)
+            valid = parsed.scheme in {"https", "http"} and parsed.hostname and not (parsed.username or parsed.password or parsed.query or parsed.fragment)
+            parsed.port  # Reject malformed/out-of-range ports as user input errors.
+        except ValueError:
+            valid = False
+        if not valid:
+            raise HTTPException(status_code=400, detail="请输入有效的接口地址，不要在地址中填写密钥。")
+    # A saved key belongs to this exact service location, not merely its hostname.
+    old_base = normalize_openai_base_url(profile["baseUrl"])[0]
+    new_base = normalize_openai_base_url(base_url)[0]
+    if new_base != old_base:
+        profile["apiKey"] = ""
+    protocol = str(payload.get("protocol") or profile["protocol"])
+    if protocol not in preset["protocols"]:
+        raise HTTPException(status_code=400, detail="请选择有效的接口协议。")
+    profile.update({"baseUrl": base_url, "protocol": protocol})
+    for field in ("complexModel", "simpleModel"):
+        if field in payload or payload.get("model"):
+            profile[field] = str(payload.get(field) or payload.get("model") or "").strip()
     if payload.get("clearApiKey"):
-        next_settings["apiKey"] = ""
-    elif "apiKey" in payload:
-        api_key = str(payload.get("apiKey") or "").strip()
-        if api_key:
-            next_settings["apiKey"] = api_key
-    return public_ai_settings(save_ai_settings(next_settings))
+        profile["apiKey"] = ""
+    elif str(payload.get("apiKey") or "").strip():
+        profile["apiKey"] = str(payload["apiKey"]).strip()
+    profiles = {**current["profiles"], provider: profile}
+    return {**profile, "schemaVersion": 3, "provider": provider, "profiles": profiles}
+
+
+def update_ai_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    settings = resolve_ai_settings(payload, load_ai_settings())
+    settings["updatedAt"] = beijing_timestamp()
+    return public_ai_settings(save_ai_settings(settings))
 
 
 def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
-    current = load_ai_settings()
-    base_url = str(payload.get("baseUrl") or current.get("baseUrl", "")).strip().rstrip("/")
-    api_key = str(payload.get("apiKey") or current.get("apiKey", "")).strip()
-    has_tiered_payload = "complexModel" in payload or "simpleModel" in payload
-    legacy_model = str(payload.get("model") or "").strip()
-    complex_model = str(
-        payload.get("complexModel")
-        or legacy_model
-        or current.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])
-    ).strip()
-    simple_model = str(
-        payload.get("simpleModel")
-        or legacy_model
-        or current.get("simpleModel", DEFAULT_AI_SETTINGS["simpleModel"])
-    ).strip()
+    current = resolve_ai_settings(payload, load_ai_settings())
+    base_url = current["baseUrl"]
+    api_key = current["apiKey"]
+    provider = current["provider"]
+    protocol = current["protocol"]
+    has_tiered_payload = "complexModel" in payload or "simpleModel" in payload or "provider" in payload
+    complex_model = current["complexModel"]
+    simple_model = current["simpleModel"]
     models_to_test = (
         [("complex", complex_model), ("simple", simple_model)]
         if has_tiered_payload
@@ -111,7 +126,7 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
         )
 
     normalized_base_url, preferred_endpoint = normalize_openai_base_url(base_url)
-    headers = build_ai_request_headers(api_key)
+    headers = build_ai_request_headers(api_key, "messages" if protocol == "messages" or preferred_endpoint == "messages" else protocol)
     models: list[str] = []
     models_error = ""
     try:
@@ -119,6 +134,7 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
             f"{normalized_base_url}/models",
             headers=headers,
             timeout=AI_SETTINGS_TEST_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
         response.raise_for_status()
         payload_json = response.json()
@@ -127,6 +143,7 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
         models_error = f"；/models 测试失败：{describe_ai_request_error(exc)}"
     except ValueError as exc:
         models_error = "；/models 测试返回的 JSON 格式无效。"
+    models_error = models_error.replace(api_key, "[密钥已隐藏]")
 
     model_results: dict[str, dict[str, Any]] = {}
     for tier, model in models_to_test:
@@ -142,6 +159,8 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
                 ],
                 timeout=AI_SETTINGS_TEST_TIMEOUT_SECONDS,
                 preferred_endpoint=preferred_endpoint,
+                provider=provider,
+                protocol=protocol,
             )
         except OpenAICompatibleRequestError as exc:
             tier_label = "复杂任务模型" if tier == "complex" else "简单任务模型"
@@ -158,7 +177,7 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
 
     primary = model_results["complex"]
     generation_endpoint = str(primary["generationEndpoint"])
-    endpoint_label = "Responses API" if generation_endpoint == "responses" else "chat/completions API"
+    endpoint_label = {"responses": "Responses API", "chat/completions": "chat/completions API", "messages": "Claude Messages API"}[generation_endpoint]
     model_matched = primary["modelMatched"]
     if has_tiered_payload:
         message = "连接成功，复杂任务模型和简单任务模型均可用。"
@@ -178,49 +197,55 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
         "simpleModel": simple_model,
         "modelMatched": model_matched,
         "modelCount": len(models),
-        "responsesOk": True,
+        "responsesOk": generation_endpoint == "responses",
+        "generationOk": True,
+        "models": models,
         "generationEndpoint": generation_endpoint,
         "modelResults": model_results,
         "message": message,
     }
 
 
-def public_ai_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    api_key = str(settings.get("apiKey", ""))
+def public_profile(profile: dict[str, Any]) -> dict[str, Any]:
     return {
-        "schemaVersion": 2,
-        "baseUrl": str(settings.get("baseUrl", "")),
-        "complexModel": str(settings.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])),
-        "simpleModel": str(settings.get("simpleModel", DEFAULT_AI_SETTINGS["simpleModel"])),
-        "model": str(settings.get("complexModel", DEFAULT_AI_SETTINGS["complexModel"])),
-        "hasApiKey": bool(api_key),
-        "apiKeyMasked": mask_api_key(api_key),
-        "updatedAt": str(settings.get("updatedAt", "")),
+        **{field: profile[field] for field in ("baseUrl", "protocol", "complexModel", "simpleModel", "updatedAt")},
+        "hasApiKey": bool(profile["apiKey"]), "apiKeyMasked": mask_api_key(profile["apiKey"]),
+    }
+
+
+def public_ai_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    settings = sanitize_ai_settings(settings)
+    return {
+        **public_profile(settings), "schemaVersion": 3, "provider": settings["provider"],
+        "model": settings["complexModel"],
+        "profiles": {key: public_profile(value) for key, value in settings["profiles"].items()},
+        "providers": PROVIDERS,
+    }
+
+
+def sanitize_profile(value: Any, provider: str) -> dict[str, Any]:
+    value = value if isinstance(value, dict) else {}
+    preset = PROVIDER_BY_ID[provider]
+    return {
+        "baseUrl": str(value.get("baseUrl", preset["baseUrl"])).strip().rstrip("/"),
+        "protocol": value.get("protocol") if value.get("protocol") in PROTOCOLS else preset["protocol"],
+        "complexModel": str(value.get("complexModel") or value.get("model") or preset["complexModel"]).strip(),
+        "simpleModel": str(value.get("simpleModel") or value.get("model") or preset["simpleModel"]).strip(),
+        "apiKey": str(value.get("apiKey") or "").strip(),
+        "updatedAt": str(value.get("updatedAt") or "").strip(),
     }
 
 
 def sanitize_ai_settings(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return DEFAULT_AI_SETTINGS.copy()
-    legacy_model = str(value.get("model", "")).strip()
-    if legacy_model == DEFAULT_AI_SETTINGS["simpleModel"]:
-        legacy_model = ""
-    return {
-        "schemaVersion": 2,
-        "baseUrl": str(value.get("baseUrl", "")).strip(),
-        "complexModel": str(
-            value.get("complexModel")
-            or legacy_model
-            or DEFAULT_AI_SETTINGS["complexModel"]
-        ).strip(),
-        "simpleModel": str(
-            value.get("simpleModel")
-            or legacy_model
-            or DEFAULT_AI_SETTINGS["simpleModel"]
-        ).strip(),
-        "apiKey": str(value.get("apiKey", "")).strip(),
-        "updatedAt": str(value.get("updatedAt", "")).strip(),
-    }
+    value = value if isinstance(value, dict) else {}
+    provider = value.get("provider", "custom")
+    if provider not in PROVIDER_BY_ID:
+        provider = "custom"
+    raw_profiles = value.get("profiles")
+    profiles = {key: sanitize_profile(profile, key) for key, profile in raw_profiles.items() if key in PROVIDER_BY_ID} if isinstance(raw_profiles, dict) else {}
+    # The flattened active profile remains the interface used by existing AI consumers.
+    profiles[provider] = sanitize_profile(value, provider)
+    return {**profiles[provider], "schemaVersion": 3, "provider": provider, "profiles": profiles}
 
 
 def mask_api_key(value: str) -> str:
@@ -295,7 +320,9 @@ def extract_response_text(payload: Any) -> str:
     raise ValueError("Missing responses text")
 
 
-def build_ai_request_headers(api_key: str) -> dict[str, str]:
+def build_ai_request_headers(api_key: str, protocol: str = "auto") -> dict[str, str]:
+    if protocol == "messages":
+        return {**AI_REQUEST_HEADERS, "x-api-key": api_key, "anthropic-version": "2023-06-01"}
     return {
         **AI_REQUEST_HEADERS,
         "Authorization": f"Bearer {api_key}",
@@ -304,7 +331,7 @@ def build_ai_request_headers(api_key: str) -> dict[str, str]:
 
 def normalize_openai_base_url(base_url: str) -> tuple[str, str | None]:
     normalized = str(base_url).strip().rstrip("/")
-    for endpoint in OPENAI_COMPATIBLE_ENDPOINTS:
+    for endpoint in (*OPENAI_COMPATIBLE_ENDPOINTS, "messages"):
         suffix = f"/{endpoint}"
         if normalized.endswith(suffix):
             return normalized[: -len(suffix)].rstrip("/"), endpoint
@@ -319,45 +346,60 @@ def call_openai_compatible_completion(
     messages: list[dict[str, Any]],
     timeout: int,
     preferred_endpoint: str | None = None,
+    provider: str = "custom",
+    protocol: str = "auto",
     max_output_tokens: int | None = None,
 ) -> dict[str, str]:
     normalized_base_url, detected_endpoint = normalize_openai_base_url(base_url)
     endpoint_preference = preferred_endpoint or detected_endpoint
-    if requires_responses_api(model):
+    if protocol not in PROTOCOLS:
+        raise OpenAICompatibleRequestError("未知的接口协议。")
+    has_images = any(isinstance(message.get("content"), list) and any(item.get("type") == "image_url" for item in message["content"] if isinstance(item, dict)) for message in messages)
+    if has_images and model in PROVIDER_BY_ID.get(provider, {}).get("textOnlyModels", []):
+        raise OpenAICompatibleRequestError("当前模型不支持图片，请在高级设置中将简单任务模型切换为支持图片的模型。")
+    if requires_responses_api(model) and protocol in {"auto", "responses"}:
         return call_responses_completion_with_sdk(
-            base_url=normalized_base_url,
-            model=model,
-            api_key=api_key,
-            messages=messages,
-            timeout=timeout,
-            max_output_tokens=max_output_tokens,
+            base_url=normalized_base_url, model=model, api_key=api_key,
+            messages=messages, timeout=timeout, max_output_tokens=max_output_tokens,
         )
-
+    endpoints = [protocol] if protocol != "auto" else (["messages"] if endpoint_preference == "messages" else openai_compatible_endpoint_order(endpoint_preference))
     errors: list[str] = []
-    for endpoint in openai_compatible_endpoint_order(endpoint_preference):
+    for endpoint in endpoints:
         try:
+            if endpoint == "messages":
+                body = build_anthropic_payload(model, messages, max_output_tokens)
+            else:
+                body = build_openai_compatible_payload(endpoint, model, messages, max_output_tokens=max_output_tokens)
+                if endpoint == "chat/completions" and "max_completion_tokens" in body and (provider not in {"openai", "custom"} or not model.lower().startswith(("gpt-", "o1", "o3", "o4"))):
+                    body["max_tokens"] = body.pop("max_completion_tokens")
             response = requests.post(
-                f"{normalized_base_url}/{endpoint}",
-                headers=build_ai_request_headers(api_key),
-                json=build_openai_compatible_payload(
-                    endpoint,
-                    model,
-                    messages,
-                    max_output_tokens=max_output_tokens,
-                ),
-                timeout=timeout,
+                f"{normalized_base_url}/{endpoint}", headers=build_ai_request_headers(api_key, endpoint),
+                json=body, timeout=timeout, allow_redirects=False,
             )
             response.raise_for_status()
             payload = response.json()
-            return {
-                "content": extract_response_text(payload),
-                "endpoint": endpoint,
-            }
+            if endpoint == "messages":
+                content = extract_text_value([block for block in payload.get("content", []) if isinstance(block, dict) and block.get("type") == "text"])
+                if not content:
+                    raise ValueError("模型未返回正文，请增加输出上限或更换模型。")
+            else:
+                content = extract_response_text(payload)
+            return {"content": content, "endpoint": endpoint}
         except requests.exceptions.RequestException as exc:
             errors.append(f"{endpoint}: {describe_ai_request_error(exc)}")
+            response = getattr(exc, "response", None)
+            status = getattr(response, "status_code", None)
+            provider_error = extract_provider_error_message(response).lower()
+            unsupported = status in {404, 405, 501} and not any(word in provider_error for word in ("model", "模型", "quota", "余额", "key"))
+            if not unsupported:
+                break
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             errors.append(f"{endpoint}: {exc}")
-    raise OpenAICompatibleRequestError("；".join(errors))
+            break
+    detail = "；".join(errors)
+    if api_key:
+        detail = detail.replace(api_key, "[密钥已隐藏]")
+    raise OpenAICompatibleRequestError(detail)
 
 
 def call_responses_completion_with_sdk(
@@ -391,7 +433,7 @@ def call_responses_completion_with_sdk(
         }
     except OpenAIError as exc:
         raise OpenAICompatibleRequestError(
-            f"responses: {describe_openai_sdk_error(exc)}"
+            f"responses: {describe_openai_sdk_error(exc).replace(api_key, '[密钥已隐藏]') if api_key else describe_openai_sdk_error(exc)}"
         ) from exc
     except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
         raise OpenAICompatibleRequestError(f"responses: {exc}") from exc

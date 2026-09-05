@@ -66,11 +66,11 @@
 
 前往 [Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载当前稳定版。请不要下载 GitHub 自动生成的 `Source code (zip)`，那是源码，不是一键运行包。
 
-| 系统 | v1.2.0 安装包 | 启动方式 |
+| 系统 | v1.3.0 安装包 | 启动方式 |
 | --- | --- | --- |
-| Windows x64 | `stock-trading-platform-next-v1.2.0-windows-x64.zip` | 双击 `启动股票交易平台.exe` |
-| macOS Apple 芯片 | `stock-trading-platform-next-v1.2.0-macos-arm64.zip` | 双击 `启动股票交易平台.command` |
-| macOS Intel 芯片 | `stock-trading-platform-next-v1.2.0-macos-x64.zip` | 双击 `启动股票交易平台.command` |
+| Windows x64 | `stock-trading-platform-next-v1.3.0-windows-x64.zip` | 双击 `启动股票交易平台.exe` |
+| macOS Apple 芯片 | `stock-trading-platform-next-v1.3.0-macos-arm64.zip` | 双击 `启动股票交易平台.command` |
+| macOS Intel 芯片 | `stock-trading-platform-next-v1.3.0-macos-x64.zip` | 双击 `启动股票交易平台.command` |
 
 1. 下载与电脑匹配的压缩包并**完整解压**。
 2. 双击启动文件，等待浏览器打开 <http://127.0.0.1:3000/>。
@@ -79,13 +79,12 @@
 如果 macOS 首次阻止运行，请右键启动文件，选择“打开”，再确认一次。电脑和移动设备处于同一 Wi-Fi 时，也可以在手机或平板访问电脑的局域网地址，例如 `http://192.168.1.20:3000`。
 
 <details>
-<summary><strong>v1.2.0 更新摘要</strong></summary>
+<summary><strong>v1.3.0 更新摘要</strong></summary>
 
-- 主工作区聚焦五个高频区域，非当前页面按需加载；总览纳入观察标的并按收益排序。
-- 截图导入支持多文件识别，强化持仓字段解析；新增交易标的会自动加入跟踪池。
-- AI 建议增加发送私密上下文前的确认、当日连续追问、清空对话和中断恢复。
-- 量化分析完善 Yahoo、Nasdaq、FRED、StockTwits、Reddit 和 Polymarket 的采集、缓存与降级。
-- 历史研究严格隔离当前数据，并在第 5 个后续交易日收盘后生成结果反思。
+- AI 连接改为服务商配置，支持第三方 API、DeepSeek、Kimi、GLM、OpenAI、Claude、通义千问、MiniMax 和硅基流动。
+- 不同服务商分别保存本地配置与密钥，支持 Chat Completions、Responses 和 Anthropic Messages 协议。
+- 连接测试返回的模型会加入输入建议，同时保留未知模型的手动输入能力。
+- 左侧导航将“数据管理”更名为“交易记录”，并将“AI 日历”调整到“量化分析”之前。
 - 发布包继续只包含示例数据，不包含真实账户、交易记录、密钥或本地数据库。
 
 </details>
@@ -104,9 +103,17 @@
 
 AI 建议与量化分析遵循不同的数据范围：
 
-- **AI 建议**可以在用户确认后发送账户、持仓、交易与策略上下文到用户配置的 OpenAI-compatible Provider。
+- **AI 建议**可以在用户确认后发送账户、持仓、交易与策略上下文到用户选择的 AI 服务商。
 - **量化分析**只发送标的代码、公开市场数据和公开新闻摘要，不发送账户余额、持仓、现金或交易流水。
 - 外部行情被降级为 `sample` 时只用于界面预览，不会作为真实依据发送给 AI。
+
+## AI 连接设置
+
+在「AI 模型配置」中先选择服务商，再输入 API 密钥。支持第三方 API、DeepSeek、Kimi、GLM、OpenAI、Claude、通义千问、MiniMax 和硅基流动。官方预设使用普通 API 地址和默认模型，通常只需填密钥；国内平台预设使用中国区地址，其他地区或专用套餐请使用第三方配置。
+
+「高级设置」可更换复杂／简单任务模型及受支持的协议。第三方支持自动检测、Chat Completions、Responses 和 Anthropic Messages；测试连接成功后，返回的模型列表也会加入模型输入框建议。未知模型可手动输入，实际可用性以服务商和连接测试为准。
+
+每个服务商的配置和密钥分别保存在本机，旧配置自动归入第三方 API。切换服务商不会混用密钥；更换第三方地址后需重新输入密钥。识别持仓截图需要支持图片的简单任务模型，文字连接测试不验证图片能力。
 
 ## 量化分析
 
@@ -204,11 +211,11 @@ The project brings portfolio status, candlestick charts, strategy signals, backt
 
 Get a ready-to-run package from [GitHub Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases):
 
-| Platform | v1.2.0 package |
+| Platform | v1.3.0 package |
 | --- | --- |
-| Windows x64 | `stock-trading-platform-next-v1.2.0-windows-x64.zip` |
-| macOS Apple Silicon | `stock-trading-platform-next-v1.2.0-macos-arm64.zip` |
-| macOS Intel | `stock-trading-platform-next-v1.2.0-macos-x64.zip` |
+| Windows x64 | `stock-trading-platform-next-v1.3.0-windows-x64.zip` |
+| macOS Apple Silicon | `stock-trading-platform-next-v1.3.0-macos-arm64.zip` |
+| macOS Intel | `stock-trading-platform-next-v1.3.0-macos-x64.zip` |
 
 Extract the archive, then open `启动股票交易平台.exe` on Windows or `启动股票交易平台.command` on macOS. Keep the terminal window open while using the app. The browser will open at <http://127.0.0.1:3000/>.
 

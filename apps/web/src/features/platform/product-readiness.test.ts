@@ -13,12 +13,12 @@ test("platform navigation exposes only the five focused work areas", () => {
   assert.match(source, /title: "量化分析"/);
   assert.match(source, /title: "AI 日历"/);
   assert.match(source, /description: "每日分析与连续对话"/);
-  assert.match(source, /title: "数据管理"/);
+  assert.match(source, /title: "交易记录"/);
   assert.match(source, /title: "AI 模型配置"/);
   assert.doesNotMatch(source, /K线工作台|策略研究|检查更新/);
-  assert.ok(source.indexOf('id: "overview"') < source.indexOf('id: "quant"'));
-  assert.ok(source.indexOf('id: "quant"') < source.indexOf('id: "ai"'));
-  assert.ok(source.indexOf('id: "ai"') < source.indexOf('id: "data"'));
+  assert.ok(source.indexOf('id: "overview"') < source.indexOf('id: "ai"'));
+  assert.ok(source.indexOf('id: "ai"') < source.indexOf('id: "quant"'));
+  assert.ok(source.indexOf('id: "quant"') < source.indexOf('id: "data"'));
   assert.ok(source.indexOf('id: "data"') < source.indexOf('id: "ai-settings"'));
 });
 

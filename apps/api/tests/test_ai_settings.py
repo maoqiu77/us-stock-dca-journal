@@ -23,7 +23,7 @@ class AiSettingsTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(settings["schemaVersion"], 2)
+        self.assertEqual(settings["schemaVersion"], 3)
         self.assertEqual(settings["complexModel"], "gpt-5.6-luna")
         self.assertEqual(settings["simpleModel"], "gpt-5.6-luna")
 
@@ -124,8 +124,8 @@ class AiSettingsTest(unittest.TestCase):
             FakeResponse({"data": [{"id": "gpt-test"}]}),
             FakeResponse(
                 {"error": "unsupported"},
-                status_code=403,
-                reason="Forbidden",
+                status_code=404,
+                reason="Not Found",
             ),
             FakeResponse(
                 {
@@ -277,7 +277,6 @@ class AiSettingsTest(unittest.TestCase):
             [call.args[0] for call in post.call_args_list],
             [
                 "https://example.test/v1/responses",
-                "https://example.test/v1/chat/completions",
             ],
         )
 

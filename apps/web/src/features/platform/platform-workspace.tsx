@@ -181,7 +181,7 @@ function FirstRunOnboarding({
           <div className="rounded-lg bg-muted/50 p-3">
             <div className="font-medium">AI 可选</div>
             <div className="mt-1 text-muted-foreground">
-              AI 日历和截图识别使用 OpenAI-compatible 接口，密钥只保存在本地。
+              选择 AI 服务商并填入密钥后，即可使用 AI 日历；截图识别需选择支持图片的模型。
             </div>
           </div>
         </div>

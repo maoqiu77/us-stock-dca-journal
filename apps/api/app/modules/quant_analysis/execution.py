@@ -179,7 +179,8 @@ def execute_analysis_run(run_id: str) -> dict[str, Any]:
         )
         try:
             output = call_structured_ai(
-                role=str(step["role"]),
+                provider=settings.get("provider", "custom"),
+                protocol=settings.get("protocol", "auto"),                role=str(step["role"]),
                 context=context,
                 base_url=base_url,
                 model=step_model,
@@ -263,10 +264,13 @@ def model_for_role(*, role: str, simple_model: str, complex_model: str) -> str:
 
 
 def call_structured_ai(
-    *, role: str, context: dict[str, Any], base_url: str, model: str, api_key: str
+    *, role: str, context: dict[str, Any], base_url: str, model: str, api_key: str,
+    provider: str = "custom", protocol: str = "auto",
 ) -> dict[str, Any]:
     messages = _stage_messages(role, context)
     completion = call_openai_compatible_completion(
+        provider=provider,
+        protocol=protocol,
         base_url=base_url,
         model=model,
         api_key=api_key,
@@ -280,6 +284,8 @@ def call_structured_ai(
         return parsed
     except (json.JSONDecodeError, ValueError) as first_error:
         repaired = call_openai_compatible_completion(
+            provider=provider,
+            protocol=protocol,
             base_url=base_url,
             model=model,
             api_key=api_key,

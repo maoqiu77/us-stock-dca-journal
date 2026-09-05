@@ -29,20 +29,20 @@ export const platformNavItems: PlatformNavItem[] = [
     icon: LayoutDashboardIcon,
   },
   {
-    id: "quant",
-    title: "量化分析",
-    description: "单股多智能体研判",
-    icon: BrainCircuitIcon,
-  },
-  {
     id: "ai",
     title: "AI 日历",
     description: "每日分析与连续对话",
     icon: BotIcon,
   },
   {
+    id: "quant",
+    title: "量化分析",
+    description: "单股多智能体研判",
+    icon: BrainCircuitIcon,
+  },
+  {
     id: "data",
-    title: "数据管理",
+    title: "交易记录",
     description: "截图导入与交易流水",
     icon: DatabaseIcon,
   },

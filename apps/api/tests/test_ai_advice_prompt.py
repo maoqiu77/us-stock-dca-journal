@@ -549,9 +549,9 @@ class AiAdvicePromptTest(unittest.TestCase):
                 "post",
                 side_effect=[
                     FakeResponse(
-                        {"error": "blocked"},
-                        status_code=403,
-                        reason="Forbidden",
+                        {"error": "unsupported endpoint"},
+                        status_code=404,
+                        reason="Not Found",
                     ),
                     FakeResponse(
                         {

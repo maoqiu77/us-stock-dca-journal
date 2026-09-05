@@ -117,10 +117,24 @@ export type AiAdviceCalendarResponse = {
   record: AiAdviceRecord | null;
 };
 
-export type AiSettings = {
-  schemaVersion: 2;
+export type AiProtocol = "auto" | "chat/completions" | "responses" | "messages";
+
+export type AiProviderPreset = {
+  id: string;
+  label: string;
   baseUrl: string;
-  model: string;
+  protocol: AiProtocol;
+  complexModel: string;
+  simpleModel: string;
+  models: string[];
+  keyUrl: string;
+  textOnlyModels: string[];
+  protocols: AiProtocol[];
+};
+
+export type AiSettingsProfile = {
+  baseUrl: string;
+  protocol: AiProtocol;
   complexModel: string;
   simpleModel: string;
   hasApiKey: boolean;
@@ -128,7 +142,17 @@ export type AiSettings = {
   updatedAt: string;
 };
 
+export type AiSettings = AiSettingsProfile & {
+  schemaVersion: 3;
+  provider: string;
+  model: string;
+  profiles: Record<string, AiSettingsProfile>;
+  providers: AiProviderPreset[];
+};
+
 export type AiSettingsInput = {
+  provider?: string;
+  protocol?: AiProtocol;
   baseUrl: string;
   complexModel: string;
   simpleModel: string;
@@ -145,6 +169,8 @@ export type AiSettingsTestResult = {
   modelMatched: boolean | null;
   modelCount: number;
   responsesOk: boolean;
+  generationOk: boolean;
+  models: string[];
   generationEndpoint?: string;
   modelResults: Record<
     "complex" | "simple",

@@ -64,6 +64,8 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
     ]
     try:
         completion = call_openai_compatible_completion(
+            provider=settings.get("provider", "custom"),
+            protocol=settings.get("protocol", "auto"),
             base_url=str(settings["baseUrl"]),
             model=model,
             api_key=str(settings["apiKey"]),
@@ -91,6 +93,8 @@ def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> di
     if not expected_rows_found:
         try:
             completion = call_openai_compatible_completion(
+                provider=settings.get("provider", "custom"),
+                protocol=settings.get("protocol", "auto"),
                 base_url=str(settings["baseUrl"]),
                 model=model,
                 api_key=str(settings["apiKey"]),

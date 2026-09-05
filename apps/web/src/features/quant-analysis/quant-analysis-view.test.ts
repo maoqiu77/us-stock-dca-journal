@@ -12,9 +12,9 @@ test("quant analysis remains lazy loaded in the simplified navigation", () => {
 
   assert.match(workspace, /features\/quant-analysis\/quant-analysis-view/);
   assert.match(workspace, /activeView === "quant"/);
-  assert.ok(navigation.indexOf('id: "overview"') < navigation.indexOf('id: "quant"'));
-  assert.ok(navigation.indexOf('id: "quant"') < navigation.indexOf('id: "ai"'));
-  assert.match(navigation, /title: "数据管理"/);
+  assert.ok(navigation.indexOf('id: "overview"') < navigation.indexOf('id: "ai"'));
+  assert.ok(navigation.indexOf('id: "ai"') < navigation.indexOf('id: "quant"'));
+  assert.match(navigation, /title: "交易记录"/);
   assert.match(navigation, /title: "AI 模型配置"/);
 });
 

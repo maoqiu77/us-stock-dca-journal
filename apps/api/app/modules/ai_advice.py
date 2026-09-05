@@ -327,6 +327,8 @@ def call_ai_response(messages: list[dict[str, str]]) -> str:
         raise HTTPException(status_code=400, detail="AI 设置不完整。")
     try:
         completion = call_openai_compatible_completion(
+            provider=ai_settings.get("provider", "custom"),
+            protocol=ai_settings.get("protocol", "auto"),
             base_url=base_url,
             model=model,
             api_key=api_key,

@@ -81,6 +81,8 @@ def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, A
     ]
     try:
         completion = call_openai_compatible_completion(
+            provider=settings.get("provider", "custom"),
+            protocol=settings.get("protocol", "auto"),
             base_url=base_url,
             model=model,
             api_key=api_key,
@@ -92,6 +94,8 @@ def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, A
             review = parse_structured_response(completion["content"])
         except (ValueError, json.JSONDecodeError):
             repaired = call_openai_compatible_completion(
+                provider=settings.get("provider", "custom"),
+                protocol=settings.get("protocol", "auto"),
                 base_url=base_url,
                 model=model,
                 api_key=api_key,
