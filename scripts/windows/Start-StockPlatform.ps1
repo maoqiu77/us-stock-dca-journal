@@ -76,6 +76,39 @@ function Wait-HttpOk {
   throw "Timed out waiting for $Url"
 }
 
+function Test-RunningPlatform {
+  try {
+    $api = Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -UseBasicParsing -TimeoutSec 2
+    $web = Invoke-WebRequest -Uri "http://127.0.0.1:3000/" -UseBasicParsing -TimeoutSec 2
+    return $api.StatusCode -ge 200 -and $api.StatusCode -lt 500 -and $web.StatusCode -ge 200 -and $web.StatusCode -lt 500
+  } catch {
+    return $false
+  }
+}
+
+function Assert-PlatformPortsAvailable {
+  foreach ($port in @(8000, 3000)) {
+    $listener = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($null -ne $listener) {
+      throw "端口 $port 已被其他程序占用（PID：$($listener.OwningProcess)）。请关闭占用程序后再启动。"
+    }
+  }
+}
+
+function Stop-OwnedProcess {
+  param([Diagnostics.Process]$Process)
+
+  if ($null -eq $Process) {
+    return
+  }
+  try {
+    if (-not $Process.HasExited) {
+      Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+    }
+  } catch {
+  }
+}
+
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
   $processPath = [Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
   $ProjectRoot = Split-Path -Parent $processPath
@@ -87,11 +120,27 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = (Resolve-Path $ProjectRoot).Path
 Set-Location $ProjectRoot
 
+$apiExe = Join-Path $ProjectRoot "api\stock-platform-api.exe"
+$nodeExe = Join-Path $ProjectRoot "runtime\node\node.exe"
+$webServer = Join-Path $ProjectRoot "web\server.js"
+if (-not (Test-Path $webServer)) {
+  $webServer = Join-Path $ProjectRoot "web\apps\web\server.js"
+}
+$hasBundledApp = (Test-Path $apiExe) -and (Test-Path $nodeExe) -and (Test-Path $webServer)
+
 if (-not (Test-Path "package.json") -or -not (Test-Path "apps\web\package.json")) {
-  if (-not (Test-Path "api\stock-platform-api.exe") -or -not (Test-Path "web\server.js")) {
+  if (-not $hasBundledApp) {
     throw "没有找到平台程序文件。请重新下载 Windows 压缩包并完整解压。"
   }
 }
+
+if (Test-RunningPlatform) {
+  Write-Step "Platform is already running"
+  Start-Process "http://127.0.0.1:3000/"
+  exit 0
+}
+
+Assert-PlatformPortsAvailable
 
 New-Item -ItemType Directory -Force -Path "storage\local" | Out-Null
 New-Item -ItemType Directory -Force -Path "storage\local\pids" | Out-Null
@@ -104,14 +153,13 @@ $env:STOCK_APP_TEMPLATE_HOME = Join-Path $ProjectRoot "storage\templates"
 $env:STOCK_APP_API_HOST = "127.0.0.1"
 $env:STOCK_APP_API_PORT = "8000"
 $env:BACKEND_API_URL = "http://127.0.0.1:8000"
-$env:HOSTNAME = "0.0.0.0"
+$env:HOSTNAME = "127.0.0.1"
 $env:PORT = "3000"
 
-$apiExe = Join-Path $ProjectRoot "api\stock-platform-api.exe"
-$nodeExe = Join-Path $ProjectRoot "runtime\node\node.exe"
-$webServer = Join-Path $ProjectRoot "web\server.js"
-
-if ((Test-Path $apiExe) -and (Test-Path $nodeExe) -and (Test-Path $webServer)) {
+$apiProcess = $null
+$webProcess = $null
+try {
+if ($hasBundledApp) {
   Write-Step "Starting bundled app"
   $apiProcess = Start-Process -FilePath $apiExe -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
   $webProcess = Start-Process -FilePath $nodeExe -ArgumentList @($webServer) -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
@@ -137,7 +185,7 @@ if ((Test-Path $apiExe) -and (Test-Path $nodeExe) -and (Test-Path $webServer)) {
 
   Write-Step "Starting local API and web app"
   $apiArgs = @("-m", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "127.0.0.1", "--port", "8000")
-  $webArgs = @("--prefix", "apps/web", "run", "dev", "--", "--hostname", "0.0.0.0")
+  $webArgs = @("--prefix", "apps/web", "run", "dev", "--", "--hostname", "127.0.0.1")
   $apiProcess = Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList $apiArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
   $webProcess = Start-Process -FilePath "npm" -ArgumentList $webArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
   Set-Content -Path "storage\local\pids\api.pid" -Value $apiProcess.Id
@@ -153,3 +201,8 @@ Write-Host ""
 Write-Host "股票交易平台已启动：http://127.0.0.1:3000/"
 Write-Host "使用期间请不要关闭这个窗口。"
 Read-Host "按 Enter 退出这个启动窗口"
+} finally {
+  Stop-OwnedProcess -Process $webProcess
+  Stop-OwnedProcess -Process $apiProcess
+  Remove-Item -Path "storage\local\pids\api.pid", "storage\local\pids\web.pid" -Force -ErrorAction SilentlyContinue
+}

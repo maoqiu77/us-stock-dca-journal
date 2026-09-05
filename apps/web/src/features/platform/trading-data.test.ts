@@ -412,3 +412,12 @@ test("trade calculation rounds fractional shares and avoids non-finite results",
   assert.equal(Object.values(draft).includes("NaN"), false);
   assert.equal(Object.values(draft).includes("Infinity"), false);
 });
+
+test("default tickers are only QQQ and SPY with no holdings or trades", () => {
+  assert.deepEqual(DEFAULT_TRADING_DATA.stockPool, ["QQQ", "SPY"]);
+  assert.deepEqual(DEFAULT_TRADING_DATA.trades, []);
+  for (const position of derivePositions(DEFAULT_TRADING_DATA)) {
+    assert.equal(position.shares, 0);
+    assert.equal(position.assetType, "ETF");
+  }
+});

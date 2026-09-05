@@ -52,9 +52,14 @@ jobs:
           Copy-Item (Get-Command node).Source "$pkg/runtime/node/node.exe"
           Copy-Item storage/templates/* "$pkg/storage/templates/" -Recurse
           Copy-Item apps/web/.next/standalone "$pkg/web" -Recurse
-          New-Item -ItemType Directory -Force -Path "$pkg/web/.next" | Out-Null
-          Copy-Item apps/web/.next/static "$pkg/web/.next/static" -Recurse
-          Copy-Item apps/web/public "$pkg/web/public" -Recurse
+          $webRoot = "$pkg/web"
+          $nestedWebRoot = "$pkg/web/apps/web"
+          if (Test-Path "$nestedWebRoot/server.js") {
+            $webRoot = $nestedWebRoot
+          }
+          New-Item -ItemType Directory -Force -Path "$webRoot/.next" | Out-Null
+          Copy-Item apps/web/.next/static "$webRoot/.next/static" -Recurse
+          Copy-Item apps/web/public "$webRoot/public" -Recurse
           Copy-Item scripts/windows/Start-StockPlatform.ps1 "$pkg/Start-StockPlatform.ps1"
           Copy-Item scripts/windows/Install-Update.ps1 "$pkg/updater/Install-Update.ps1"
           [ordered]@{
@@ -71,6 +76,7 @@ jobs:
             -title "股票交易平台启动器" `
             -description "启动本地股票交易平台网页端" `
             -noConsole:$false
+          python scripts/verify_release_bundle_layout.py --package "$pkg" --platform "windows-x64"
           Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip" -Force
 
       - name: Attach Windows bundle to GitHub Release
@@ -126,9 +132,13 @@ jobs:
           cp "$(command -v node)" "$pkg/runtime/node/node"
           cp -R storage/templates/. "$pkg/storage/templates/"
           cp -R apps/web/.next/standalone "$pkg/web"
-          mkdir -p "$pkg/web/.next"
-          cp -R apps/web/.next/static "$pkg/web/.next/static"
-          cp -R apps/web/public "$pkg/web/public"
+          web_root="$pkg/web"
+          if [[ -f "$web_root/apps/web/server.js" ]]; then
+            web_root="$web_root/apps/web"
+          fi
+          mkdir -p "$web_root/.next"
+          cp -R apps/web/.next/static "$web_root/.next/static"
+          cp -R apps/web/public "$web_root/public"
           cp scripts/macos/Start-StockPlatform.command "$pkg/启动股票交易平台.command"
           cp scripts/macos/install-update.sh "$pkg/updater/install-update.sh"
           cat > "$pkg/release.json" <<EOF
@@ -140,6 +150,7 @@ jobs:
           }
           EOF
           chmod +x "$pkg/api/stock-platform-api" "$pkg/runtime/node/node" "$pkg/启动股票交易平台.command" "$pkg/updater/install-update.sh"
+          python scripts/verify_release_bundle_layout.py --package "$pkg" --platform "macos-${{ matrix.arch }}"
           (cd dist && zip -r "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip" "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}")
 
       - name: Attach macOS bundle to GitHub Release

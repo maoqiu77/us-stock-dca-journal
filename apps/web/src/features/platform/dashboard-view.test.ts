@@ -20,6 +20,7 @@ test("dashboard includes observed tickers and sorts rows by displayed return", (
   assert.match(dashboardSource, /removePosition\(position\.ticker\)/);
   assert.match(dashboardSource, /comparePositionReturnsDescending\(/);
   assert.match(dashboardSource, /statusRows\.map\(/);
+  assert.match(dashboardSource, /暂无跟踪标的，请到交易记录录入交易或选择仅观察。/);
 });
 
 test("dashboard only keeps the requested asset metrics and status fields", () => {

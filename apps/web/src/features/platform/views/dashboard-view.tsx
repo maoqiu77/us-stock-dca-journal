@@ -215,7 +215,7 @@ export function DashboardView({
               {!statusRows.length ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                    暂无跟踪标的，请到数据管理录入交易或选择仅观察。
+                    暂无跟踪标的，请到交易记录录入交易或选择仅观察。
                   </TableCell>
                 </TableRow>
               ) : null}

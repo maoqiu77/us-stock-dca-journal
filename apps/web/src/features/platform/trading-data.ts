@@ -254,37 +254,16 @@ export const DEFAULT_TRADING_DATA: TradingDataState = {
     totalAssets: 12000,
     baseCurrency: "USD",
   },
-  stockPool: ["VOO", "QQQM", "NVDA", "MSFT"],
-  positions: [
-    {
-      ticker: "QQQM",
-      targetWeight: 0.35,
-      assetType: "ETF",
-      takeProfitPct: 0,
-      stopLossPct: 0,
-      purchaseDate: "2026-06-05",
-    },
-    {
-      ticker: "MSFT",
-      targetWeight: 0.16,
-      assetType: "STOCK",
-      takeProfitPct: 0.2,
-      stopLossPct: 0.08,
-      purchaseDate: "",
-    },
-  ],
-  trades: [
-    {
-      id: "sample-qqqm-buy",
-      date: "2026-06-05",
-      ticker: "QQQM",
-      action: "买入",
-      shares: 8,
-      unitPrice: 220,
-      amount: 1760,
-      note: "样例 ETF 底仓",
-    },
-  ],
+  stockPool: ["QQQ", "SPY"],
+  positions: ["QQQ", "SPY"].map((ticker) => ({
+    ticker,
+    targetWeight: 0,
+    assetType: "ETF",
+    takeProfitPct: 0,
+    stopLossPct: 0,
+    purchaseDate: "",
+  })),
+  trades: [],
   activeStrategyProfile: "balanced",
   strategyProfiles: [
     {

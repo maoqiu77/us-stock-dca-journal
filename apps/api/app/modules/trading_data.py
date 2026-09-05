@@ -197,37 +197,19 @@ DEFAULT_TRADING_DATA: dict[str, Any] = {
         "totalAssets": 12000.0,
         "baseCurrency": "USD",
     },
-    "stockPool": ["VOO", "QQQM", "NVDA", "MSFT"],
+    "stockPool": ["QQQ", "SPY"],
     "positions": [
         {
-            "ticker": "QQQM",
-            "targetWeight": 0.35,
+            "ticker": ticker,
+            "targetWeight": 0.0,
             "assetType": "ETF",
             "takeProfitPct": 0.0,
             "stopLossPct": 0.0,
-            "purchaseDate": "2026-06-05",
-        },
-        {
-            "ticker": "MSFT",
-            "targetWeight": 0.16,
-            "assetType": "STOCK",
-            "takeProfitPct": 0.20,
-            "stopLossPct": 0.08,
             "purchaseDate": "",
-        },
+        }
+        for ticker in ("QQQ", "SPY")
     ],
-    "trades": [
-        {
-            "id": "sample-qqqm-buy",
-            "date": "2026-06-05",
-            "ticker": "QQQM",
-            "action": "买入",
-            "shares": 8.0,
-            "unitPrice": 220.0,
-            "amount": 1760.0,
-            "note": "样例 ETF 底仓",
-        },
-    ],
+    "trades": [],
     "activeStrategyProfile": "balanced",
     "strategyProfiles": [
         {
@@ -531,7 +513,8 @@ def sanitize_trading_state(value: Any) -> dict[str, Any]:
         return deepcopy(DEFAULT_TRADING_DATA)
 
     default = deepcopy(DEFAULT_TRADING_DATA)
-    stock_pool = unique_tickers(value.get("stockPool") or default["stockPool"])
+    pool = value.get("stockPool")
+    stock_pool = unique_tickers(pool if isinstance(pool, list) else default["stockPool"])
     profiles = value.get("strategyProfiles")
     if not isinstance(profiles, list) or not profiles:
         profiles = default["strategyProfiles"]
