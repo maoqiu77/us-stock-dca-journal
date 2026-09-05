@@ -43,10 +43,11 @@ export function useAiSettingsQuery() {
   });
 }
 
-export function useUpdateCheckQuery() {
+export function useUpdateCheckQuery(enabled = true) {
   return useQuery({
     queryKey: ["update-check"],
     queryFn: fetchUpdateCheck,
+    enabled,
     staleTime: 5 * 60_000,
   });
 }

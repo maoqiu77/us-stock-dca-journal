@@ -15,6 +15,7 @@ import { saveAiSettings, testAiSettings, type AiProtocol, type AiSettingsInput }
 import { connectionAddress, connectionError } from "@/features/platform/ai-connection-form";
 import { useAiSettingsQuery } from "@/features/platform/queries";
 import { ResearchSettingsCard } from "@/features/quant-analysis/research-settings-card";
+import { SoftwareUpdateCard } from "@/features/platform/views/software-update-card";
 
 const protocols: { value: AiProtocol; label: string }[] = [
   { value: "auto", label: "自动检测（OpenAI 兼容）" },
@@ -30,6 +31,9 @@ export function AiModelSettingsView() {
     <div className="grid gap-3 xl:grid-cols-2 xl:items-start">
       <AiConnectionCard />
       <ResearchSettingsCard />
+      <div className="xl:col-span-2">
+        <SoftwareUpdateCard />
+      </div>
     </div>
   );
 }

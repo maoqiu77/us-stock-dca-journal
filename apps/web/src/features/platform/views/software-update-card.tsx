@@ -50,6 +50,10 @@ import {
   useUpdateCheckQuery,
   useUpdateStatusQuery,
 } from "@/features/platform/queries";
+import {
+  resolveUpdateCheckAction,
+  resolveUpdateStatusMessage,
+} from "@/features/platform/software-update-action";
 import { TRADING_DATA_STORAGE_KEY } from "@/features/platform/trading-data";
 
 const ONBOARDING_STORAGE_KEY = "stock-platform-onboarding-v1";
@@ -62,7 +66,7 @@ export function SoftwareUpdateCard() {
   const queryClient = useQueryClient();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const [pollStatus, setPollStatus] = React.useState(false);
-  const updateCheckQuery = useUpdateCheckQuery();
+  const updateCheckQuery = useUpdateCheckQuery(false);
   const updateStatusQuery = useUpdateStatusQuery(pollStatus);
   const updateCheck = updateCheckQuery.data;
   const updateStatus = updateStatusQuery.data;
@@ -84,10 +88,15 @@ export function SoftwareUpdateCard() {
     },
   });
 
-  const statusMessage =
-    visibleStatus?.message ??
-    updateCheck?.message ??
-    (updateCheckQuery.isError ? "检查更新失败。" : "正在检查更新。");
+  const statusMessage = resolveUpdateStatusMessage({
+    updateStatusMessage: visibleStatus?.message ?? "",
+    updateCheckMessage: updateCheck?.message ?? "",
+    checkErrorMessage: updateCheckQuery.isError
+      ? updateCheckQuery.error instanceof Error
+        ? updateCheckQuery.error.message
+        : "检查更新失败。"
+      : "",
+  });
   const canStart = Boolean(updateCheck?.updateAvailable && updateCheck.canInstall);
   const isBusy =
     updateMutation.isPending ||
@@ -95,6 +104,23 @@ export function SoftwareUpdateCard() {
     visibleStatus?.phase === "verifying" ||
     visibleStatus?.phase === "backing-up" ||
     visibleStatus?.phase === "restarting";
+
+  async function handleCheckForUpdate() {
+    const result = await updateCheckQuery.refetch();
+    if (result.error || !result.data) {
+      return;
+    }
+    const action = resolveUpdateCheckAction(result.data);
+    if (action.kind === "confirm") {
+      setConfirmOpen(true);
+      return;
+    }
+    if (action.kind === "latest") {
+      toast.success(action.message || "当前已经是最新版。");
+      return;
+    }
+    toast.warning(action.message);
+  }
 
   return (
     <>
@@ -118,16 +144,18 @@ export function SoftwareUpdateCard() {
             <TableBody>
               <UpdateRow
                 label="当前版本"
-                value={updateCheck?.currentVersion ?? "读取中"}
+                value={updateCheck?.currentVersion ?? "未检查"}
               />
               <UpdateRow
                 label="最新版本"
-                value={updateCheck?.latestVersion || "未读取"}
+                value={updateCheck?.latestVersion || "未检查"}
               />
-              <UpdateRow label="当前系统" value={updateCheck?.platform ?? "检测中"} />
+              <UpdateRow label="当前系统" value={updateCheck?.platform ?? "未检查"} />
               <UpdateRow
                 label="安装包"
-                value={updateCheck?.asset?.name ?? "未匹配"}
+                value={
+                  updateCheck?.asset?.name ?? (updateCheck ? "未匹配" : "未检查")
+                }
                 mono
               />
             </TableBody>
@@ -142,7 +170,7 @@ export function SoftwareUpdateCard() {
         <CardFooter className="justify-between gap-2">
           <Button
             variant="outline"
-            onClick={() => updateCheckQuery.refetch()}
+            onClick={() => void handleCheckForUpdate()}
             disabled={updateCheckQuery.isFetching || isBusy}
           >
             {updateCheckQuery.isFetching ? (
@@ -220,6 +248,9 @@ function UpdateBadge({
       </Badge>
     );
   }
+  if (!updateCheck) {
+    return <Badge variant="outline">未检查</Badge>;
+  }
   return <Badge variant="secondary">最新版</Badge>;
 }
 
@@ -235,7 +266,7 @@ function UpdateNotice({
   message: string;
 }) {
   const isError = isCheckError || updateStatus?.phase === "error";
-  const showAlert = isError || updateCheck?.updateAvailable || updateStatus;
+  const showAlert = isError || updateCheck || updateStatus;
 
   if (!showAlert) {
     return null;
@@ -244,7 +275,7 @@ function UpdateNotice({
   return (
     <Alert variant={isError ? "destructive" : "default"}>
       <ShieldIcon />
-      <AlertTitle>{isError ? "更新暂不可用" : "更新状态"}</AlertTitle>
+      <AlertTitle>{isError ? "更新暂不可用" : "检查结果"}</AlertTitle>
       <AlertDescription>
         {message}
         {updateStatus?.backupPath ? ` 备份：${updateStatus.backupPath}` : ""}
@@ -295,7 +326,7 @@ function UpdateConfirmDialog({
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
-            取消
+            暂不更新
           </Button>
           <Button onClick={onConfirm} disabled={isPending}>
             {isPending ? (
@@ -303,7 +334,7 @@ function UpdateConfirmDialog({
             ) : (
               <DownloadIcon data-icon="inline-start" />
             )}
-            开始更新
+            立即更新
           </Button>
         </DialogFooter>
       </DialogContent>

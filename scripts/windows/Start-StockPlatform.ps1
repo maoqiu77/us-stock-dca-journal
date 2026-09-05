@@ -161,8 +161,8 @@ $webProcess = $null
 try {
 if ($hasBundledApp) {
   Write-Step "Starting bundled app"
-  $apiProcess = Start-Process -FilePath $apiExe -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
-  $webProcess = Start-Process -FilePath $nodeExe -ArgumentList @($webServer) -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
+  $apiProcess = Start-Process -FilePath $apiExe -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
+  $webProcess = Start-Process -FilePath $nodeExe -ArgumentList @($webServer) -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
   Set-Content -Path "storage\local\pids\api.pid" -Value $apiProcess.Id
   Set-Content -Path "storage\local\pids\web.pid" -Value $webProcess.Id
 } else {
@@ -186,8 +186,8 @@ if ($hasBundledApp) {
   Write-Step "Starting local API and web app"
   $apiArgs = @("-m", "uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "127.0.0.1", "--port", "8000")
   $webArgs = @("--prefix", "apps/web", "run", "dev", "--", "--hostname", "127.0.0.1")
-  $apiProcess = Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList $apiArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
-  $webProcess = Start-Process -FilePath "npm" -ArgumentList $webArgs -WorkingDirectory $ProjectRoot -WindowStyle Minimized -PassThru
+  $apiProcess = Start-Process -FilePath ".venv\Scripts\python.exe" -ArgumentList $apiArgs -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
+  $webProcess = Start-Process -FilePath "npm" -ArgumentList $webArgs -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru
   Set-Content -Path "storage\local\pids\api.pid" -Value $apiProcess.Id
   Set-Content -Path "storage\local\pids\web.pid" -Value $webProcess.Id
 }

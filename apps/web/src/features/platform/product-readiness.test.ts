@@ -56,6 +56,7 @@ test("AI model settings keeps AI and research data configuration together", () =
 
   assert.match(source, /AI 连接设置/);
   assert.match(source, /ResearchSettingsCard/);
+  assert.match(source, /SoftwareUpdateCard/);
   assert.match(source, /saveAiSettings/);
 });
 

@@ -66,17 +66,27 @@
 
 前往 [Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载当前稳定版。请不要下载 GitHub 自动生成的 `Source code (zip)`，那是源码，不是一键运行包。
 
-| 系统 | v1.3.1 安装包 | 启动方式 |
+| 系统 | v1.3.2 安装包 | 启动方式 |
 | --- | --- | --- |
-| Windows x64 | `stock-trading-platform-next-v1.3.1-windows-x64.zip` | 双击 `启动股票交易平台.exe` |
-| macOS Apple 芯片 | `stock-trading-platform-next-v1.3.1-macos-arm64.zip` | 双击 `启动股票交易平台.command` |
-| macOS Intel | `stock-trading-platform-next-v1.3.1-macos-x64.zip` | 双击 `启动股票交易平台.command` |
+| Windows x64 | `stock-trading-platform-next-v1.3.2-windows-x64.zip` | 双击 `启动股票交易平台.exe` |
+| macOS Apple 芯片 | `stock-trading-platform-next-v1.3.2-macos-arm64.zip` | 双击 `启动股票交易平台.command` |
+| macOS Intel | `stock-trading-platform-next-v1.3.2-macos-x64.zip` | 双击 `启动股票交易平台.command` |
 
 1. 下载与电脑匹配的压缩包并**完整解压**。
 2. 双击启动文件，等待浏览器打开 <http://127.0.0.1:3000/>。
 3. 使用期间保持控制台或终端窗口开启；关闭窗口会停止本地服务。
 
 如果 macOS 首次阻止运行，请右键启动文件，选择“打开”，再确认一次。发布版仅在本机 `127.0.0.1:3000` 提供服务，不向局域网开放私有交易数据。
+
+<details>
+<summary><strong>v1.3.2 更新摘要</strong></summary>
+
+- Windows 启动时仅保留主启动终端，后端 API 和 Next.js 子窗口改为隐藏运行。
+- 在“AI 模型配置”页增加 GitHub 版本检查和软件更新入口。
+- 发现新版本时会弹出确认框，可选择立即更新或暂不更新；无新版本时会明确显示当前已是最新版。
+- 保留更新前本地数据备份、安装包 SHA-256 校验、失败保护和自动重启机制。
+
+</details>
 
 <details>
 <summary><strong>v1.3.1 更新摘要</strong></summary>
@@ -221,11 +231,11 @@ The project brings portfolio status, candlestick charts, strategy signals, backt
 
 Get a ready-to-run package from [GitHub Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases):
 
-| Platform | v1.3.1 package |
+| Platform | v1.3.2 package |
 | --- | --- |
-| Windows x64 | `stock-trading-platform-next-v1.3.1-windows-x64.zip` |
-| macOS Apple Silicon | `stock-trading-platform-next-v1.3.1-macos-arm64.zip` |
-| macOS Intel | `stock-trading-platform-next-v1.3.1-macos-x64.zip` |
+| Windows x64 | `stock-trading-platform-next-v1.3.2-windows-x64.zip` |
+| macOS Apple Silicon | `stock-trading-platform-next-v1.3.2-macos-arm64.zip` |
+| macOS Intel | `stock-trading-platform-next-v1.3.2-macos-x64.zip` |
 
 Extract the archive, then open `启动股票交易平台.exe` on Windows or `启动股票交易平台.command` on macOS. Keep the terminal window open while using the app. The browser will open at <http://127.0.0.1:3000/>.
 

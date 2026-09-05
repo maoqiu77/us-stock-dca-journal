@@ -27,6 +27,21 @@ class ReleaseBundleLayoutTest(unittest.TestCase):
         self.assertIn("running_platform()", macos)
         self.assertIn('"./web/apps/web/server.js"', macos)
 
+    def test_windows_launcher_hides_api_and_web_child_windows(self) -> None:
+        windows = WINDOWS_LAUNCHER.read_text(encoding="utf-8")
+
+        child_process_lines = [
+            line
+            for line in windows.splitlines()
+            if "$apiProcess = Start-Process" in line
+            or "$webProcess = Start-Process" in line
+        ]
+
+        self.assertEqual(len(child_process_lines), 4)
+        for line in child_process_lines:
+            self.assertIn("-WindowStyle Hidden", line)
+            self.assertNotIn("-WindowStyle Minimized", line)
+
     def test_release_workflow_verifies_each_assembled_package(self) -> None:
         workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 
