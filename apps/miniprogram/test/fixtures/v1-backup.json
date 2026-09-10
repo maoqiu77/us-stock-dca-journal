@@ -1,0 +1,64 @@
+{
+  "format": "portfolio-wechat-backup",
+  "version": 1,
+  "data": {
+    "version": 1,
+    "mode": "personal",
+    "device_id": "10000000-0000-4000-8000-000000000001",
+    "portfolio": {
+      "schema_version": 1,
+      "id": "10000000-0000-4000-8000-000000000002",
+      "name": "合成升级账本",
+      "base_currency": "USD",
+      "timezone": "Asia/Shanghai",
+      "cash_state": "unknown",
+      "history_complete": false,
+      "cost_method": "opening_aggregate_then_fifo",
+      "opening_date": "1970-01-01"
+    },
+    "instruments": [
+      {
+        "id": "10000000-0000-4000-8000-000000000003",
+        "symbol": "QQQ",
+        "exchange": "UNSPECIFIED",
+        "market": "US",
+        "quote_currency": "USD",
+        "asset_type": "ETF",
+        "confirmed_at": "2026-09-10T12:00:00.000Z"
+      }
+    ],
+    "events": [
+      {
+        "schema_version": 1,
+        "record_id": "10000000-0000-4000-8000-000000000004",
+        "revision_id": "10000000-0000-4000-8000-000000000005",
+        "parent_revision": null,
+        "device_id": "10000000-0000-4000-8000-000000000001",
+        "portfolio_id": "10000000-0000-4000-8000-000000000002",
+        "kind": "buy",
+        "instrument_id": "10000000-0000-4000-8000-000000000003",
+        "trade_date": "2026-09-09",
+        "executed_at": null,
+        "sequence": 0,
+        "recorded_at": "2026-09-10T12:00:00.000Z",
+        "provenance": {
+          "source": "manual",
+          "confirmed_at": "2026-09-10T12:00:00.000Z"
+        },
+        "voided": false,
+        "note": "合成 v1 升级测试 🐻",
+        "quantity": "2",
+        "price": "10",
+        "amount": "20",
+        "fee": "1"
+      }
+    ],
+    "reviews": [
+      {
+        "date": "2026-09-10",
+        "text": "仅用于测试的复盘。",
+        "updated_at": "2026-09-10T12:00:00.000Z"
+      }
+    ]
+  }
+}

@@ -1,7 +1,13 @@
 const { service, today, showError } = require('../../lib/core');
 Page({
-  data: { error: '', mode: '', trades: 0, reviews: 0, backupText: '', preview: null, importing: false },
-  onShow() { try { const state = service.snapshot(); this.setData({ mode: state.mode, trades: service.records().filter(r => !r.voided).length, reviews: state.reviews.length, error: '' }); } catch (e) { this.setData({ error: e.message }); } },
+  data: { error: '', mode: '', trades: 0, reviews: 0, backupText: '', preview: null, importing: false, canExportRaw: false, clockAnomaly: null },
+  onShow() { try { const state = service.snapshot(), view = service.overview(); this.setData({ mode: state.mode, trades: service.records().filter(r => !r.voided && !r.isOpening).length, reviews: state.reviews.length, error: '', canExportRaw: false, clockAnomaly: view.clockAnomaly ? { asOf: view.knownAt, throughDate: view.throughDate, message: '设备时间早于已保存记录，请校准时间。' } : null }); } catch (e) { this.setData({ error: e.message, canExportRaw: true, clockAnomaly: null }); } },
+  copyRaw() {
+    wx.showModal({ title: '导出原始故障数据', content: '原始数据可能损坏，不保证是有效备份，也不会自动修复或覆盖当前账本。请仅交给可信的人排查。', confirmText: '继续导出', success: result => {
+      if (!result.confirm) return; try { wx.setClipboardData({ data: service.exportRaw(), fail: showError }); } catch (e) { showError(e); }
+    } });
+  },
+  exportRawFile() { try { const data = service.exportRaw(), fileName = `交易日记-原始故障数据-${today()}.txt`, path = `${wx.env.USER_DATA_PATH}/${fileName}`; wx.getFileSystemManager().writeFile({ filePath: path, data, encoding: 'utf8', success: () => wx.shareFileMessage ? wx.shareFileMessage({ filePath: path, fileName, fail: showError }) : showError(Error('当前环境不支持文件分享，请复制原始数据。')), fail: () => showError(Error('原始数据文件保存失败，请尝试复制。')) }); } catch (e) { showError(e); } },
   copyBackup() {
     wx.showModal({ title: '复制本地备份', content: '备份包含交易与复盘明文，请只粘贴到你信任的私人保存位置。', success: result => {
       if (!result.confirm) return;
@@ -35,7 +41,7 @@ Page({
   restoreBackup() {
     if (!this.data.preview || this.data.importing) return;
     const text = this.data.backupText;
-    wx.showModal({ title: '用备份替换当前账本？', content: `将恢复 ${this.data.preview.trades} 笔交易、${this.data.preview.reviews} 天复盘。当前本地账本保留为一个恢复点。`, confirmText: '确认恢复', success: result => {
+    wx.showModal({ title: '用备份替换当前账本？', content: `将恢复 ${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.reviews} 天复盘。当前本地账本保留为一个恢复点。`, confirmText: '确认恢复', success: result => {
       if (!result.confirm || this.data.importing) return;
       this.setData({ importing: true });
       try { service.restoreBackup(text); this.setData({ backupText: '', preview: null }); this.onShow(); wx.showToast({ title: '恢复成功' }); }

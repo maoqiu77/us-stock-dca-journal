@@ -1,0 +1,54 @@
+{
+  "description": "合成数据，预期由独立手算填写，非生产函数输出。",
+  "symbol": "QQQ",
+  "opening": {
+    "date": "2026-09-01",
+    "quantity": "10",
+    "totalCost": "1000"
+  },
+  "buy": {
+    "date": "2026-09-02",
+    "quantity": "2",
+    "price": "120",
+    "fee": "1"
+  },
+  "sell": {
+    "date": "2026-09-03",
+    "quantity": "3",
+    "price": "130",
+    "fee": "1"
+  },
+  "correction": {
+    "price": "125"
+  },
+  "expected": [
+    {
+      "stage": "opening",
+      "quantity": "10",
+      "cost": "1000.00",
+      "realized": "0.00",
+      "tradeCount": 0
+    },
+    {
+      "stage": "buy",
+      "quantity": "12",
+      "cost": "1241.00",
+      "realized": "0.00",
+      "tradeCount": 1
+    },
+    {
+      "stage": "sell",
+      "quantity": "9",
+      "cost": "941.00",
+      "realized": "89.00",
+      "tradeCount": 2
+    },
+    {
+      "stage": "correction",
+      "quantity": "9",
+      "cost": "951.00",
+      "realized": "89.00",
+      "tradeCount": 2
+    }
+  ]
+}

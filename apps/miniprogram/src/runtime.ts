@@ -23,6 +23,7 @@ function id() {
 export const service = createService({
   get(key) { const raw: unknown = wx.getStorageSync(key); if (raw === '') return ''; if (typeof raw !== 'string') throw Error('invalid_storage_type'); return raw; },
   set(key, value) { wx.setStorageSync(key, value); },
+  info() { const { currentSize, limitSize } = wx.getStorageInfoSync(); return { currentSize, limitSize }; },
 }, { today, now: () => new Date().toISOString(), id });
 export function showError(error: unknown) {
   wx.showModal({ title: '未完成操作', content: error instanceof Error ? error.message : '操作失败，请重试。', showCancel: false });

@@ -3,12 +3,13 @@
   <view class="subtitle">记录事实，也记录每次交易的理由。</view>
   <view wx:if="{{mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
-  <view wx:if="{{!records.length &amp;&amp; !error}}" class="card empty"><view class="symbol">还没有交易</view><view class="muted">从右上角添加你的第一笔买入。</view></view>
+  <view class="muted">历史可能不完整 · 现金余额未知 · 期初持仓不计入买卖笔数</view>
+  <view wx:if="{{!records.length &amp;&amp; !error}}" class="card empty"><view class="symbol">还没有记录</view><view class="muted">可以添加交易，或从持仓页录入期初持仓。</view></view>
   <view wx:for="{{records}}" wx:key="id" class="card {{item.voided ? 'voided' : ''}}">
-    <view class="row"><view><text class="symbol">{{item.symbol}}</text> <text class="badge">{{item.voided ? '已作废' : item.label}}</text></view><text class="muted">{{item.date}}</text></view>
-    <view class="divider"/><view class="row"><text>{{item.quantity}} 股 × ${{item.price}}</text><text class="number">${{item.amount}}</text></view>
-    <view class="muted">成交金额 · 手续费另计 ${{item.fee}}</view>
+    <view class="row"><view data-symbol="{{item.symbol}}" bindtap="showPosition"><text class="symbol">{{item.symbol}}</text> <text class="badge">{{item.voided ? '已作废' : item.label}}</text></view><text class="muted">{{item.date}} · 顺序 {{item.sequence + 1}}</text></view>
+    <view class="divider"/><view class="row"><text wx:if="{{item.isOpening}}">{{item.quantity}} 股 · 期初</text><text wx:else>{{item.quantity}} 股 × ${{item.price}}</text><text class="number">${{item.amount}}</text></view>
+    <view class="muted">{{item.isOpening ? '确认总成本（非成交金额）' : '成交金额 · 手续费另计'}} {{item.isOpening ? '$' + item.amount : '$' + item.fee}}</view>
     <view wx:if="{{item.note}}" class="note">{{item.note}}</view>
-    <button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" bindtap="voidTrade">作废记录</button>
+    <view class="actions"><button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" data-opening="{{item.isOpening}}" bindtap="editRecord">更正</button><button class="link" data-id="{{item.id}}" bindtap="showHistory">版本历史</button><button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" data-revision="{{item.revisionId}}" bindtap="voidTrade">作废</button></view>
   </view>
 </view>
