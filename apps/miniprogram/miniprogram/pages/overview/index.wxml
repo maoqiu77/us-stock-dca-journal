@@ -1,0 +1,25 @@
+<view class="container">
+  <view class="eyebrow">PORTFOLIO JOURNAL</view>
+  <view class="title">每一笔，都有依据。</view>
+  <view class="subtitle">把交易记下来，让复盘有迹可循。</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <block wx:if="{{view}}">
+    <view wx:if="{{view.mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view>
+    <view class="card hero">
+      <view class="muted">持仓总成本 · USD</view><view class="big">${{view.totalCost}}</view>
+      <view class="stats"><view class="stat"><view class="muted">已实现盈亏</view><view class="number">${{view.realized}}</view></view><view class="stat"><view class="muted">持有标的</view><view class="number">{{view.positions.length}} 个</view></view></view>
+    </view>
+    <view class="muted">按已录入记录计算 · 历史可能不完整<br/>未接入行情，成本不代表当前市值；现金尚未核对。</view>
+    <view class="row section"><text>我的持仓</text><button class="small primary" bindtap="addTrade">＋ 记一笔</button></view>
+    <view wx:if="{{!view.positions.length}}" class="card empty">
+      <view class="symbol">从第一笔记录开始</view><view class="muted">添加买入记录，自动整理持仓与成本。</view>
+      <view class="actions"><button class="primary" bindtap="addTrade">记录交易</button><button wx:if="{{!view.tradeCount}}" class="secondary" bindtap="loadDemo">体验示例</button></view>
+    </view>
+    <view wx:for="{{view.positions}}" wx:key="id" class="card">
+      <view class="row"><text class="symbol">{{item.symbol}}</text><text class="badge">{{item.assetType}}</text></view>
+      <view class="divider"/><view class="stats"><view class="stat"><view class="muted">持有数量</view><view class="number">{{item.quantity}} 股</view></view><view class="stat"><view class="muted">剩余成本</view><view class="number">${{item.cost}}</view></view></view>
+      <view class="muted" style="margin-top: 20rpx">每股成本 ${{item.unitCost}} · 含手续费</view>
+    </view>
+    <view class="card"><view>留住当时的判断</view><view class="muted" style="margin-top: 12rpx">已记录 {{view.tradeCount}} 笔交易，{{view.reviewCount}} 天复盘。下一次决策，从回看自己的记录开始。</view></view>
+  </block>
+</view>

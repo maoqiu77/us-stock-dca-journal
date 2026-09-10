@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "description": "虚构问句和实体；不是模型准确性评测",
+  "entities": [
+    {"instrument_id":"00000000-0000-4000-8000-000000000001","ticker":"NVDA","aliases":["英伟达","示例芯片"]},
+    {"instrument_id":"00000000-0000-4000-8000-000000000002","ticker":"QQQ","aliases":["纳指ETF","示例基金"]},
+    {"instrument_id":"00000000-0000-4000-8000-000000000003","ticker":"QQQM","aliases":["示例基金"]}
+  ],
+  "cases": [
+    {"question":"NVDA 现在持仓多少？","intent":"holdings","symbols":["NVDA"]},
+    {"question":"英伟达之前为什么买？","intent":"history_review","symbols":["NVDA"]},
+    {"question":"QQQ 风险如何？","intent":"risk_review","symbols":["QQQ"]},
+    {"question":"复盘 QQQ 2026-01-01 到 2026-02-28","intent":"history_review","symbols":["QQQ"],"from":"2026-01-01","to":"2026-02-28"},
+    {"question":"示例基金之前为什么买？","intent":"needs_clarification","symbols":[]},
+    {"question":"NVDA 和 QQQ 对比","intent":"comparison","symbols":["NVDA","QQQ"]},
+    {"question":"QQQM 持仓","intent":"holdings","symbols":["QQQM"]},
+    {"question":"NVDA 2026-02-30 复盘","intent":"needs_clarification","symbols":["NVDA"]},
+    {"question":"NVDA 2026-03-01 到 2026-02-01 复盘","intent":"needs_clarification","symbols":["NVDA"]},
+    {"question":"它怎么样","intent":"needs_clarification","symbols":[]},
+    {"question":"NVDA 上个月为什么买","intent":"needs_clarification","symbols":["NVDA"]},
+    {"question":"ABCDE 买入理由","intent":"needs_clarification","symbols":[]}
+  ]
+}

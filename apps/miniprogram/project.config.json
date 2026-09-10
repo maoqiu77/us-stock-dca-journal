@@ -1,0 +1,10 @@
+{
+  "description": "交易日记 · 微信小程序离线测试版",
+  "miniprogramRoot": "miniprogram/",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "portfolio-journal-wechat",
+  "libVersion": "3.7.6",
+  "setting": { "urlCheck": true, "es6": true, "enhance": true, "minified": true, "postcss": true },
+  "packOptions": { "ignore": [], "include": [] }
+}

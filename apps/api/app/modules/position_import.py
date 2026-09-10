@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from fastapi import HTTPException
+from app.modules.privacy_policy import ensure_ai_inference_allowed
 
 from app.modules.ai_settings import (
     OpenAICompatibleRequestError,
@@ -43,6 +44,7 @@ REPAIR_PROMPT = """你刚才的结果无法被导入。请仅重新输出一个�
 
 
 def recognize_position_screenshot(image_data_url: str, mode: str = "auto") -> dict[str, object]:
+    ensure_ai_inference_allowed()
     validate_image_data_url(image_data_url)
     settings = load_ai_settings()
     model = str(settings.get("simpleModel") or settings.get("model") or "").strip()

@@ -1,3 +1,5 @@
+> **2026-09-10 开发方向更新：微信小程序优先。** 已新增可导入的离线测试版，支持交易记账、持仓与复盘、备份恢复。请先阅读 [小程序导入与测试指南](docs/miniprogram/README.md)；下面的桌面版介绍作为既有产品文档保留。
+
 <a id="中文"></a>
 
 <h1 align="center">美股定投交易日记 · 量化分析</h1>
@@ -182,7 +184,7 @@ flowchart LR
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r apps/api/requirements.txt
-npm --prefix apps/web ci
+npm ci
 ```
 
 分别启动 API 和网页端：
@@ -255,7 +257,7 @@ Python 3.12+ and Node.js 24 are required.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r apps/api/requirements.txt
-npm --prefix apps/web ci
+npm ci
 npm run dev:api
 npm run dev:web
 ```

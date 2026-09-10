@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 from fastapi import HTTPException
+from app.modules.privacy_policy import ensure_ai_inference_allowed
 
 from app.core.database import get_state_payload, set_state_payload
 from app.modules.ai_settings import (
@@ -312,6 +313,7 @@ def first_advice_reason(value: Any) -> str:
 
 
 def ensure_external_ai_allowed(state: dict[str, Any]) -> None:
+    ensure_ai_inference_allowed(state)
     ai_settings = load_ai_settings()
     complex_model = ai_settings.get("complexModel") or ai_settings.get("model")
     if not ai_settings.get("apiKey") or not ai_settings.get("baseUrl") or not complex_model:

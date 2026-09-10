@@ -1,0 +1,25 @@
+{
+  "name": "@portfolio/domain",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./legacy-v1": "./src/legacy-v1/fifo.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "20.19.43",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "decimal.js": "10.6.0",
+    "zod": "4.4.3"
+  }
+}

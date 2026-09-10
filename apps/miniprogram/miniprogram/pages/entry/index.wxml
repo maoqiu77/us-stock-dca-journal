@@ -1,0 +1,15 @@
+<view class="container">
+  <view class="title">记一笔交易</view><view class="subtitle">按实际成交填写 · USD · 支持碎股</view>
+  <view class="card">
+    <view class="field"><view class="label">交易方向</view><view class="actions"><button class="{{kind === 'buy' ? 'primary' : 'secondary'}}" data-kind="buy" bindtap="onKind">买入</button><button class="{{kind === 'sell' ? 'primary' : 'secondary'}}" data-kind="sell" bindtap="onKind">卖出</button></view></view>
+    <view class="field"><label class="label" for="symbol">股票代码</label><input id="symbol" value="{{symbol}}" placeholder="例如 QQQ、AAPL" maxlength="15" data-field="symbol" bindinput="onField"/></view>
+    <view class="field"><view class="label">资产类型</view><view class="actions"><button class="{{assetType === 'ETF' ? 'primary' : 'secondary'}}" data-type="ETF" bindtap="onType">ETF</button><button class="{{assetType === 'STOCK' ? 'primary' : 'secondary'}}" data-type="STOCK" bindtap="onType">股票</button></view></view>
+    <view class="field"><view class="label">交易日期</view><picker mode="date" value="{{date}}" start="1970-01-01" end="{{today}}" bindchange="onDate"><view class="picker">{{date}}　⌄</view></picker><view class="muted">按成交单上的日期记录，同日按录入顺序计算。</view></view>
+    <view class="field"><label class="label" for="quantity">成交数量（股）</label><input id="quantity" type="digit" value="{{quantity}}" placeholder="例如 2 或 0.5" maxlength="31" data-field="quantity" bindinput="onField"/></view>
+    <view class="field"><label class="label" for="price">每股成交价（USD）</label><input id="price" type="digit" value="{{price}}" placeholder="0.00" maxlength="31" data-field="price" bindinput="onField"/></view>
+    <view class="field"><label class="label" for="fee">手续费（USD）</label><input id="fee" type="digit" value="{{fee}}" maxlength="23" data-field="fee" bindinput="onField"/></view>
+    <view class="field"><label class="label" for="note">交易理由（选填）</label><textarea id="note" value="{{note}}" placeholder="为什么买入或卖出？当时的计划是什么？" maxlength="2000" data-field="note" bindinput="onField"/></view>
+    <button class="primary" loading="{{saving}}" disabled="{{saving}}" bindtap="submit">保存交易</button>
+  </view>
+  <view class="muted">手续费计入成本与盈亏。仅记录已完成交易，不执行下单。</view>
+</view>

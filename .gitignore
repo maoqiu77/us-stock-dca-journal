@@ -52,3 +52,18 @@ storage/图片/
 pnpm-lock.yaml
 apps/web/pnpm-lock.yaml
 apps/web/pnpm-workspace.yaml
+
+# Mobile generated builds and private device captures
+apps/mobile/.expo/
+apps/mobile/ios/
+apps/mobile/android/
+apps/mobile/native-artifacts/
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+
+# WeChat generated projects and private developer settings
+apps/miniprogram/dist/
+apps/miniprogram/**/project.private.config.json
+apps/miniprogram/project.private.config.json

@@ -1,0 +1,246 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "portfolio": {
+    "schema_version": 1,
+    "id": "10000000-0000-4000-8000-000000000001",
+    "name": "Synthetic account",
+    "base_currency": "USD",
+    "timezone": "America/New_York",
+    "cash_state": "reconciled",
+    "history_complete": false,
+    "cost_method": "opening_aggregate_then_fifo",
+    "opening_date": "2026-01-01"
+  },
+  "instruments": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "symbol": "SYNTH",
+      "exchange": "NASDAQ",
+      "market": "US",
+      "quote_currency": "USD",
+      "asset_type": "STOCK",
+      "confirmed_at": "2026-01-01T12:00:00Z"
+    }
+  ],
+  "events": [
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000001",
+      "revision_id": "50000000-0000-4000-8000-000000000001",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 1,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "opening_cash",
+      "amount": "1000"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000002",
+      "revision_id": "50000000-0000-4000-8000-000000000002",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 2,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "opening_position",
+      "instrument_id": "20000000-0000-4000-8000-000000000001",
+      "quantity": "2",
+      "total_cost": "20"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000003",
+      "revision_id": "50000000-0000-4000-8000-000000000003",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 3,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "buy",
+      "instrument_id": "20000000-0000-4000-8000-000000000001",
+      "quantity": "2",
+      "price": "20",
+      "amount": "40",
+      "fee": "2"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000004",
+      "revision_id": "50000000-0000-4000-8000-000000000004",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 4,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "sell",
+      "instrument_id": "20000000-0000-4000-8000-000000000001",
+      "quantity": "3",
+      "price": "30",
+      "amount": "90",
+      "fee": "2"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000005",
+      "revision_id": "50000000-0000-4000-8000-000000000005",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 5,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "deposit",
+      "amount": "100"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000006",
+      "revision_id": "50000000-0000-4000-8000-000000000006",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 6,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "withdrawal",
+      "amount": "50"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000007",
+      "revision_id": "50000000-0000-4000-8000-000000000007",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 7,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "cash_dividend",
+      "instrument_id": "20000000-0000-4000-8000-000000000001",
+      "amount": "4"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000008",
+      "revision_id": "50000000-0000-4000-8000-000000000008",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 8,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "fee",
+      "amount": "1"
+    },
+    {
+      "schema_version": 1,
+      "record_id": "40000000-0000-4000-8000-000000000009",
+      "revision_id": "50000000-0000-4000-8000-000000000009",
+      "parent_revision": null,
+      "device_id": "30000000-0000-4000-8000-000000000001",
+      "portfolio_id": "10000000-0000-4000-8000-000000000001",
+      "trade_date": "2026-01-01",
+      "executed_at": null,
+      "sequence": 9,
+      "recorded_at": "2026-01-02T12:00:00Z",
+      "provenance": {
+        "source": "manual",
+        "confirmed_at": "2026-01-02T12:00:00Z"
+      },
+      "voided": false,
+      "note": "Synthetic fixture",
+      "kind": "split",
+      "instrument_id": "20000000-0000-4000-8000-000000000001",
+      "numerator": "2",
+      "denominator": "1"
+    }
+  ],
+  "expected": {
+    "cash": "1099",
+    "quantity": "2",
+    "remaining_cost": "21",
+    "realized_pnl": "47"
+  },
+  "hand_calculation": "FIFO sells original 2 costing20 and1 costing21. Net sell88 minus cost41=47. Cash1000-42+88+100-50+4-1=1099. Split doubles remaining1 to2 without changing21 cost.",
+  "revision_cases": [
+    {
+      "id": "correct-deposit",
+      "event_index": 4,
+      "patch": {
+        "amount": "200"
+      },
+      "expected_cash": "1199"
+    },
+    {
+      "id": "void-deposit",
+      "event_index": 4,
+      "patch": {
+        "voided": true
+      },
+      "expected_cash": "999"
+    }
+  ]
+}

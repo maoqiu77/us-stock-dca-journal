@@ -1,0 +1,73 @@
+{
+  "android": {
+    "status": "passed",
+    "device": "Portfolio_API_36 / Pixel8 AVD / emulator-5554 arm64-v8a SwiftShader",
+    "os": "Android16 API36 BE2A.250530.026.F3",
+    "build": "local debug APK SHA256 f75fcd0c29693c0fef1765b51eb5e74bd24580cad6ad3df1a3c5a5f692846635; Expo55.0.31 RN0.83.10",
+    "measured_at": "2026-09-10T03:24:03.083499+00:00",
+    "lock_sha256": "2e1600a4d8701321b844bd9d95a261e18d9ba09168a1ec7ed39d647689badb38",
+    "checks": {
+      "single_react_bundle": {
+        "status": "passed",
+        "evidence": "Android production Metro and Gradle sourcemaps: exactly Mobile React19.2.0; no src/dev sources. See android-validation-2026-09-10.md."
+      },
+      "single_rn_autolinking": {
+        "status": "passed",
+        "evidence": "Root lock RN0.83.10 only; expo-modules-autolinking verify exits0; native debug app runs. See android-validation-2026-09-10.md."
+      },
+      "sqlcipher_plaintext_rejected": {
+        "status": "passed",
+        "evidence": "Synthetic SQLCipher4.7.0 DB28672bytes; Python sqlite3 mode=ro rejects file is not a database; no plaintext header. See android-validation-2026-09-10.md."
+      },
+      "write_restart_read": {
+        "status": "passed",
+        "evidence": "2026-09-10 11:20:38 seed passed; force-stop then new process4714 reopen11:21:20 passed. See android-validation-2026-09-10.md."
+      },
+      "wrong_key_rejected": {
+        "status": "passed",
+        "evidence": "reopen tests changed key rejection, then correct key still reads expected synthetic row. See android-validation-2026-09-10.md."
+      },
+      "missing_key_blocked": {
+        "status": "passed",
+        "evidence": "11:18:14 missing-key passed before DB open; before/after file hash df6319d7378b0c15f2b4a865321d0f9144bd8d8849acda6cb5839dc00ea17279 identical. See android-validation-2026-09-10.md."
+      },
+      "secure_store_lifecycle": {
+        "status": "passed",
+        "evidence": "Cold restart retained key; after seeded-key uninstall/reinstall, process4883 at11:21:41 reported SecureStore null. See android-validation-2026-09-10.md."
+      },
+      "backup_exclusion": {
+        "status": "passed",
+        "evidence": "Installed package lacks ALLOW_BACKUP; bmgr backupnow reports Backup is not allowed. aapt2 extracted cloud/device-transfer rules each exclude9domains; vendor migration behavior not tested. See android-validation-2026-09-10.md."
+      },
+      "aes_gcm_roundtrip_tamper": {
+        "status": "passed",
+        "evidence": "QuickCrypto1.1.7 native AES256GCM synthetic roundtrip and tampered ciphertext rejected at11:15:17. See android-validation-2026-09-10.md."
+      },
+      "pbkdf2_vector_timing": {
+        "status": "passed",
+        "evidence": "PBKDF2SHA256 public vector passed;600000 iterations34.97ms Android ARM64 emulator, not physical device. See android-validation-2026-09-10.md."
+      },
+      "tls_only": {
+        "status": "passed",
+        "evidence": "expo/fetch trusted local HTTPS200; helper blocks HTTP before I/O; native rejects untrusted TLS certificate. Only synthetic auth marker. See android-validation-2026-09-10.md."
+      },
+      "redirect_rejected": {
+        "status": "passed",
+        "evidence": "11:20:45 network passed. Host log /ok,/redirect-same,/redirect-cross exactly once; zero /target or8844requests. See android-validation-2026-09-10.md."
+      },
+      "chinese_search": {
+        "status": "passed",
+        "evidence": "FTS spaced中文1hit; bounded instr连续中文2hits; FTS close regression passed using finalizeUnusedStatementsBeforeClosing:false, helpers finalize own statements. See android-validation-2026-09-10.md."
+      },
+      "release_excludes_probes": {
+        "status": "passed",
+        "evidence": "Gradle processReleaseResources exit0; release .ap_ no m07 CA/config; actual release packager map no src/dev; production export verified too. See android-validation-2026-09-10.md."
+      }
+    }
+  },
+  "ios": {
+    "status": "blocked",
+    "reason": "User explicitly deferred iOS and requested Android-only testing. Toolchain installed; iOS app native checks not executed.",
+    "checks": {}
+  }
+}

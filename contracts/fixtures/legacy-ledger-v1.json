@@ -1,0 +1,420 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "stages": {
+    "web": "Normalize each input with normalizeTradeInput, then derivePositions; no server normalization.",
+    "python": "Normalize each input with sanitize_trade, then derive_positions; no full-state defaulting."
+  },
+  "cases": [
+    {
+      "id": "empty",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": []
+      },
+      "expected": {
+        "web": {
+          "shares": 0,
+          "costBasis": 0,
+          "holdingCost": 0
+        },
+        "python": {
+          "shares": 0,
+          "costBasis": 0,
+          "holdingCost": 0
+        }
+      },
+      "handCalculation": "No lots."
+    },
+    {
+      "id": "fifo-partial",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": [
+          {
+            "id": "b1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 10,
+            "unitPrice": 10,
+            "amount": 100,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "b2",
+            "date": "2026-01-02",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 10,
+            "unitPrice": 20,
+            "amount": 200,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "s1",
+            "date": "2026-01-03",
+            "ticker": "SYNTH",
+            "action": "卖出",
+            "shares": 12,
+            "unitPrice": 30,
+            "amount": 360,
+            "note": "synthetic fixture"
+          }
+        ]
+      },
+      "expected": {
+        "web": {
+          "shares": 8,
+          "costBasis": 20,
+          "holdingCost": 160
+        },
+        "python": {
+          "shares": 8,
+          "costBasis": 20,
+          "holdingCost": 160
+        }
+      },
+      "handCalculation": "20-12=8; remove 10 at 10 and 2 at 20; 8*20=160."
+    },
+    {
+      "id": "close-and-rebuy",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": [
+          {
+            "id": "b1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 10,
+            "unitPrice": 10,
+            "amount": 100,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "s1",
+            "date": "2026-01-02",
+            "ticker": "SYNTH",
+            "action": "卖出",
+            "shares": 10,
+            "unitPrice": 30,
+            "amount": 300,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "b2",
+            "date": "2026-01-03",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 2,
+            "unitPrice": 40,
+            "amount": 80,
+            "note": "synthetic fixture"
+          }
+        ]
+      },
+      "expected": {
+        "web": {
+          "shares": 2,
+          "costBasis": 40,
+          "holdingCost": 80
+        },
+        "python": {
+          "shares": 2,
+          "costBasis": 40,
+          "holdingCost": 80
+        }
+      },
+      "handCalculation": "All original lots removed, new lot 2*40=80."
+    },
+    {
+      "id": "fractional",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": [
+          {
+            "id": "b1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 0.5,
+            "unitPrice": 12,
+            "amount": 6,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "b2",
+            "date": "2026-01-02",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 0.25,
+            "unitPrice": 20,
+            "amount": 5,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "s1",
+            "date": "2026-01-03",
+            "ticker": "SYNTH",
+            "action": "卖出",
+            "shares": 0.625,
+            "unitPrice": 30,
+            "amount": 18.75,
+            "note": "synthetic fixture"
+          }
+        ]
+      },
+      "expected": {
+        "web": {
+          "shares": 0.125,
+          "costBasis": 20,
+          "holdingCost": 2.5
+        },
+        "python": {
+          "shares": 0.125,
+          "costBasis": 20,
+          "holdingCost": 2.5
+        }
+      },
+      "handCalculation": "0.75-0.625=0.125; remaining newer lot 0.125*20=2.5."
+    },
+    {
+      "id": "same-day",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": [
+          {
+            "id": "b1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 2,
+            "unitPrice": 10,
+            "amount": 20,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "b2",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 2,
+            "unitPrice": 20,
+            "amount": 40,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "s1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "卖出",
+            "shares": 3,
+            "unitPrice": 30,
+            "amount": 90,
+            "note": "synthetic fixture"
+          }
+        ]
+      },
+      "expected": {
+        "web": {
+          "shares": 1,
+          "costBasis": 20,
+          "holdingCost": 20
+        },
+        "python": {
+          "shares": 1,
+          "costBasis": 20,
+          "holdingCost": 20
+        }
+      },
+      "handCalculation": "Equal dates preserve input order, consume first lot then 1 from second."
+    },
+    {
+      "id": "out-of-order",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": [
+          {
+            "id": "s1",
+            "date": "2026-01-02",
+            "ticker": "SYNTH",
+            "action": "卖出",
+            "shares": 1,
+            "unitPrice": 30,
+            "amount": 30,
+            "note": "synthetic fixture"
+          },
+          {
+            "id": "b1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 2,
+            "unitPrice": 10,
+            "amount": 20,
+            "note": "synthetic fixture"
+          }
+        ]
+      },
+      "expected": {
+        "web": {
+          "shares": 1,
+          "costBasis": 10,
+          "holdingCost": 10
+        },
+        "python": {
+          "shares": 1,
+          "costBasis": 10,
+          "holdingCost": 10
+        }
+      },
+      "handCalculation": "Projection sorts dates; validation sees sell first and rejects ordering."
+    },
+    {
+      "id": "entry-rounding",
+      "input": {
+        "account": {
+          "totalAssets": 1000
+        },
+        "stockPool": [
+          "SYNTH"
+        ],
+        "positions": [],
+        "trades": [
+          {
+            "id": "b1",
+            "date": "2026-01-01",
+            "ticker": "SYNTH",
+            "action": "买入",
+            "shares": 1,
+            "unitPrice": 12.3456,
+            "amount": 12.3456,
+            "note": "synthetic fixture"
+          }
+        ]
+      },
+      "expected": {
+        "web": {
+          "shares": 1,
+          "costBasis": 12.3456,
+          "holdingCost": 12.35
+        },
+        "python": {
+          "shares": 1,
+          "costBasis": 12.35,
+          "holdingCost": 12.35
+        }
+      },
+      "handCalculation": "Web amount 12.3456; Python amount 12.35. Both displayed holdingCost 12.35, different costBasis."
+    }
+  ],
+  "rounding": {
+    "input": {
+      "id": "precision",
+      "date": "2026-01-01",
+      "ticker": "SYNTH",
+      "action": "买入",
+      "shares": 1,
+      "unitPrice": 12.3456,
+      "amount": 12.3456,
+      "note": "synthetic fixture"
+    },
+    "webAmount": 12.3456,
+    "pythonAmount": 12.35
+  },
+  "validation": {
+    "caseId": "out-of-order",
+    "expectedIssues": [
+      "交易记录第 1 行：卖出 1 股 SYNTH 超过此前持仓 0 股。"
+    ]
+  },
+  "snapshot": {
+    "before": {
+      "account": {
+        "totalAssets": 1000
+      },
+      "stockPool": [
+        "SYNTH"
+      ],
+      "positions": [],
+      "trades": [
+        {
+          "id": "old",
+          "date": "2026-01-01",
+          "ticker": "SYNTH",
+          "action": "买入",
+          "shares": 2,
+          "unitPrice": 10,
+          "amount": 20,
+          "note": "synthetic fixture"
+        }
+      ]
+    },
+    "date": "2026-01-02",
+    "inputs": [
+      {
+        "ticker": "SYNTH",
+        "shares": 3,
+        "averageCost": 30,
+        "assetType": "STOCK"
+      }
+    ],
+    "expectedAppended": [
+      {
+        "action": "卖出",
+        "shares": 2,
+        "unitPrice": 10,
+        "amount": 20
+      },
+      {
+        "action": "买入",
+        "shares": 3,
+        "unitPrice": 30,
+        "amount": 90
+      }
+    ],
+    "expectedPosition": {
+      "shares": 3,
+      "costBasis": 30,
+      "holdingCost": 90
+    },
+    "meaning": "Synthetic close/open records from a snapshot, not evidence of executed trades."
+  }
+}

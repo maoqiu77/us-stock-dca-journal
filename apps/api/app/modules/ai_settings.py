@@ -12,6 +12,7 @@ from openai import OpenAI, OpenAIError
 
 from app.core.database import get_state_payload, set_state_payload
 from app.modules.ai_providers import PROVIDERS, PROVIDER_BY_ID, PROTOCOLS, build_anthropic_payload
+from app.modules.privacy_policy import ensure_ai_inference_allowed
 
 
 APP_STATE_KEY = "ai_settings_v1"
@@ -161,6 +162,7 @@ def test_ai_settings_connection(payload: dict[str, Any]) -> dict[str, Any]:
                 preferred_endpoint=preferred_endpoint,
                 provider=provider,
                 protocol=protocol,
+                _connection_probe=True,
             )
         except OpenAICompatibleRequestError as exc:
             tier_label = "复杂任务模型" if tier == "complex" else "简单任务模型"
@@ -349,7 +351,9 @@ def call_openai_compatible_completion(
     provider: str = "custom",
     protocol: str = "auto",
     max_output_tokens: int | None = None,
+    _connection_probe: bool = False,
 ) -> dict[str, str]:
+    _check_completion_policy(messages, _connection_probe)
     normalized_base_url, detected_endpoint = normalize_openai_base_url(base_url)
     endpoint_preference = preferred_endpoint or detected_endpoint
     if protocol not in PROTOCOLS:
@@ -361,10 +365,12 @@ def call_openai_compatible_completion(
         return call_responses_completion_with_sdk(
             base_url=normalized_base_url, model=model, api_key=api_key,
             messages=messages, timeout=timeout, max_output_tokens=max_output_tokens,
+            _connection_probe=_connection_probe,
         )
     endpoints = [protocol] if protocol != "auto" else (["messages"] if endpoint_preference == "messages" else openai_compatible_endpoint_order(endpoint_preference))
     errors: list[str] = []
     for endpoint in endpoints:
+        _check_completion_policy(messages, _connection_probe)
         try:
             if endpoint == "messages":
                 body = build_anthropic_payload(model, messages, max_output_tokens)
@@ -410,7 +416,9 @@ def call_responses_completion_with_sdk(
     messages: list[dict[str, Any]],
     timeout: int,
     max_output_tokens: int | None = None,
+    _connection_probe: bool = False,
 ) -> dict[str, str]:
+    _check_completion_policy(messages, _connection_probe)
     client: OpenAI | None = None
     try:
         client = OpenAI(
@@ -440,6 +448,17 @@ def call_responses_completion_with_sdk(
     finally:
         if client is not None:
             client.close()
+
+
+def _check_completion_policy(messages: list[dict[str, Any]], connection_probe: bool) -> None:
+    # Only the explicit settings test may bypass inference policy, and only
+    # for this exact fixed payload. No caller-controlled/private probe text.
+    if connection_probe and messages == [
+        {"role": "system", "content": "你是测试助手。"},
+        {"role": "user", "content": "请只回复 ok。"},
+    ]:
+        return
+    ensure_ai_inference_allowed()
 
 
 def openai_compatible_endpoint_order(preferred_endpoint: str | None = None) -> list[str]:

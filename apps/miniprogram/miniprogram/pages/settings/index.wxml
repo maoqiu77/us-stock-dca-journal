@@ -1,0 +1,15 @@
+<view class="container">
+  <view class="eyebrow">YOUR DATA</view><view class="title">数据在你手里。</view><view class="subtitle">微信小程序 · 离线测试版 0.1.0</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="card"><view class="row"><text>当前账本</text><text class="badge">{{mode === 'demo' ? '虚构示例' : '本地个人账本'}}</text></view><view class="divider"/><view class="muted">{{trades}} 笔有效交易 · {{reviews}} 天复盘<br/>单账户 · 美股 / ETF · USD<br/>交易日期按手工输入；日历“今天”按北京时间。</view></view>
+  <view class="section">备份与恢复</view>
+  <view class="card"><view>把记录留一份副本</view><view class="subtitle">备份为明文 JSON。换机、清理微信数据或移除小程序前，请先备份。</view><view class="actions"><button class="primary" bindtap="exportFile" disabled="{{!!error}}">导出文件</button><button class="secondary" bindtap="copyBackup" disabled="{{!!error}}">复制备份</button></view></view>
+  <view class="card"><view class="label">恢复已有备份</view><view class="muted">选择本小程序导出的 JSON，或粘贴备份内容。会先检查格式，不自动覆盖。</view><view class="actions"><button class="secondary" bindtap="chooseBackup">选择 JSON 文件</button></view>
+    <textarea class="backup" style="margin-top: 24rpx" value="{{backupText}}" maxlength="819200" bindinput="onBackupText" placeholder="也可以在这里粘贴备份内容"/>
+    <view class="actions"><button class="secondary" bindtap="previewBackup">检查备份</button></view>
+    <view wx:if="{{preview}}"><view class="note">检查通过：{{preview.trades}} 笔交易，{{preview.reviews}} 天复盘。{{preview.mode === 'demo' ? '这是示例账本。' : ''}}</view><view class="actions"><button class="primary" bindtap="restoreBackup" loading="{{importing}}">确认恢复…</button></view></view>
+    <button class="link" bindtap="recoverPrevious">恢复上一次替换前的账本</button>
+  </view>
+  <view class="section">关于测试版</view><view class="card"><view class="muted">记录保存在当前小程序的本地空间，不自动同步或上传。未接入行情和 AI，已实现盈亏只依据你录入的买卖记录。历史不完整时无法据此判断全部投资表现。<br/><br/>本地备份不是加密保险箱，请妥善保管。当前容量上限 800 KiB。无需登录和网络请求，不连接券商或执行交易。</view></view>
+  <button class="secondary" bindtap="startEmpty">开始新的空账本…</button>
+</view>

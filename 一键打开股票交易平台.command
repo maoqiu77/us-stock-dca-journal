@@ -68,9 +68,9 @@ if [[ ! -x ".venv/bin/python" ]]; then
   .venv/bin/pip install -r apps/api/requirements.txt
 fi
 
-if [[ ! -d "apps/web/node_modules" ]]; then
+if [[ ! -d "node_modules/next" ]]; then
   echo "正在准备网页端依赖，第一次运行会稍慢..."
-  npm --prefix apps/web ci
+  npm ci
 fi
 
 mkdir -p storage/local "$PID_DIR"

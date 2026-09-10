@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import unittest
+import json
+from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
@@ -13,7 +16,46 @@ from app.modules.trading_data import (
     derive_positions,
     etf_investment_pool,
     sanitize_strategy_settings,
+    sanitize_trade,
+    validate_trading_state,
 )
+
+
+class LegacyLedgerFixtureTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.fixture = json.loads((Path(__file__).resolve().parents[3] / "contracts/fixtures/legacy-ledger-v1.json").read_text())
+
+    def test_projection_matches_independent_fifo_examples_after_python_entry(self) -> None:
+        for case in self.fixture["cases"]:
+            with self.subTest(case=case["id"]):
+                state = deepcopy(case["input"])
+                state["trades"] = [sanitize_trade(trade) for trade in state["trades"]]
+                before = deepcopy(state)
+                [actual] = derive_positions(state)
+                for key, value in case["expected"]["python"].items():
+                    self.assertEqual(actual[key], value, key)
+                self.assertEqual(state, before)
+
+    def test_amount_entry_keeps_python_two_decimal_difference(self) -> None:
+        witness = self.fixture["rounding"]
+        self.assertEqual(sanitize_trade(witness["input"])["amount"], witness["pythonAmount"])
+        self.assertNotEqual(witness["pythonAmount"], witness["webAmount"])
+
+    def test_validation_uses_input_order_even_when_projection_sorts_dates(self) -> None:
+        witness = self.fixture["validation"]
+        case = next(item for item in self.fixture["cases"] if item["id"] == witness["caseId"])
+        self.assertEqual(validate_trading_state(case["input"]), witness["expectedIssues"])
+        ordered = {**case["input"], "trades": sorted(case["input"]["trades"], key=lambda row: row["date"])}
+        self.assertEqual(validate_trading_state(ordered), [])
+
+    def test_snapshot_synthetic_records_are_counted_as_trades_by_legacy_projection(self) -> None:
+        witness = self.fixture["snapshot"]
+        state = deepcopy(witness["before"])
+        state["trades"].extend({**row, "ticker": "SYNTH", "date": witness["date"]} for row in witness["expectedAppended"])
+        [actual] = derive_positions(state)
+        for key, value in witness["expectedPosition"].items():
+            self.assertEqual(actual[key], value)
 
 
 class TradingDataTest(unittest.TestCase):

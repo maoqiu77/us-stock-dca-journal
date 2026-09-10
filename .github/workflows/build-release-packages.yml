@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         shell: pwsh
         run: |
-          npm --prefix apps/web ci
+          npm ci
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements.txt pyinstaller
 
@@ -105,7 +105,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -114,7 +114,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm --prefix apps/web ci
+          npm ci
           python -m pip install --upgrade pip
           python -m pip install -r apps/api/requirements.txt pyinstaller
 

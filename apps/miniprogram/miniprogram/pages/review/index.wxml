@@ -1,0 +1,11 @@
+<view class="container">
+  <view class="eyebrow">REFLECTIONS</view><view class="title">把经验，留给明天。</view><view class="subtitle">写下判断，回看执行，慢慢形成自己的方法。</view>
+  <view wx:if="{{mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view><view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="card"><view class="field"><view class="label">复盘日期</view><picker mode="date" value="{{date}}" start="1970-01-01" end="{{today}}" bindchange="onDate"><view class="picker">{{date}}　⌄</view></picker></view>
+    <textarea value="{{text}}" maxlength="4000" bindinput="onText" placeholder="今天做对了什么？\n有哪些判断需要验证？\n下一次准备如何改进？"/>
+    <view class="muted counter">{{text.length}} / 4000</view><view class="actions"><button class="primary" disabled="{{!!error}}" bindtap="save">保存复盘</button></view>
+  </view>
+  <view class="muted">内容仅保存在本地。AI 解读将在后续联网阶段接入。</view>
+  <view class="section">历史复盘</view><view wx:if="{{!reviews.length}}" class="card empty muted">还没有复盘，写下今天的第一条想法吧。</view>
+  <view wx:for="{{reviews}}" wx:key="date" class="card"><view class="row"><text>{{item.date}}</text><button class="link" data-date="{{item.date}}" bindtap="edit">编辑</button></view><view class="note">{{item.text}}</view></view>
+</view>

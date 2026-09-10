@@ -12,6 +12,7 @@ from app.modules.ai_settings import (
     load_ai_settings,
 )
 from app.modules.market import get_chart
+from app.modules.privacy_policy import ensure_ai_inference_allowed
 from app.modules.quant_analysis.calendar import add_us_trading_days, reflection_eligible
 from app.modules.quant_analysis.engine import parse_structured_response
 from app.modules.quant_analysis.store import get_analysis_run, update_analysis_run
@@ -21,6 +22,7 @@ QUANT_AI_MAX_OUTPUT_TOKENS = 8192
 
 
 def generate_reflection(run_id: str, *, today: str | None = None) -> dict[str, Any]:
+    ensure_ai_inference_allowed()
     try:
         run = get_analysis_run(run_id)
     except KeyError as exc:

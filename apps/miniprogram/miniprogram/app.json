@@ -1,0 +1,12 @@
+{
+  "pages": ["pages/overview/index", "pages/records/index", "pages/review/index", "pages/settings/index", "pages/entry/index"],
+  "window": { "navigationBarTitleText": "交易日记", "navigationBarBackgroundColor": "#f4f6f2", "navigationBarTextStyle": "black", "backgroundColor": "#f4f6f2" },
+  "tabBar": { "color": "#66756c", "selectedColor": "#17674d", "backgroundColor": "#ffffff", "borderStyle": "white", "list": [
+    { "pagePath": "pages/overview/index", "text": "持仓" },
+    { "pagePath": "pages/records/index", "text": "记录" },
+    { "pagePath": "pages/review/index", "text": "复盘" },
+    { "pagePath": "pages/settings/index", "text": "设置" }
+  ] },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json"
+}

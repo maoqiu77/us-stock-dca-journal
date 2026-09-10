@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 
 import {
   comparePositionReturnsDescending,
@@ -13,13 +14,48 @@ import {
   recordTrade,
   removeTrackedTicker,
   replaceStockPool,
+  replacePositionSnapshot,
   sortPositionPlans,
   sortTradesNewestFirst,
   trackTickerForObservation,
   updateTradeCalculation,
   upsertPositionPlan,
   type TradingDataState,
+  type TradeInput,
+  type PositionSnapshotInput,
 } from "./trading-data.ts";
+
+const legacyFixture = JSON.parse(readFileSync(new URL("../../../../../contracts/fixtures/legacy-ledger-v1.json", import.meta.url), "utf8")) as {
+  cases: Array<{ id: string; input: { stockPool: string[]; positions: TradingDataState["positions"]; trades: TradeInput[] }; expected: { web: { shares: number; costBasis: number; holdingCost: number } } }>;
+  rounding: { input: TradeInput; webAmount: number; pythonAmount: number };
+  snapshot: { before: { trades: TradeInput[] }; date: string; inputs: PositionSnapshotInput[]; expectedAppended: Array<{ action: string; shares: number; unitPrice: number; amount: number }>; expectedPosition: { shares: number; costBasis: number; holdingCost: number } };
+};
+
+for (const example of legacyFixture.cases) {
+  test(`legacy fixture after Web entry: ${example.id}`, () => {
+    const state = { ...testState(), ...example.input, trades: example.input.trades.map(normalizeTradeInput) };
+    const before = structuredClone(state);
+    const [actual] = derivePositions(state);
+    assert.deepEqual({ shares: actual.shares, costBasis: actual.costBasis, holdingCost: actual.holdingCost }, example.expected.web);
+    assert.deepEqual(state, before);
+  });
+}
+
+test("legacy fixture preserves Web entry precision independently of Python", () => {
+  assert.equal(normalizeTradeInput(legacyFixture.rounding.input).amount, legacyFixture.rounding.webAmount);
+  assert.notEqual(legacyFixture.rounding.webAmount, legacyFixture.rounding.pythonAmount);
+});
+
+test("snapshot replacement appends synthetic closing and opening trades", () => {
+  const example = legacyFixture.snapshot;
+  const state = { ...testState(), stockPool: ["SYNTH"], positions: [], trades: example.before.trades.map(normalizeTradeInput) };
+  const before = structuredClone(state);
+  const next = replacePositionSnapshot(state, example.inputs, example.date);
+  assert.deepEqual(next.trades.slice(state.trades.length).map(({ action, shares, unitPrice, amount }) => ({ action, shares, unitPrice, amount })), example.expectedAppended);
+  const [actual] = derivePositions(next);
+  assert.deepEqual({ shares: actual.shares, costBasis: actual.costBasis, holdingCost: actual.holdingCost }, example.expectedPosition);
+  assert.deepEqual(state, before);
+});
 
 function testState(): TradingDataState {
   return {

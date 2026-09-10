@@ -1,0 +1,30 @@
+{
+  "name": "@portfolio/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.mjs",
+    "native:android": "node scripts/native-build.mjs android",
+    "native:ios": "node scripts/native-build.mjs ios",
+    "check:native-evidence": "node scripts/verify-native-evidence.mjs"
+  },
+  "dependencies": {
+    "@portfolio/domain": "0.0.0",
+    "expo": "55.0.31",
+    "react": "19.2.0",
+    "react-native": "0.83.10",
+    "expo-sqlite": "55.0.20",
+    "expo-secure-store": "55.0.18",
+    "expo-dev-client": "55.0.40",
+    "react-native-safe-area-context": "5.6.2",
+    "react-native-quick-crypto": "1.1.7",
+    "react-native-nitro-modules": "0.37.1",
+    "react-native-quick-base64": "3.0.1"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "@types/react": "19.2.14"
+  }
+}

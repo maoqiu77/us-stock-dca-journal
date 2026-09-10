@@ -1,0 +1,41 @@
+page { background: #f4f6f2; color: #20372c; font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 28rpx; }
+.container { padding: 32rpx 32rpx 60rpx; }
+.eyebrow { font-size: 21rpx; letter-spacing: 4rpx; color: #78867b; margin-bottom: 12rpx; }
+.title { font-size: 48rpx; font-weight: 650; line-height: 1.3; }
+.subtitle { color: #6d7a70; font-size: 25rpx; line-height: 1.7; margin: 12rpx 0 28rpx; }
+.card { background: white; border: 1rpx solid #e5eae3; padding: 30rpx; border-radius: 24rpx; margin-bottom: 22rpx; }
+.hero { background: #1c4e3c; color: #fff; border: 0; padding: 36rpx; }
+.hero .muted { color: #bad0c2; }
+.big { font-size: 58rpx; font-weight: 600; margin: 12rpx 0 30rpx; overflow-wrap: anywhere; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
+.stats { display: flex; gap: 28rpx; flex-wrap: wrap; }
+.stat { flex: 1; min-width: 200rpx; }
+.number { font-size: 32rpx; font-weight: 600; margin-top: 8rpx; overflow-wrap: anywhere; }
+.muted { color: #77847b; font-size: 24rpx; line-height: 1.7; }
+.section { margin: 36rpx 0 20rpx; font-size: 30rpx; font-weight: 600; }
+.symbol { font-size: 34rpx; font-weight: 650; }
+.badge { display: inline-block; background: #edf3ec; color: #32634a; border-radius: 8rpx; padding: 4rpx 12rpx; font-size: 21rpx; }
+.demo { background: #fff0d5; color: #825a1b; padding: 18rpx 22rpx; border-radius: 14rpx; font-size: 24rpx; margin-bottom: 24rpx; }
+.empty { text-align: center; padding: 48rpx 24rpx; }
+.empty .symbol { margin-bottom: 12rpx; }
+button { font-size: 28rpx; border-radius: 16rpx; margin: 0; padding: 0 26rpx; line-height: 86rpx; font-weight: 500; }
+button::after { border: none; }
+button.primary { background: #216b50; color: white; }
+button.secondary { background: #e8eee6; color: #25513d; }
+button.small { font-size: 24rpx; line-height: 62rpx; }
+button.link { background: transparent; color: #58705f; font-size: 24rpx; line-height: 56rpx; padding: 0; }
+button[disabled] { opacity: .45; }
+.actions { display: flex; gap: 16rpx; margin-top: 24rpx; }
+.actions button { flex: 1; }
+.field { margin-bottom: 28rpx; }
+.label { display: block; font-weight: 550; margin-bottom: 14rpx; font-size: 26rpx; }
+input, textarea, .picker { box-sizing: border-box; background: #f3f6f0; border: 1rpx solid #e2e8de; border-radius: 12rpx; padding: 20rpx; width: 100%; font-size: 29rpx; }
+input { height: 88rpx; }
+textarea { height: 250rpx; line-height: 1.7; }
+.picker { min-height: 84rpx; }
+.error { background: #fff0e9; color: #9c422d; padding: 24rpx; line-height: 1.7; border-radius: 16rpx; margin-bottom: 24rpx; }
+.note { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin-top: 16rpx; color: #526557; font-size: 26rpx; }
+.divider { height: 1rpx; background: #edf0ea; margin: 24rpx 0; }
+.voided { opacity: .5; }
+.counter { text-align: right; margin-top: 8rpx; }
+.backup { height: 240rpx; font-family: monospace; font-size: 23rpx; }

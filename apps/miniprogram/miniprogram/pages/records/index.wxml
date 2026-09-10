@@ -1,0 +1,14 @@
+<view class="container">
+  <view class="eyebrow">TRANSACTIONS</view><view class="row"><view class="title">交易记录</view><button class="primary small" bindtap="addTrade">＋ 记一笔</button></view>
+  <view class="subtitle">记录事实，也记录每次交易的理由。</view>
+  <view wx:if="{{mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{!records.length &amp;&amp; !error}}" class="card empty"><view class="symbol">还没有交易</view><view class="muted">从右上角添加你的第一笔买入。</view></view>
+  <view wx:for="{{records}}" wx:key="id" class="card {{item.voided ? 'voided' : ''}}">
+    <view class="row"><view><text class="symbol">{{item.symbol}}</text> <text class="badge">{{item.voided ? '已作废' : item.label}}</text></view><text class="muted">{{item.date}}</text></view>
+    <view class="divider"/><view class="row"><text>{{item.quantity}} 股 × ${{item.price}}</text><text class="number">${{item.amount}}</text></view>
+    <view class="muted">成交金额 · 手续费另计 ${{item.fee}}</view>
+    <view wx:if="{{item.note}}" class="note">{{item.note}}</view>
+    <button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" bindtap="voidTrade">作废记录</button>
+  </view>
+</view>

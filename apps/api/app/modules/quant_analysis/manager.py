@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.api_models import QuantAnalysisRunRequest
 from app.modules.ai_settings import load_ai_settings
+from app.modules.privacy_policy import ensure_ai_inference_allowed
 from app.modules.quant_analysis.calendar import normalize_us_trading_date
 from app.modules.quant_analysis.engine import build_input_signature
 from app.modules.quant_analysis.execution import execute_analysis_run
@@ -55,6 +56,7 @@ class QuantAnalysisManager:
             self._thread = None
 
     def submit(self, request: QuantAnalysisRunRequest) -> dict[str, Any]:
+        ensure_ai_inference_allowed()
         settings = load_ai_settings()
         simple_model = str(settings.get("simpleModel") or settings.get("model") or "").strip()
         complex_model = str(settings.get("complexModel") or settings.get("model") or "").strip()
@@ -147,6 +149,7 @@ class QuantAnalysisManager:
         return update_analysis_run(run_id, status="cancel_requested")
 
     def resume(self, run_id: str) -> dict[str, Any]:
+        ensure_ai_inference_allowed()
         run = self.get(run_id)
         if run["status"] != "interrupted":
             raise HTTPException(status_code=409, detail="只有已中断任务可以继续。")

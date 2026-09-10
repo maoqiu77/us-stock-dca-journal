@@ -13,6 +13,14 @@ SKIP_FILES = {
 }
 BLOCKED_PATH_PARTS = {
     "storage/local",
+    "apps/mobile/native-artifacts/",
+    "apps/mobile/.expo/",
+    "apps/mobile/ios/",
+    "apps/mobile/android/",
+    ".keystore",
+    ".jks",
+    ".p12",
+    ".mobileprovision",
     ".env",
 }
 SECRET_PATTERNS = [

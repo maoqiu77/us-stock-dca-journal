@@ -21,7 +21,7 @@ The project requires Python 3.12+ and Node.js 24.
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r apps/api/requirements.txt
-npm --prefix apps/web ci
+npm ci
 ```
 
 Start the API and web application in separate terminals:
