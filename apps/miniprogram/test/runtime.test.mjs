@@ -4,10 +4,11 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 const root = new URL('../dist/miniprogram/', import.meta.url);
 function boot(values = new Map()) {
+  let failReadback = false, unreadable = false, failPrimaryBefore = false, cleanupFault = false, cleanupRead = false, manifestFault = false, failManifestOnWrite = false;
   const notices = []; let navigated = false; let fail = false; let evalAttempts = 0;
   const wx = {
-    getStorageSync: key => values.get(key) ?? '',
-    setStorageSync: (key, value) => { if (fail) throw Error('quota'); values.set(key, value); },
+    getStorageSync: key => { if (key === 'portfolio.wechat.v1.pending-v1' && manifestFault) throw Error('manifest unavailable'); if (key === 'portfolio.wechat.v1.pending-v1' && cleanupRead) { cleanupRead = false; throw Error('cleanup readback'); } if (key === 'portfolio.wechat.v1' && unreadable) throw Error('readback'); return values.get(key) ?? ''; },
+    setStorageSync: (key, value) => { if (fail || (failPrimaryBefore && key === 'portfolio.wechat.v1')) throw Error('quota'); values.set(key, value); if (failManifestOnWrite && key === 'portfolio.wechat.v1.pending-v1' && value) manifestFault = true; if (cleanupFault && key === 'portfolio.wechat.v1.pending-v1' && !value) cleanupRead = true; if (key === 'portfolio.wechat.v1' && failReadback) unreadable = true; },
     showToast: options => notices.push(options),
     showModal: options => { notices.push(options); if (options.success) options.success({ confirm: true }); },
     navigateBack: () => { navigated = true; }, navigateTo: () => {},
@@ -15,7 +16,7 @@ function boot(values = new Map()) {
   const context = vm.createContext({ module: { exports: {} }, wx, Intl: undefined, console, Function: function() { evalAttempts++; throw Error('dynamic code disabled'); } }, { codeGeneration: { strings: false, wasm: false } });
   vm.runInContext(readFileSync(new URL('lib/core.js', root), 'utf8'), context);
   const core = context.module.exports;
-  return { core, values, notices, context, evalAttempts: () => evalAttempts, failWrites: () => { fail = true; }, navigated: () => navigated,
+  return { manifestFault: () => { failManifestOnWrite = true; }, cleanupFault: () => { cleanupFault = true; }, failPrimaryBefore: () => { failPrimaryBefore = true; }, readbackFault: () => { failReadback = true; }, restoreReads: () => { failReadback = false; unreadable = false; failPrimaryBefore = false; manifestFault = false; failManifestOnWrite = false; }, core, values, notices, context, evalAttempts: () => evalAttempts, failWrites: () => { fail = true; }, navigated: () => navigated,
     page(name) {
       let page;
       context.require = path => { assert.equal(path, '../../lib/core'); return core; };
@@ -101,4 +102,72 @@ test('packaged clock anomaly pages label their saved-fact time and keep normal b
   assert.ok(env.core.service.exportBackup().includes(observed));
   const detail = env.page('position-detail'); detail.onLoad({ symbol: 'QQQ' });
   assert.equal(detail.data.detail.knownAt, observed); assert.equal(detail.data.detail.clockAnomaly, true);
+});
+
+for (const name of ['entry', 'opening']) test(`packaged ${name} keeps unknown submission across repreview, verification and restart`, () => {
+  const env = boot(), page = env.page(name); page.onLoad();
+  page.setData({ symbol: 'QQQ', quantity: '2', price: '10', fee: '1', totalCost: '21' }); page.preview(); env.readbackFault(); page.submit();
+  assert.equal(page.data.pendingSave, true); assert.equal(env.navigated(), false);
+  page.preview(); page.submit(); page.verifySave(); assert.equal(page.data.pendingSave, true);
+  env.restoreReads(); const reopened = boot(env.values), resumed = reopened.page(name); resumed.onLoad();
+  assert.equal(resumed.data.pendingSave, true); resumed.verifySave(); resumed.submit();
+  assert.equal(reopened.core.service.records().length, 1); assert.equal(reopened.core.service.overview().totalCost, '21.00');
+});
+
+for (const name of ['entry', 'opening']) test(`packaged ${name} offers explicit safe retry without changing the staged identity`, () => {
+  const env = boot(), page = env.page(name); page.onLoad();
+  page.setData({ symbol: 'QQQ', quantity: '2', price: '10', fee: '1', totalCost: '21' }); page.preview(); env.failPrimaryBefore(); page.submit();
+  assert.equal(page.data.quantity, '2'); assert.equal(page.data.pendingSave, true);
+  const staged = JSON.parse(env.values.get('portfolio.wechat.v1.pending-v1.next')).events[0].revision_id;
+  env.restoreReads(); page.verifySave(); assert.equal(page.data.retryable, true); assert.equal(env.core.service.records().length, 0);
+  page.retrySave(); page.submit(); page.retrySave();
+  assert.equal(env.core.service.records().length, 1); assert.equal(env.core.service.records()[0].revisionId, staged);
+});
+test('packaged settings verifies unknown replacement without replacing its original recovery point', () => {
+  const env = boot(); env.core.service.saveReview(env.core.today(), '恢复前合成复盘');
+  const before = env.values.get('portfolio.wechat.v1');
+  const settings = env.page('settings'); settings.onShow(); env.readbackFault(); settings.startEmpty();
+  assert.equal(settings.data.pendingSave, true); settings.startEmpty(); env.restoreReads(); settings.verifySave();
+  assert.equal(settings.data.pendingSave, false); assert.equal(env.core.service.snapshot().reviews.length, 0);
+  assert.equal(env.values.get('portfolio.wechat.v1.previous'), before);
+});
+test('packaged entry correction reconciles the exact revision after readback failure', () => {
+  const env = boot(), service = env.core.service;
+  service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: env.core.today(), quantity: '2', price: '10', fee: '1' });
+  const record = service.records()[0], page = env.page('entry'); page.onLoad({ recordId: record.id }); page.setData({ price: '12' }); page.preview(); env.readbackFault(); page.submit();
+  env.restoreReads(); page.verifySave(); page.submit();
+  assert.equal(service.records().length, 1); assert.equal(service.revisionHistory(record.id).length, 2); assert.equal(service.overview().totalCost, '25.00');
+});
+
+for (const name of ['entry', 'opening']) test(`packaged ${name} cannot repreview an operation verified from another page`, () => {
+  const env = boot(), page = env.page(name); page.onLoad();
+  page.setData({ symbol: 'QQQ', quantity: '2', price: '10', fee: '1', totalCost: '21' }); page.preview(); env.readbackFault(); page.submit();
+  env.restoreReads(); assert.equal(env.core.service.verifyPending(), 'confirmed');
+  page.onShow(); page.preview(); page.submit();
+  assert.equal(env.core.service.records().length, 1); assert.equal(env.core.service.overview().totalCost, '21.00');
+});
+
+for (const name of ['entry', 'opening']) test(`packaged ${name} retains successful-save lock after cleanup readback failure`, () => {
+  const env = boot(), page = env.page(name); page.onLoad();
+  page.setData({ symbol: 'QQQ', quantity: '2', price: '10', fee: '1', totalCost: '21' }); page.preview(); env.cleanupFault(); page.submit();
+  assert.equal(env.navigated(), true); assert.equal(page.data.saving, true);
+  page.onShow(); page.preview(); page.submit(); assert.equal(env.core.service.records().length, 1);
+});
+test('old entry cannot verify a different pending operation created after its own was resolved', () => {
+  const env = boot(), page = env.page('entry'); page.onLoad();
+  page.setData({ symbol: 'QQQ', quantity: '2', price: '10', fee: '1' }); page.preview(); env.readbackFault(); page.submit();
+  env.restoreReads(); env.core.service.verifyPending(); env.readbackFault();
+  assert.throws(() => env.core.service.saveTrade({ kind: 'buy', symbol: 'AAPL', assetType: 'STOCK', date: env.core.today(), quantity: '1', price: '12' })); env.restoreReads();
+  page.onShow(); page.verifySave(); page.preview(); page.submit();
+  assert.equal(env.core.service.pendingSave(), true); assert.equal(env.core.service.records().length, 2);
+});
+
+test('entry retains its own in-memory identity when manifest reads fail and another submission follows', () => {
+  const env = boot(), page = env.page('entry'); page.onLoad();
+  page.setData({ symbol: 'QQQ', quantity: '2', price: '10', fee: '1' }); page.preview(); env.manifestFault(); page.submit();
+  assert.ok(page._pendingIdentity); assert.equal(page.data.pendingSave, true);
+  env.restoreReads(); assert.equal(env.core.service.verifyPending(), 'retryable'); env.core.service.retryPending();
+  env.readbackFault(); assert.throws(() => env.core.service.saveTrade({ kind: 'buy', symbol: 'AAPL', assetType: 'STOCK', date: env.core.today(), quantity: '1', price: '12' })); env.restoreReads();
+  page.onShow(); page.verifySave(); page.retrySave();
+  assert.equal(page.data.saving, true); assert.equal(env.core.service.pendingSave(), true); assert.equal(env.core.service.records().length, 2);
 });

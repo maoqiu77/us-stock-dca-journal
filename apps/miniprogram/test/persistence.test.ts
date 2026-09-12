@@ -126,10 +126,10 @@ test('failed recovery-point verification prevents any primary replacement attemp
   assert.equal(JSON.parse(f.values.get(STORAGE_KEY)!).reviews[0].text, 'current');
 });
 
-test('primary readback failure reports an unverified outcome without claiming old bytes survived', () => {
+test('unreadable storage blocks write before any primary attempt', () => {
   const data = emptySnapshot(fixed());
   const storage: StoragePort = { get() { throw Error('read unavailable'); }, set() {} };
-  assert.throws(() => createRepository(storage, fixed()).write(data), /无法回读核验/);
+  assert.throws(() => createRepository(storage, fixed()).write(data), /无法读取/);
 });
 
 test('insufficient capacity blocks restore before recovery or primary writes', () => {

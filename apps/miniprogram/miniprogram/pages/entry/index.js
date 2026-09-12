@@ -5,8 +5,9 @@ function input(page) {
   return value;
 }
 Page({
-  data: { kind: 'buy', symbol: '', assetType: 'ETF', date: '', today: '', quantity: '', price: '', fee: '0', note: '', recordId: '', expectedRevision: '', position: 0, orderChoices: ['第 1 笔'], availableQuantity: '—', preview: null, saving: false },
+  data: { kind: 'buy', symbol: '', assetType: 'ETF', date: '', today: '', quantity: '', price: '', fee: '0', note: '', recordId: '', expectedRevision: '', position: 0, orderChoices: ['第 1 笔'], availableQuantity: '—', preview: null, saving: false, pendingSave: false, retryable: false },
   onLoad(options = {}) {
+    this.refreshPending();
     try {
       const rows = service.records(), data = { date: options.date || today(), today: today(), kind: options.kind || 'buy', symbol: options.symbol || '', assetType: options.assetType || 'ETF' };
       if (options.recordId) {
@@ -21,7 +22,31 @@ Page({
       this.setData(data); this.refreshContext();
     } catch (e) { showError(e); }
   },
-  invalidate(update) { this._previewToken = ''; this.setData({ ...update, preview: null }); },
+  onShow() { this.refreshPending(); },
+  refreshPending() {
+    if (this._closedSubmission || this._identityUnavailable) return;
+    try {
+      const identity = service.pendingIdentity?.() || '', pendingSave = !!identity || !!service.pendingSave?.();
+      if ((this._pendingIdentity && identity !== this._pendingIdentity && !(this._knownNoPending && !pendingSave)) || (this.data.pendingSave && !pendingSave && !this._knownNoPending)) {
+        this._closedSubmission = true; this._previewToken = '';
+        this.setData({ pendingSave: false, retryable: false, saving: true, preview: null });
+        showError(Error('这笔提交已在其他页面处理，请返回记录页核对。本页输入保留，但不能当作新交易再次保存。')); return;
+      }
+      if (identity) { this._pendingIdentity = identity; this._knownNoPending = false; }
+      this.setData({ pendingSave });
+    } catch (e) { this.setData({ pendingSave: true }); showError(e); }
+  },
+  verifySave() {
+    if (this._identityUnavailable) { showError(Error('无法确认本页提交身份，请到设置核验保存结果，再返回记录页检查。')); return; }
+    this.refreshPending(); if (this.data.saving) return;
+    try { const result = service.verifyPending(); this.setData({ retryable: result === 'retryable', pendingSave: result === 'retryable' });
+      if (result === 'confirmed') { this.setData({ saving: true }); wx.showToast({ title: '已核验保存成功', icon: 'success' }); wx.navigateBack({ fail: () => {} }); }
+      if (result === 'none') { this._previewToken = ''; this.setData({ preview: null, saving: false }); showError(Error('当前没有待核验提交。请先检查记录，确认没有保存后再重新预览。')); }
+    } catch (e) { this.setData({ pendingSave: true, retryable: false }); showError(e); }
+  },
+  retrySave() { if (this._identityUnavailable) { this.verifySave(); return; } this.refreshPending(); if (this.data.saving || !this.data.retryable) return; try { service.retryPending(); this.verifySaveAfterRetry(); } catch (e) { this.setData({ retryable: false }); showError(e); } },
+  verifySaveAfterRetry() { this.setData({ pendingSave: false, retryable: false, saving: true }); wx.showToast({ title: '已保存', icon: 'success' }); wx.navigateBack({ fail: () => {} }); },
+  invalidate(update) { if (this.data.pendingSave || this.data.saving) return; this._previewToken = ''; this.setData({ ...update, preview: null }); },
   onField(event) {
     const field = event.currentTarget.dataset.field; if (!['symbol', 'quantity', 'price', 'fee', 'note'].includes(field)) return;
     const update = { [field]: event.detail.value };
@@ -40,11 +65,12 @@ Page({
       this.setData({ orderChoices: Array.from({ length: max + 1 }, (_, index) => `第 ${index + 1} 笔`), position, availableQuantity });
     } catch (e) { showError(e); }
   },
-  preview() { try { const result = service.previewTrade(input(this)); this._previewToken = result.contentToken; const { contentToken, ...display } = result; this.setData({ preview: display }); } catch (e) { this._previewToken = ''; this.setData({ preview: null }); showError(e); } },
+  preview() { if (this.data.pendingSave || this.data.saving) return; try { const result = service.previewTrade(input(this)); this._previewToken = result.contentToken; const { contentToken, ...display } = result; this.setData({ preview: display }); } catch (e) { this._previewToken = ''; this.setData({ preview: null }); showError(e); } },
   submit() {
+    if (this.data.pendingSave || this.data.saving) return;
     if (!this.data.preview) { showError(Error('请先预览并核对金额、费用、现金流和回放后的持仓变化。')); return; }
     if (this.data.saving) return; this.setData({ saving: true });
     try { service.saveTrade({ ...input(this), contentToken: this._previewToken }); wx.showToast({ title: this.data.recordId ? '更正已保存' : '已保存', icon: 'success' }); wx.navigateBack({ fail: () => wx.showModal({ title: '记录已保存', content: '请点击左上角返回查看记录，无需重复保存。', showCancel: false }) }); }
-    catch (e) { this._previewToken = ''; this.setData({ saving: false, preview: null }); showError(e); }
+    catch (e) { if (['SAVE_UNKNOWN', 'SAVE_NOT_WRITTEN', 'SAVE_PENDING', 'SAVE_CONFLICT'].includes(e.code)) { this._pendingIdentity = e.submissionIdentity || ''; this._identityUnavailable = !this._pendingIdentity; try { this._knownNoPending = service.pendingIdentity?.() === ''; } catch (_) { this._knownNoPending = false; } this.setData({ saving: false, pendingSave: true, retryable: false }); } else { this._previewToken = ''; this.setData({ saving: false, preview: null }); } showError(e); }
   },
 });

@@ -1,7 +1,10 @@
 const { service, today, showError } = require('../../lib/core');
 Page({
-  data: { error: '', mode: '', trades: 0, reviews: 0, backupText: '', preview: null, importing: false, canExportRaw: false, clockAnomaly: null },
-  onShow() { try { const state = service.snapshot(), view = service.overview(); this.setData({ mode: state.mode, trades: service.records().filter(r => !r.voided && !r.isOpening).length, reviews: state.reviews.length, error: '', canExportRaw: false, clockAnomaly: view.clockAnomaly ? { asOf: view.knownAt, throughDate: view.throughDate, message: '设备时间早于已保存记录，请校准时间。' } : null }); } catch (e) { this.setData({ error: e.message, canExportRaw: true, clockAnomaly: null }); } },
+  data: { pendingSave: false, retryable: false, error: '', mode: '', trades: 0, reviews: 0, backupText: '', preview: null, importing: false, canExportRaw: false, clockAnomaly: null },
+  onShow() { this.refreshPending(); try { const state = service.snapshot(), view = service.overview(); this.setData({ mode: state.mode, trades: service.records().filter(r => !r.voided && !r.isOpening).length, reviews: state.reviews.length, error: '', canExportRaw: false, clockAnomaly: view.clockAnomaly ? { asOf: view.knownAt, throughDate: view.throughDate, message: '设备时间早于已保存记录，请校准时间。' } : null }); } catch (e) { this.setData({ error: e.message, canExportRaw: true, clockAnomaly: null }); } },
+  refreshPending() { try { this.setData({ pendingSave: !!service.pendingSave?.() }); } catch (e) { this.setData({ pendingSave: true }); showError(e); } },
+  verifySave() { try { const result = service.verifyPending(); this.setData({ pendingSave: result === 'retryable', retryable: result === 'retryable' }); if (result === 'confirmed') { this.setData({ backupText: '', preview: null }); wx.showToast({ title: '已核验保存成功' }); this.onShow(); } if (result === 'none') showError(Error('当前没有待核验提交，请先检查记录后再操作。')); } catch (e) { this.setData({ pendingSave: true, retryable: false }); showError(e); } },
+  retrySave() { if (!this.data.retryable) return; try { service.retryPending(); this.setData({ pendingSave: false, retryable: false, backupText: '', preview: null }); this.onShow(); wx.showToast({ title: '已保存' }); } catch (e) { this.setData({ retryable: false }); showError(e); } },
   copyRaw() {
     wx.showModal({ title: '导出原始故障数据', content: '原始数据可能损坏，不保证是有效备份，也不会自动修复或覆盖当前账本。请仅交给可信的人排查。', confirmText: '继续导出', success: result => {
       if (!result.confirm) return; try { wx.setClipboardData({ data: service.exportRaw(), fail: showError }); } catch (e) { showError(e); }
@@ -45,17 +48,17 @@ Page({
       if (!result.confirm || this.data.importing) return;
       this.setData({ importing: true });
       try { service.restoreBackup(text); this.setData({ backupText: '', preview: null }); this.onShow(); wx.showToast({ title: '恢复成功' }); }
-      catch (e) { showError(e); } finally { this.setData({ importing: false }); }
+      catch (e) { this.refreshPending(); showError(e); } finally { this.setData({ importing: false }); }
     } });
   },
   recoverPrevious() {
     wx.showModal({ title: '返回上一个恢复点？', content: '当前账本将被恢复点覆盖，恢复点本身保留。若需保留当前内容，请先导出备份。', success: r => {
-      if (r.confirm) { try { service.recoverPrevious(); this.onShow(); } catch (e) { showError(e); } }
+      if (r.confirm) { try { service.recoverPrevious(); this.onShow(); } catch (e) { this.refreshPending(); showError(e); } }
     } });
   },
   startEmpty() {
     wx.showModal({ title: '开始新的空账本？', content: '建议先导出备份。当前账本将保留为一个恢复点；新账本不会包含示例或历史交易。', confirmText: '新建账本', success: r => {
-      if (r.confirm) { try { service.startEmpty(); this.onShow(); } catch (e) { showError(e); } }
+      if (r.confirm) { try { service.startEmpty(); this.onShow(); } catch (e) { this.refreshPending(); showError(e); } }
     } });
   },
 });

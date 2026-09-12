@@ -14,7 +14,7 @@
       <view class="muted">持仓总成本 · USD</view><view class="big">${{view.totalCost}}</view>
       <view class="stats"><view class="stat"><view class="muted">已实现盈亏</view><view class="number">${{view.realized}}</view></view><view class="stat"><view class="muted">持有标的</view><view class="number">{{view.positions.length}} 个</view></view></view>
     </view>
-    <view class="muted">按已录入记录计算 · 历史可能不完整<br/>未接入行情，成本不代表当前市值；现金尚未核对。</view>
+    <view class="muted">按已录入记录计算 · 历史可能不完整<view/>未接入行情，成本不代表当前市值；现金尚未核对。</view>
     <view class="row section"><text>我的持仓</text><button class="small primary" bindtap="addTrade">＋ 记一笔</button></view><view wx:if="{{!firstUse.isEmpty}}" class="actions"><button class="secondary" bindtap="startWithOpening">录入其他期初持仓</button></view>
     <view wx:if="{{firstUse.isEmpty}}" class="card empty">
       <view class="symbol">你想从哪里开始？</view><view class="muted">可以从第一笔交易开始，也可以先录入已有持仓的期初数量与确认总成本。</view>

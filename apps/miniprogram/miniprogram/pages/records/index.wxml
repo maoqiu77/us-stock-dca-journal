@@ -4,7 +4,7 @@
   <view wx:if="{{mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view class="muted">历史可能不完整 · 现金余额未知 · 期初持仓不计入买卖笔数</view>
-  <view wx:if="{{!records.length &amp;&amp; !error}}" class="card empty"><view class="symbol">还没有记录</view><view class="muted">可以添加交易，或从持仓页录入期初持仓。</view></view>
+  <view wx:if="{{!records.length && !error}}" class="card empty"><view class="symbol">还没有记录</view><view class="muted">可以添加交易，或从持仓页录入期初持仓。</view></view>
   <view wx:for="{{records}}" wx:key="id" class="card {{item.voided ? 'voided' : ''}}">
     <view class="row"><view data-symbol="{{item.symbol}}" bindtap="showPosition"><text class="symbol">{{item.symbol}}</text> <text class="badge">{{item.voided ? '已作废' : item.label}}</text></view><text class="muted">{{item.date}} · 顺序 {{item.sequence + 1}}</text></view>
     <view class="divider"/><view class="row"><text wx:if="{{item.isOpening}}">{{item.quantity}} 股 · 期初</text><text wx:else>{{item.quantity}} 股 × ${{item.price}}</text><text class="number">${{item.amount}}</text></view>

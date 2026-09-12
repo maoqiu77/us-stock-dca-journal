@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { STORAGE_KEY } from '../src/repository.ts';
 import { createService } from '../src/service.ts';
 
 function fixture() {
@@ -48,7 +49,7 @@ test('storage failure never returns a saved trade or replaces last persisted sta
 });
 test('corrupted persisted data fails closed without silently overwriting it', () => {
   const f = fixture(); f.service.saveTrade(buy);
-  const key = [...f.values.keys()][0]; f.values.set(key, '{bad');
+  const key = STORAGE_KEY; f.values.set(key, '{bad');
   const reopened = createService(f.storage, f.runtime);
   assert.throws(() => reopened.overview(), /损坏/); assert.throws(() => reopened.saveTrade(buy));
   assert.equal(f.values.get(key), '{bad');
@@ -95,9 +96,9 @@ test('a nearly full snapshot is rejected if its backup envelope would exceed the
 });
 test('failed restore leaves the current ledger intact even after creating a recovery point', () => {
   const f = fixture(); f.service.saveTrade(buy); const backup = f.service.exportBackup(); f.service.saveReview('2026-09-10', '恢复前');
-  const previous = f.service.exportBackup(); let writes = 0;
-  const storage = { get: f.storage.get, set(key: string, value: string) { if (++writes === 2) throw Error('full'); f.storage.set(key, value); } };
-  assert.throws(() => createService(storage, f.runtime).restoreBackup(backup), /恢复/);
+  const previous = f.service.exportBackup();
+  const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('full'); f.storage.set(key, value); } };
+  assert.throws(() => createService(storage, f.runtime).restoreBackup(backup), { code: 'SAVE_NOT_WRITTEN' });
   assert.equal(f.service.exportBackup(), previous);
 });
 test('recovery failure preserves a valid recovery point when current bytes are corrupted', async () => {
@@ -107,7 +108,7 @@ test('recovery failure preserves a valid recovery point when current bytes are c
   const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('quota'); f.storage.set(key, value); } };
   assert.throws(() => createService(storage, f.runtime).recoverPrevious());
   assert.equal(f.values.get(`${STORAGE_KEY}.previous`), previous);
-  f.service.recoverPrevious(); assert.equal(f.service.snapshot().reviews[0].text, '唯一恢复笔记');
+  assert.equal(f.service.verifyPending(), 'retryable'); f.service.retryPending(); assert.equal(f.service.snapshot().reviews[0].text, '唯一恢复笔记');
 });
 test('import refuses dangling instrument references even on voided historical revisions', () => {
   const f = fixture(); f.service.saveTrade(buy); f.service.voidTrade(f.service.records()[0].id);

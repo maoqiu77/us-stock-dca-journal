@@ -171,17 +171,18 @@ export function createService(storage: StoragePort, runtime: Runtime) {
   function records() { const data = repo.read(); return active(data).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence).map(item => row(data, item)); }
 
   return {
+    pendingSave: repo.pendingSave, pendingIdentity: repo.pendingIdentity, verifyPending: repo.verifyPending, retryPending: repo.retryPending,
     snapshot: repo.read, generation: repo.generation, records, availableQuantity,
     firstUse() { const data = repo.read(), events = active(data).filter(item => !item.voided); const hasOpeningPositions = events.some(item => item.kind === 'opening_position'); return { isEmpty: events.length === 0, openingDate: hasOpeningPositions ? data.portfolio.opening_date : null, hasOpeningPositions }; },
     previewTrade(input: TradeInput) {
-      const data = repo.read(), built = buildTrade(data, input);
+      repo.assertWritable(); const data = repo.read(), built = buildTrade(data, input);
       const available = availableQuantity({ symbol: built.instrument.symbol, date: input.date, position: built.order.position, excludeRecordId: input.recordId });
       const net = input.kind === 'buy' ? decimal(built.amount).plus(built.fee).negated() : decimal(built.amount).minus(built.fee);
       return preview(data, built.candidate, built.instrument.id, built.order, built.amount, built.fee, net.toString(), available);
     },
-    saveTrade(input: TradeInput) { const data = repo.read(); repo.write(buildTrade(data, input).candidate); },
-    previewOpening(input: OpeningInput) { const data = repo.read(), built = buildOpening(data, input); return preview(data, built.candidate, built.instrument.id, built.order, built.totalCost, '0', decimal(built.totalCost).negated().toString(), '0'); },
-    saveOpening(input: OpeningInput) { const data = repo.read(); repo.write(buildOpening(data, input).candidate); },
+    saveTrade(input: TradeInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildTrade(data, input).candidate); },
+    previewOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(), built = buildOpening(data, input); return preview(data, built.candidate, built.instrument.id, built.order, built.totalCost, '0', decimal(built.totalCost).negated().toString(), '0'); },
+    saveOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildOpening(data, input).candidate); },
     overview(cutoff?: { throughDate: string; knownAt: string }) {
       const data = repo.read(), projected = cutoff ? projection(data, runtime, { through_date: cutoff.throughDate, known_at: cutoff.knownAt }) : projection(data, runtime), state = clockState(data, runtime);
       const positions = projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => { const instrument = data.instruments.find(candidate => candidate.id === item.instrument_id)!; return { id: item.instrument_id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: item.quantity, cost: money(item.remaining_cost), unitCost: item.unit_cost ? calculated(item.unit_cost).toFixed(4) : '—', realized: money(item.realized_pnl) }; });
@@ -213,8 +214,8 @@ export function createService(storage: StoragePort, runtime: Runtime) {
     previewBackup(text: string) { const data = repo.parseBackup(text); return { openings: active(data).filter(item => !item.voided && item.kind === 'opening_position').length, trades: active(data).filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, reviews: data.reviews.length, mode: data.mode }; },
     restoreBackup(text: string) { repo.replace(repo.parseBackup(text)); }, recoverPrevious: repo.recoverPrevious,
     loadDemo() {
-      const data = repo.read(); if (data.events.length || data.reviews.length || data.mode === 'demo') fail('NOT_EMPTY', '只有空账本可以载入示例。'); let raw = '';
-      const sampleStore = { get: () => raw, set: (_key: string, value: string) => { raw = value; } }; raw = JSON.stringify({ ...emptySnapshot(runtime), mode: 'demo' as const }); const sample = createService(sampleStore, runtime);
+      const data = repo.read(); if (data.events.length || data.reviews.length || data.mode === 'demo') fail('NOT_EMPTY', '只有空账本可以载入示例。');
+      const samples = new Map<string, string>(); const sampleStore = { get: (key: string) => samples.get(key) ?? '', set: (key: string, value: string) => { samples.set(key, value); } }; samples.set('portfolio.wechat.v1', JSON.stringify({ ...emptySnapshot(runtime), mode: 'demo' as const })); const sample = createService(sampleStore, runtime);
       sample.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: runtime.today(), quantity: '2', price: '100', fee: '1', note: '合成示例，不是真实行情或交易' }); sample.saveTrade({ kind: 'sell', symbol: 'QQQ', date: runtime.today(), quantity: '0.5', price: '110', fee: '0.2', note: '合成示例：练习部分卖出' }); sample.saveReview(runtime.today(), '这是一条示例复盘：记录买入理由、执行情况和下一次改进。'); repo.replace({ ...sample.snapshot(), mode: 'demo' });
     },
     startEmpty() { repo.replace(emptySnapshot(runtime)); },
