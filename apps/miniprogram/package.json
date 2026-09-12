@@ -1,6 +1,6 @@
 {
   "name": "@portfolio/miniprogram",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
     "@formatjs/intl-numberformat": "8.15.6",
     "@formatjs/intl-pluralrules": "5.4.6",
     "@portfolio/domain": "0.0.0",
+    "@portfolio/ai-context": "0.0.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

@@ -31,5 +31,5 @@ for (const tab of app.tabBar.list) if (!app.pages.includes(tab.pagePath)) throw 
 async function size(path) { let bytes = 0; for (const item of await readdir(path, { withFileTypes: true })) bytes += item.isDirectory() ? await size(join(path, item.name)) : (await stat(join(path, item.name))).size; return bytes; }
 const bytes = await size(join(out, 'miniprogram'));
 if (bytes > 2 * 1024 * 1024) throw Error(`main_package_over_2MiB: ${bytes}`);
-await writeFile(join(out, 'README.txt'), '交易日记 · 微信小程序离线测试版\n\n在微信开发者工具中导入此文件所在目录（包含 project.config.json）。\nAppID 选择测试号/游客模式，不使用云服务。无需构建 npm。\n无 AppID 仅用于开发者工具调试，不代表已支持手机扫码预览。\n先点击持仓页“体验示例”测试；示例为虚构数据。\n测试结束在设置页开始新的空账本。\n完整说明见源码 docs/miniprogram/README.md。\n');
+await writeFile(join(out, 'README.txt'), '交易日记 · 微信小程序 A0/A1 离线测试版\n\n在微信开发者工具中导入此文件所在目录（包含 project.config.json）。\nAppID 选择测试号/游客模式，不使用云服务。无需构建 npm。\nAI 投研仅使用明确标记的本地 fake Provider：不连接真实模型、行情或券商，不上传数据，不执行交易。\n无 AppID 仅用于开发者工具调试，不代表已支持手机扫码预览。\n先点击持仓页“体验示例”测试；示例为虚构数据。\n完整说明见源码 docs/miniprogram/README.md。\n');
 console.log(`WeChat project built: ${out}\nMain package: ${(bytes / 1024).toFixed(1)} KiB; ${app.pages.length} pages; no external runtime imports.`);

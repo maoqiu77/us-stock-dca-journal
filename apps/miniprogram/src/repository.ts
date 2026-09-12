@@ -165,8 +165,14 @@ export function createRepository(storage: StoragePort, runtime: Runtime) {
   function decodeTrusted(raw: string) { assertSize(raw); return decodeSnapshot(raw, runtime).data; }
   return {
     read, write, parseBackup, replace, assertWritable, pendingSave: () => !!pending(), pendingIdentity: () => pending()?.next ?? '', verifyPending, retryPending, generation: () => currentGeneration,
+    ensurePersisted() { const data = read(); if (!rawPrimary()) write(data); return data; },
     readState() { const data = read(); return { data, ...clockState(data, runtime) }; },
     exportRaw() { return rawPrimary(); },
+    readPrevious() {
+      let raw: string; try { raw = storage.get(RECOVERY_KEY); } catch { throw Error('无法读取恢复点。'); }
+      if (!raw) throw Error('还没有可用的恢复点。');
+      try { return decodeTrusted(raw); } catch { throw Error('恢复点损坏或不兼容，请选择其他备份。'); }
+    },
     recoverPrevious() {
       let raw: string; try { raw = storage.get(RECOVERY_KEY); } catch { throw Error('无法读取恢复点。'); }
       if (!raw) throw Error('还没有可用的恢复点。');

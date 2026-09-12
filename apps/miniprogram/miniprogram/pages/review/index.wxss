@@ -1,1 +1,4 @@
 /* Shared visual tokens are defined in app.wxss. */
+.filter-row { display: flex; gap: 10rpx; margin: 28rpx 0; }
+.filter-row button { flex: 1; padding: 0 12rpx; }
+.timeline-card { border-left: 7rpx solid #dce6dc; }

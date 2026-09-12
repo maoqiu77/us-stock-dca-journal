@@ -5,18 +5,18 @@ import { test } from 'node:test';
 const root = new URL('../dist/miniprogram/', import.meta.url);
 function boot(values = new Map()) {
   let failReadback = false, unreadable = false, failPrimaryBefore = false, cleanupFault = false, cleanupRead = false, manifestFault = false, failManifestOnWrite = false;
-  const notices = []; let navigated = false; let fail = false; let evalAttempts = 0;
+  const notices = []; const routes = []; let navigated = false; let fail = false; let evalAttempts = 0;
   const wx = {
     getStorageSync: key => { if (key === 'portfolio.wechat.v1.pending-v1' && manifestFault) throw Error('manifest unavailable'); if (key === 'portfolio.wechat.v1.pending-v1' && cleanupRead) { cleanupRead = false; throw Error('cleanup readback'); } if (key === 'portfolio.wechat.v1' && unreadable) throw Error('readback'); return values.get(key) ?? ''; },
     setStorageSync: (key, value) => { if (fail || (failPrimaryBefore && key === 'portfolio.wechat.v1')) throw Error('quota'); values.set(key, value); if (failManifestOnWrite && key === 'portfolio.wechat.v1.pending-v1' && value) manifestFault = true; if (cleanupFault && key === 'portfolio.wechat.v1.pending-v1' && !value) cleanupRead = true; if (key === 'portfolio.wechat.v1' && failReadback) unreadable = true; },
     showToast: options => notices.push(options),
     showModal: options => { notices.push(options); if (options.success) options.success({ confirm: true }); },
-    navigateBack: () => { navigated = true; }, navigateTo: () => {},
+    navigateBack: () => { navigated = true; }, navigateTo: options => { routes.push(options.url); },
   };
   const context = vm.createContext({ module: { exports: {} }, wx, Intl: undefined, console, Function: function() { evalAttempts++; throw Error('dynamic code disabled'); } }, { codeGeneration: { strings: false, wasm: false } });
   vm.runInContext(readFileSync(new URL('lib/core.js', root), 'utf8'), context);
   const core = context.module.exports;
-  return { manifestFault: () => { failManifestOnWrite = true; }, cleanupFault: () => { cleanupFault = true; }, failPrimaryBefore: () => { failPrimaryBefore = true; }, readbackFault: () => { failReadback = true; }, restoreReads: () => { failReadback = false; unreadable = false; failPrimaryBefore = false; manifestFault = false; failManifestOnWrite = false; }, core, values, notices, context, evalAttempts: () => evalAttempts, failWrites: () => { fail = true; }, navigated: () => navigated,
+  return { manifestFault: () => { failManifestOnWrite = true; }, cleanupFault: () => { cleanupFault = true; }, failPrimaryBefore: () => { failPrimaryBefore = true; }, readbackFault: () => { failReadback = true; }, restoreReads: () => { failReadback = false; unreadable = false; failPrimaryBefore = false; manifestFault = false; failManifestOnWrite = false; }, core, values, notices, routes, context, evalAttempts: () => evalAttempts, failWrites: () => { fail = true; }, navigated: () => navigated,
     page(name) {
       let page;
       context.require = path => { assert.equal(path, '../../lib/core'); return core; };
@@ -43,11 +43,24 @@ test('entry controller saves user form and failed persistence keeps user on the 
   page.setData({ symbol: 'QQQ', quantity: '2', price: '10' }); page.preview(); page.submit();
   assert.equal(good.navigated(), true); assert.equal(good.core.service.records().length, 1);
 });
-test('all four tab controllers initialize from an empty store and review edits persist', () => {
+test('all five tab controllers initialize and review creates an independent timeline note', () => {
   const env = boot();
-  for (const name of ['overview', 'records', 'settings']) { const page = env.page(name); page.onShow(); assert.equal(page.data.error, ''); }
+  for (const name of ['overview', 'records', 'research', 'settings']) { const page = env.page(name); page.onShow(); assert.equal(page.data.error, ''); }
   const review = env.page('review'); review.onShow(); review.onText({ detail: { value: '今日坚持计划' } }); review.save();
-  assert.equal(boot(env.values).core.service.snapshot().reviews[0].text, '今日坚持计划');
+  const reopened = boot(env.values).core.service;
+  assert.equal(reopened.journal().timeline(env.core.today())[0].body, '今日坚持计划');
+  assert.equal(reopened.snapshot().reviews.length, 0);
+});
+
+test('packaged fake research archives and conversation follows up in the same engine', () => {
+  const env = boot(); env.core.service.loadDemo();
+  const research = env.page('research'); research.onLoad(); research.onShow(); research.setData({ question: '分析我的持仓' }); research.preview(); research.runDemo();
+  assert.match(research.data.result.summary, /离线合成演示/);
+  assert.ok(env.routes.at(-1).startsWith('/pages/conversation/index?id='));
+  const id = research.data.conversationId, conversation = env.page('conversation'); conversation.onLoad({ id });
+  conversation.onQuestion({ detail: { value: '还缺什么？' } }); conversation.send();
+  assert.equal(env.core.service.ai().conversation(id).messages.length, 4);
+  assert.equal(env.core.service.snapshot().events.length, 2);
 });
 
 test('packaged validation never attempts dynamically generated code in the restricted host', () => {
@@ -70,7 +83,7 @@ test('restoring even the same portfolio invalidates dirty review drafts', () => 
   const env = boot(); env.core.service.saveReview(env.core.today(), '备份中的笔记');
   const backup = env.core.service.exportBackup(); const review = env.page('review'); review.onShow();
   review.onText({ detail: { value: '旧草稿' } }); env.core.service.restoreBackup(backup); review.onShow();
-  assert.equal(review.data.text, '备份中的笔记'); assert.equal(review.data.dirty, false);
+  assert.equal(review.data.text, ''); assert.equal(review.data.timeline.find(item => item.kind === 'personal_note').body, '备份中的笔记'); assert.equal(review.data.dirty, false);
 });
 
 test('packaged opening and trade pages complete the hand-calculated flow with exact input precision', () => {

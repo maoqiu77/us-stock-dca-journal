@@ -1,11 +1,13 @@
 <view class="container">
-  <view class="eyebrow">REFLECTIONS</view><view class="title">把经验，留给明天。</view><view class="subtitle">写下判断，回看执行，慢慢形成自己的方法。</view>
+  <view class="eyebrow">DAILY JOURNAL</view><view class="title">每日投资记录</view><view class="subtitle">交易、你的原文和离线合成 AI 分析分开保存，按时间线回看。</view>
   <view wx:if="{{mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view><view wx:if="{{error}}" class="error">{{error}}</view>
-  <view class="card"><view class="field"><view class="label">复盘日期</view><picker mode="date" value="{{date}}" start="1970-01-01" end="{{today}}" bindchange="onDate"><view class="picker">{{date}}　⌄</view></picker></view>
-    <textarea value="{{text}}" maxlength="4000" bindinput="onText" placeholder="今天做对了什么？\n有哪些判断需要验证？\n下一次准备如何改进？"/>
-    <view class="muted counter">{{text.length}} / 4000</view><view class="actions"><button class="primary" disabled="{{!!error}}" bindtap="save">保存复盘</button></view>
-  </view>
-  <view class="muted">内容仅保存在本地。AI 解读将在后续联网阶段接入。</view>
-  <view class="section">历史复盘</view><view wx:if="{{!reviews.length}}" class="card empty muted">还没有复盘，写下今天的第一条想法吧。</view>
-  <view wx:for="{{reviews}}" wx:key="date" class="card"><view class="row"><text>{{item.date}}</text><button class="link" data-date="{{item.date}}" bindtap="edit">编辑</button></view><view class="note">{{item.text}}</view></view>
+  <view class="card"><view class="field"><view class="label">日记日期</view><picker mode="date" value="{{date}}" start="1970-01-01" end="{{today}}" bindchange="onDate"><view class="picker">{{date}}　⌄</view></picker></view><view class="actions"><button class="secondary" bindtap="newNote">写一条记录</button><button class="primary" bindtap="askAi">和 AI 复盘</button></view></view>
+  <view class="card"><view class="label">{{editingId ? '修订我的记录' : '新增我的记录'}}</view><textarea value="{{text}}" maxlength="4000" bindinput="onText" placeholder="写下判断、理由或最后的决定…"/><view class="muted counter">{{text.length}} / 4000</view><view class="actions"><button class="primary" disabled="{{!!error}}" bindtap="save">{{editingId ? '保存修订' : '添加到时间线'}}</button></view></view>
+  <view class="filter-row"><button class="small {{filter === 'all' ? 'primary' : 'secondary'}}" data-filter="all" bindtap="setFilter">全部</button><button class="small {{filter === 'mine' ? 'primary' : 'secondary'}}" data-filter="mine" bindtap="setFilter">我的</button><button class="small {{filter === 'ai' ? 'primary' : 'secondary'}}" data-filter="ai" bindtap="setFilter">AI</button><button class="small {{filter === 'trade' ? 'primary' : 'secondary'}}" data-filter="trade" bindtap="setFilter">交易</button></view>
+  <view wx:if="{{!visible.length}}" class="card empty muted">这一天还没有记录。</view>
+  <block wx:for="{{visible}}" wx:key="id"><view class="card timeline-card"><view class="row"><text class="badge">{{item.kind === 'analysis' ? '离线合成 AI' : item.kind === 'trade' ? '交易引用' : '我的原文'}}</text><text class="muted">{{item.time}}</text></view>
+    <block wx:if="{{item.kind === 'analysis'}}"><view class="demo">非真实模型 · 非投资建议</view><view class="note">{{item.summary}}</view><button class="link" data-id="{{item.conversationId}}" bindtap="continueConversation">继续追问</button></block>
+    <block wx:elif="{{item.kind === 'trade'}}"><view class="symbol">{{item.symbol}} · {{item.label}} {{item.quantity}} 股</view><view wx:if="{{item.note}}" class="note">{{item.note}}</view><button class="link" data-id="{{item.id}}" bindtap="openTrade">查看记录</button></block>
+    <block wx:else><view class="note">{{item.body}}</view><button class="link" data-id="{{item.id}}" bindtap="edit">修订（保留版本）</button></block>
+  </view></block>
 </view>

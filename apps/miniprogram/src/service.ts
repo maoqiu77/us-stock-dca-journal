@@ -1,6 +1,9 @@
 import { decimal, decimalText, dateSchema, ledgerEventSchema, projectLedger, type LedgerEvent } from '@portfolio/domain';
 import { createRepository, type StoragePort } from './repository.ts';
 import { activeEvents, clockState, emptySnapshot, projection, validateSnapshot, type Runtime, type Snapshot } from './model.ts';
+import { createWorkspaceRepository } from './workspace/repository.ts';
+import { backupPreview, encodeFullBackup, parseCompleteBackup } from './workspace/backup.ts';
+import { createAiEngine } from './ai/engine.ts';
 
 export class ServiceError extends Error {
   readonly code: string;
@@ -37,6 +40,8 @@ const ledgerMessages: Record<string, string> = {
 
 export function createService(storage: StoragePort, runtime: Runtime) {
   const repo = createRepository(storage, runtime);
+  const workspace = createWorkspaceRepository(storage, runtime, { readFinancial: repo.ensurePersisted, ledgerPending: repo.pendingSave });
+  let aiEngine: ReturnType<typeof createAiEngine> | undefined;
   // Exact content plus replacement generation: never rely on a short hash for stale edits.
   function snapshotToken(data: Snapshot) { return `${repo.generation()}:${JSON.stringify(data)}`; }
   function fail(code: string, message: string): never { throw new ServiceError(code, message); }
@@ -170,9 +175,36 @@ export function createService(storage: StoragePort, runtime: Runtime) {
   }
   function records() { const data = repo.read(); return active(data).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence).map(item => row(data, item)); }
 
-  return {
+  function overview(cutoff?: { throughDate: string; knownAt: string }) {
+    const data = repo.read(), projected = cutoff ? projection(data, runtime, { through_date: cutoff.throughDate, known_at: cutoff.knownAt }) : projection(data, runtime), state = clockState(data, runtime);
+    const positions = projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => { const instrument = data.instruments.find(candidate => candidate.id === item.instrument_id)!; return { id: item.instrument_id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: item.quantity, cost: money(item.remaining_cost), unitCost: item.unit_cost ? calculated(item.unit_cost).toFixed(4) : '—', realized: money(item.realized_pnl) }; });
+    return { mode: data.mode, positions, totalCost: money(projected.positions.reduce((sum, item) => sum.plus(item.remaining_cost), decimal('0')).toString()), realized: money(projected.realized_pnl), cash: projected.cash,
+      marketValue: null, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
+      clockAnomaly: state.clock_anomaly, throughDate: projected.through_date, knownAt: projected.known_at };
+  }
+  function positionDetail(idOrSymbol: string) {
+    const data = repo.read(), instrument = data.instruments.find(item => item.id === idOrSymbol || item.symbol === idOrSymbol.trim().toUpperCase()); if (!instrument) return fail('NOT_FOUND', '标的不存在。');
+    const projected = replay(data).positions.find(item => item.instrument_id === instrument.id), related = active(data).filter(item => 'instrument_id' in item && item.instrument_id === instrument.id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position' && !item.voided);
+    const time = clockState(data, runtime);
+    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id: instrument.id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: projected?.quantity ?? '0', cost: money(projected?.remaining_cost ?? '0'), unitCost: projected?.unit_cost ? calculated(projected.unit_cost).toFixed(4) : '—', realized: money(projected?.realized_pnl ?? '0'), opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean) };
+  }
+  function journalTimeline(date: string) {
+    const state = workspace.read(), runs = new Map(state.runs.map(item => [item.id, item]));
+    const journal = workspace.timeline(date).map(item => {
+      if (item.type === 'analysis_ref') { const run = runs.get(item.ref_id!)!; return { kind: 'analysis' as const, id: item.id, revisionId: item.revision_id, runId: run.id, conversationId: run.conversation_id, summary: run.result.summary, stance: String(run.result.stance ?? 'insufficient_data'), demo: run.demo, label: '离线合成 AI 分析', time: item.updated_at }; }
+      return { kind: item.type === 'user_decision' ? 'user_decision' as const : 'personal_note' as const, id: item.id, revisionId: item.revision_id, body: item.body ?? '', label: item.type === 'user_decision' ? '我的决定' : '我的记录', time: item.updated_at };
+    });
+    const trades = records().filter(item => item.date === date).map(item => ({ kind: 'trade' as const, id: item.id, revisionId: item.revisionId, symbol: item.symbol, label: item.label, quantity: item.quantity, note: item.note, time: item.recordedAt }));
+    return [...journal, ...trades].sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
+  }
+
+  const service = {
     pendingSave: repo.pendingSave, pendingIdentity: repo.pendingIdentity, verifyPending: repo.verifyPending, retryPending: repo.retryPending,
     snapshot: repo.read, generation: repo.generation, records, availableQuantity,
+    journal: () => workspace,
+    workspacePending: workspace.pendingSave, verifyWorkspacePending: workspace.verifyPending, retryWorkspacePending: workspace.retryPending,
+    journalTimeline,
+    ai: () => aiEngine ??= createAiEngine(workspace, { snapshot: repo.read, overview, records, positionDetail }, runtime),
     firstUse() { const data = repo.read(), events = active(data).filter(item => !item.voided); const hasOpeningPositions = events.some(item => item.kind === 'opening_position'); return { isEmpty: events.length === 0, openingDate: hasOpeningPositions ? data.portfolio.opening_date : null, hasOpeningPositions }; },
     previewTrade(input: TradeInput) {
       repo.assertWritable(); const data = repo.read(), built = buildTrade(data, input);
@@ -183,13 +215,7 @@ export function createService(storage: StoragePort, runtime: Runtime) {
     saveTrade(input: TradeInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildTrade(data, input).candidate); },
     previewOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(), built = buildOpening(data, input); return preview(data, built.candidate, built.instrument.id, built.order, built.totalCost, '0', decimal(built.totalCost).negated().toString(), '0'); },
     saveOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildOpening(data, input).candidate); },
-    overview(cutoff?: { throughDate: string; knownAt: string }) {
-      const data = repo.read(), projected = cutoff ? projection(data, runtime, { through_date: cutoff.throughDate, known_at: cutoff.knownAt }) : projection(data, runtime), state = clockState(data, runtime);
-      const positions = projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => { const instrument = data.instruments.find(candidate => candidate.id === item.instrument_id)!; return { id: item.instrument_id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: item.quantity, cost: money(item.remaining_cost), unitCost: item.unit_cost ? calculated(item.unit_cost).toFixed(4) : '—', realized: money(item.realized_pnl) }; });
-      return { mode: data.mode, positions, totalCost: money(projected.positions.reduce((sum, item) => sum.plus(item.remaining_cost), decimal('0')).toString()), realized: money(projected.realized_pnl), cash: projected.cash,
-        marketValue: null, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
-        clockAnomaly: state.clock_anomaly, throughDate: projected.through_date, knownAt: projected.known_at };
-    },
+    overview,
     revisionHistory(id: string) {
       const data = repo.read(), latest = head(data, id);
       if (!latest) return fail('NOT_FOUND', '记录不存在。');
@@ -199,12 +225,7 @@ export function createService(storage: StoragePort, runtime: Runtime) {
       while (current) { chain.push(current); current = current.parent_revision ? revisions.get(current.parent_revision) : undefined; }
       return chain.reverse().map(item => ({ ...row(data, item), current: item.revision_id === latest.revision_id }));
     },
-    positionDetail(idOrSymbol: string) {
-      const data = repo.read(), instrument = data.instruments.find(item => item.id === idOrSymbol || item.symbol === idOrSymbol.trim().toUpperCase()); if (!instrument) return fail('NOT_FOUND', '标的不存在。');
-      const projected = replay(data).positions.find(item => item.instrument_id === instrument.id), related = active(data).filter(item => 'instrument_id' in item && item.instrument_id === instrument.id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position' && !item.voided);
-      const time = clockState(data, runtime);
-      return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id: instrument.id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: projected?.quantity ?? '0', cost: money(projected?.remaining_cost ?? '0'), unitCost: projected?.unit_cost ? calculated(projected.unit_cost).toFixed(4) : '—', realized: money(projected?.realized_pnl ?? '0'), opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean) };
-    },
+    positionDetail,
     voidTrade(id: string, expectedRevision?: string) {
       const data = repo.read(); checkDate(data, runtime.today()); const event = head(data, id); if (!event || event.voided) fail('NOT_FOUND', '记录不存在或已经作废。'); if (expectedRevision && expectedRevision !== event.revision_id) fail('STALE_REVISION', '该记录已被更正，请刷新后重试。');
       const revised = parseEvent({ ...event, revision_id: uniqueId(data), parent_revision: event.revision_id, recorded_at: runtime.now(), provenance: { ...event.provenance, confirmed_at: runtime.now() }, voided: true }); repo.write(validateCandidate({ ...data, events: [...data.events, revised] }));
@@ -212,12 +233,17 @@ export function createService(storage: StoragePort, runtime: Runtime) {
     saveReview(date: string, text: string) { const data = repo.read(); checkDate(data, date); const trimmed = text.trim(); if (!trimmed || trimmed.length > 4000) fail('INVALID_INPUT', '请填写 1–4000 字的复盘内容。'); repo.write({ ...data, reviews: [...data.reviews.filter(item => item.date !== date), { date, text: trimmed, updated_at: runtime.now() }].sort((a, b) => b.date.localeCompare(a.date)) }); },
     exportBackup: repo.exportBackup, exportRaw: repo.exportRaw,
     previewBackup(text: string) { const data = repo.parseBackup(text); return { openings: active(data).filter(item => !item.voided && item.kind === 'opening_position').length, trades: active(data).filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, reviews: data.reviews.length, mode: data.mode }; },
-    restoreBackup(text: string) { repo.replace(repo.parseBackup(text)); }, recoverPrevious: repo.recoverPrevious,
+    exportFullBackup() { return encodeFullBackup(repo.read(), workspace.read(), runtime); },
+    previewCompleteBackup(text: string) { return backupPreview(parseCompleteBackup(text, runtime), runtime); },
+    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); },
+    restoreBackup(text: string) { const financial = repo.parseBackup(text); const prepared = workspace.prepareReplacement(undefined, financial); repo.replace(financial); prepared.commit(); },
+    recoverPrevious() { const financial = repo.readPrevious(), previousWorkspace = workspace.readPreviousOptional(), prepared = workspace.prepareReplacement(previousWorkspace, financial); repo.recoverPrevious(); prepared.commit(); },
     loadDemo() {
       const data = repo.read(); if (data.events.length || data.reviews.length || data.mode === 'demo') fail('NOT_EMPTY', '只有空账本可以载入示例。');
       const samples = new Map<string, string>(); const sampleStore = { get: (key: string) => samples.get(key) ?? '', set: (key: string, value: string) => { samples.set(key, value); } }; samples.set('portfolio.wechat.v1', JSON.stringify({ ...emptySnapshot(runtime), mode: 'demo' as const })); const sample = createService(sampleStore, runtime);
-      sample.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: runtime.today(), quantity: '2', price: '100', fee: '1', note: '合成示例，不是真实行情或交易' }); sample.saveTrade({ kind: 'sell', symbol: 'QQQ', date: runtime.today(), quantity: '0.5', price: '110', fee: '0.2', note: '合成示例：练习部分卖出' }); sample.saveReview(runtime.today(), '这是一条示例复盘：记录买入理由、执行情况和下一次改进。'); repo.replace({ ...sample.snapshot(), mode: 'demo' });
+      sample.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: runtime.today(), quantity: '2', price: '100', fee: '1', note: '合成示例，不是真实行情或交易' }); sample.saveTrade({ kind: 'sell', symbol: 'QQQ', date: runtime.today(), quantity: '0.5', price: '110', fee: '0.2', note: '合成示例：练习部分卖出' }); sample.saveReview(runtime.today(), '这是一条示例复盘：记录买入理由、执行情况和下一次改进。'); const next = { ...sample.snapshot(), mode: 'demo' as const }; const prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit();
     },
-    startEmpty() { repo.replace(emptySnapshot(runtime)); },
+    startEmpty() { const next = emptySnapshot(runtime), prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit(); },
   };
+  return service;
 }

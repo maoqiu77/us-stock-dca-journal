@@ -3,20 +3,23 @@
   <button bindtap="verifySave">核验保存结果</button>
   <button wx:if="{{retryable}}" bindtap="retrySave">已确认未写入，安全重试原提交</button>
 </view>
+<view wx:if="{{workspacePending}}" class="card"><view>有一笔日记/会话工作区提交待核验。这不会触发新的 AI 生成。</view><button bindtap="verifyWorkspaceSave">核验工作区保存</button><button wx:if="{{workspaceRetryable}}" bindtap="retryWorkspaceSave">安全重试原工作区提交</button></view>
 <view class="container">
-  <view class="eyebrow">YOUR DATA</view><view class="title">数据在你手里。</view><view class="subtitle">微信小程序 · 离线测试版 0.1.0</view>
+  <view class="eyebrow">YOUR DATA</view><view class="title">数据在你手里。</view><view class="subtitle">微信小程序 · A0/A1 离线测试版 0.2.0</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{clockAnomaly}}" class="error"><view>设备时间异常 · 最近可靠时点 {{clockAnomaly.asOf}}</view><view class="muted">当前数值暂不显示，但账本仍可使用下方正常备份导出。</view></view>
   <view wx:if="{{canExportRaw}}" class="card"><view class="symbol">账本无法正常读取</view><view class="muted">可以独立取回原始故障数据。它可能损坏，不保证是有效备份，不会自动修复或覆盖账本。</view><view class="actions"><button class="secondary" bindtap="exportRawFile">导出原始文件</button><button class="secondary" bindtap="copyRaw">复制原始数据</button></view></view>
-  <view class="card"><view class="row"><text>当前账本</text><text class="badge">{{mode === 'demo' ? '虚构示例' : '本地个人账本'}}</text></view><view class="divider"/><view class="muted">{{trades}} 笔有效交易 · {{reviews}} 天复盘<view/>单账户 · 美股 / ETF · USD<view/>交易日期按手工输入；日历“今天”按北京时间。</view></view>
+  <view class="card"><view class="row"><text>当前工作区</text><text class="badge">{{mode === 'demo' ? '虚构示例' : '本地个人数据'}}</text></view><view class="divider"/><view class="muted">{{trades}} 笔有效交易 · {{reviews}} 条个人记录<view/>{{conversations}} 个会话 · {{runs}} 份分析 · {{sources}} 个来源快照<view/>金融账本与 journal/chat/run/source 独立分区。</view></view>
+  <view class="section">投资计划（需你确认）</view><view class="card"><view class="field"><view class="label">期限描述</view><input value="{{horizon}}" data-field="horizon" bindinput="onPolicyField" placeholder="例如：长期定投"/></view><view class="field"><view class="label">最大单标的权重（0–1）</view><input value="{{maxSingleWeight}}" data-field="maxSingleWeight" bindinput="onPolicyField" placeholder="例如 0.3"/></view><view class="field"><view class="label">生效日期</view><picker mode="date" value="{{effectiveFrom}}" end="{{effectiveFrom}}" bindchange="onPolicyDate"><view class="picker">{{effectiveFrom}}　⌄</view></picker></view><view class="muted">AI 文本不会自动更改这份计划；只有点击下方按钮才会保存确认版本。</view><view class="actions"><button class="primary" bindtap="confirmPolicy">确认并保存计划</button></view></view>
   <view class="section">备份与恢复</view>
-  <view class="card"><view>把记录留一份副本</view><view class="subtitle">备份为明文 JSON。设备时间异常仍使用这个正常备份入口。</view><view class="actions"><button class="primary" bindtap="exportFile" disabled="{{canExportRaw}}">导出文件</button><button class="secondary" bindtap="copyBackup" disabled="{{canExportRaw}}">复制备份</button></view></view>
+  <view class="card"><view>导出 v3 完整备份</view><view class="subtitle">明文 JSON，包含金融账本、个人记录、会话、AI 演示结果、来源快照和投资计划。</view><view class="actions"><button class="primary" bindtap="exportFile" disabled="{{canExportRaw}}">导出完整文件</button><button class="secondary" bindtap="copyBackup" disabled="{{canExportRaw}}">复制完整备份</button></view></view>
   <view class="card"><view class="label">恢复已有备份</view><view class="muted">选择本小程序导出的 JSON，或粘贴备份内容。会先检查格式，不自动覆盖。</view><view class="actions"><button class="secondary" bindtap="chooseBackup">选择 JSON 文件</button></view>
     <textarea class="backup" style="margin-top: 24rpx" value="{{backupText}}" maxlength="819200" bindinput="onBackupText" placeholder="也可以在这里粘贴备份内容"/>
+    <view wx:if="{{backupFileName}}" class="note">已选文件：{{backupFileName}}（正文不放入页面 setData）</view>
     <view class="actions"><button class="secondary" bindtap="previewBackup">检查备份</button></view>
-    <view wx:if="{{preview}}"><view class="note">检查通过：{{preview.openings}} 条期初持仓，{{preview.trades}} 笔交易，{{preview.reviews}} 天复盘。{{preview.mode === 'demo' ? '这是示例账本。' : ''}}</view><view class="actions"><button class="primary" bindtap="restoreBackup" loading="{{importing}}">确认恢复…</button></view></view>
+    <view wx:if="{{preview}}"><view class="note">检查通过：v{{preview.version}}，{{preview.openings}} 条期初持仓，{{preview.trades}} 笔交易，{{preview.personalNotes}} 条个人记录，{{preview.runs}} 份分析。{{preview.complete ? '范围为完整工作区。' : '旧备份将迁移为新工作区。'}}</view><view class="actions"><button class="primary" bindtap="restoreBackup" loading="{{importing}}">确认恢复…</button></view></view>
     <button class="link" bindtap="recoverPrevious">恢复上一次替换前的账本</button>
   </view>
-  <view class="section">关于测试版</view><view class="card"><view class="muted">记录保存在当前小程序的本地空间，不自动同步或上传。未接入行情和 AI，已实现盈亏只依据你录入的买卖记录。历史不完整时无法据此判断全部投资表现。<view/><view/>本地备份不是加密保险箱，请妥善保管。当前容量上限 800 KiB。无需登录和网络请求，不连接券商或执行交易。</view></view>
+  <view class="section">关于测试版</view><view class="card"><view class="muted">记录仅保存在当前小程序本地，不自动同步或上传。未接入真实行情和模型；AI 投研只是明确标记的离线合成 Provider。<view/><view/>金融快照仍保持 v2/800 KiB 单值上限；日记与会话不写入金融快照。完整备份为明文，请妥善保管。</view></view>
   <button class="secondary" bindtap="startEmpty">开始新的空账本…</button>
 </view>
