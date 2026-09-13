@@ -4,6 +4,7 @@ import { activeEvents, clockState, emptySnapshot, projection, validateSnapshot, 
 import { createWorkspaceRepository } from './workspace/repository.ts';
 import { backupPreview, encodeFullBackup, parseCompleteBackup } from './workspace/backup.ts';
 import { createAiEngine } from './ai/engine.ts';
+import type { AiTransport } from './ai/transport.ts';
 
 export class ServiceError extends Error {
   readonly code: string;
@@ -38,7 +39,7 @@ const ledgerMessages: Record<string, string> = {
   order_conflict: '同日记录顺序冲突，请重新预览后保存。',
 };
 
-export function createService(storage: StoragePort, runtime: Runtime) {
+export function createService(storage: StoragePort, runtime: Runtime, options: { aiTransport?: AiTransport } = {}) {
   const repo = createRepository(storage, runtime);
   const workspace = createWorkspaceRepository(storage, runtime, { readFinancial: repo.ensurePersisted, ledgerPending: repo.pendingSave });
   let aiEngine: ReturnType<typeof createAiEngine> | undefined;
@@ -191,7 +192,7 @@ export function createService(storage: StoragePort, runtime: Runtime) {
   function journalTimeline(date: string) {
     const state = workspace.read(), runs = new Map(state.runs.map(item => [item.id, item]));
     const journal = workspace.timeline(date).map(item => {
-      if (item.type === 'analysis_ref') { const run = runs.get(item.ref_id!)!; return { kind: 'analysis' as const, id: item.id, revisionId: item.revision_id, runId: run.id, conversationId: run.conversation_id, summary: run.result.summary, stance: String(run.result.stance ?? 'insufficient_data'), demo: run.demo, label: '离线合成 AI 分析', time: item.updated_at }; }
+      if (item.type === 'analysis_ref') { const run = runs.get(item.ref_id!)!; return { kind: 'analysis' as const, id: item.id, revisionId: item.revision_id, runId: run.id, conversationId: run.conversation_id, summary: run.result.summary, stance: String(run.result.stance ?? 'insufficient_data'), demo: run.execution_kind === 'fake', label: run.execution_kind === 'fake' ? '离线合成 AI 分析' : '模型生成分析', time: item.updated_at }; }
       return { kind: item.type === 'user_decision' ? 'user_decision' as const : 'personal_note' as const, id: item.id, revisionId: item.revision_id, body: item.body ?? '', label: item.type === 'user_decision' ? '我的决定' : '我的记录', time: item.updated_at };
     });
     const trades = records().filter(item => item.date === date).map(item => ({ kind: 'trade' as const, id: item.id, revisionId: item.revisionId, symbol: item.symbol, label: item.label, quantity: item.quantity, note: item.note, time: item.recordedAt }));
@@ -204,7 +205,7 @@ export function createService(storage: StoragePort, runtime: Runtime) {
     journal: () => workspace,
     workspacePending: workspace.pendingSave, verifyWorkspacePending: workspace.verifyPending, retryWorkspacePending: workspace.retryPending,
     journalTimeline,
-    ai: () => aiEngine ??= createAiEngine(workspace, { snapshot: repo.read, overview, records, positionDetail }, runtime),
+    ai: () => aiEngine ??= createAiEngine(workspace, { snapshot: repo.read, overview, records, positionDetail }, runtime, options.aiTransport),
     firstUse() { const data = repo.read(), events = active(data).filter(item => !item.voided); const hasOpeningPositions = events.some(item => item.kind === 'opening_position'); return { isEmpty: events.length === 0, openingDate: hasOpeningPositions ? data.portfolio.opening_date : null, hasOpeningPositions }; },
     previewTrade(input: TradeInput) {
       repo.assertWritable(); const data = repo.read(), built = buildTrade(data, input);

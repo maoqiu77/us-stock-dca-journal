@@ -1,0 +1,22 @@
+# AI Cloud Setup
+
+This A2/A3 bundle is offline by default. Copy `apps/miniprogram/config.local.example.json` to the gitignored `apps/miniprogram/config.local.json` and set the AppID, CloudBase environment ID, `portfolioAi`, and `cloud` transport. Run `npm run check:weapp`; the repeatable output is `apps/miniprogram/dist`, with `miniprogram/` as the main package and `cloudfunctions/` as independent deployment artifacts.
+
+Deploy `cloudfunctions/portfolioAi` and `cloudfunctions/portfolioAiCleanup` from the WeChat Developer Tools Cloud Functions panel. The generated function package contains `gateway.cjs`; install the declared `wx-server-sdk` dependency in the function package. Create private collections `ai_requests`, `ai_payloads`, `ai_usage`, `ai_access`, and `ai_turn_keys`. Disable direct mini-program database access. Recommended unique document keys are SHA-256 owner/request, owner/workspace/client-turn, and owner/date as implemented by the store.
+
+Keep `AI_ENABLED=false` until `capabilities` works from the configured mini-program. Server-only variables are `AI_ENABLED`, `EXPECTED_WEAPP_APPID`, `AI_PROVIDER=deepseek`, `AI_PROTOCOL=openai-compatible-chat-completions`, `AI_BASE_URL=https://api.deepseek.com`, `AI_MODEL=deepseek-flash`, `DEEPSEEK_API_KEY`, `AI_TIMEOUT_MS`, `AI_MAX_OUTPUT_TOKENS`, `AI_DAILY_REQUEST_LIMIT`, `AI_MAX_INFLIGHT_PER_USER`, `AI_MAX_INPUT_BYTES`, `AI_MAX_PREPARE_WINDOW_MS`, and `AI_BYOK_ENABLED=false`. Never put a key or provider URL in client config or backups. `portfolioAiCleanup` only needs `CLEANUP_JOB_TOKEN` and optionally `AI_PAYLOAD_RETENTION_MS`; it does not need the DeepSeek key.
+
+The sponsored default uses DeepSeek's OpenAI-compatible `POST /chat/completions` protocol and parses `choices[0].message.content`. The configured and provider-reported model ID verified in this environment is `deepseek-flash`. BYOK is represented by the resolver interface and disabled flag only. It deliberately has no client key field or persistence until a credential vault, encryption and deletion mechanism are designed.
+
+
+## Cleanup rollout decision (2026-09-13; not yet applied)
+
+Local source has changed since the 01:00 deployment. Review and explicitly authorize cloud code upload before deploying the new portfolioAi and portfolioAiCleanup artifacts. Configuration changes alone cannot fix the deployed ACK/input-retention or timer-event bugs.
+
+Target cleanup settings: Node.js 20.19, 256 MB, timeout 60 seconds, AI_PAYLOAD_RETENTION_MS=86400000. This value means 24 hours after server request createdAt for terminal requests; standalone orphan payloads retain the older expiresAt-plus-retention rule. Choose hourly timer name portfolioAiCleanupHourly with seven-field cron `0 0 * * * * *`. The new handler accepts a JSON object containing token inside the timer's string Message, as well as direct event.token; both must match the secret CLEANUP_JOB_TOKEN. A bare Type=Timer is never authorization. Enter the secret directly in the trusted console, keep it out of config.json/git/logs/chat, and never add DEEPSEEK_API_KEY. If the console does not support a custom Message, do not enable an unauthenticated timer or assume config.json's basic timer schema supplies one.
+
+The new request query filters terminal state, createdAt before cutoff and absent payloadPurgedAt. Verify index support for that query in the cloud console (create the index combination it requests); retain the existing ai_payloads.expiresAt index and verify the expiresAt/_id paginated query. Each request and its matching payload are purged in one transaction. Request audit/usage/turn keys remain. Already ACKed legacy input is eligible after retention, but its lost response digest is not reconstructed. Running requests are excluded and need independent status/inflight investigation.
+
+Validate the deployed function with controlled expired synthetic fixtures and verify metadata-only before/after counts, authorization failures, request-body absence flags, preserved states and unchanged usage. Do not expand request or response bodies, and do not execute a model request for this check. The local VM tests exercise the actual cleanup entrypoint with SDK-shaped data; they do not prove cloud rollback, index readiness, scheduling or timeout behavior. Large scans may require a durable job cursor in a future scale-up.
+
+Official references: [CloudBase timer configuration](https://docs.cloudbase.net/cloud-function/timer-trigger), [Tencent SCF Timer.Message event format](https://cloud.tencent.cn/document/product/583/9708).

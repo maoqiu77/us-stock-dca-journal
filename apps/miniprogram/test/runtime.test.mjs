@@ -52,15 +52,25 @@ test('all five tab controllers initialize and review creates an independent time
   assert.equal(reopened.snapshot().reviews.length, 0);
 });
 
-test('packaged fake research archives and conversation follows up in the same engine', () => {
+test('packaged fake research archives and conversation follows up in the same engine', async () => {
   const env = boot(); env.core.service.loadDemo();
   const research = env.page('research'); research.onLoad(); research.onShow(); research.setData({ question: '分析我的持仓' }); research.preview(); research.runDemo();
+  assert.equal(research.data.error, '');
   assert.match(research.data.result.summary, /离线合成演示/);
   assert.ok(env.routes.at(-1).startsWith('/pages/conversation/index?id='));
   const id = research.data.conversationId, conversation = env.page('conversation'); conversation.onLoad({ id });
-  conversation.onQuestion({ detail: { value: '还缺什么？' } }); conversation.send();
+  conversation.onQuestion({ detail: { value: '还缺什么？' } }); await conversation.send();
   assert.equal(env.core.service.ai().conversation(id).messages.length, 4);
   assert.equal(env.core.service.snapshot().events.length, 2);
+});
+
+test('failed packaged research never claims success or navigates to an empty conversation', () => {
+  const env = boot(); env.core.service.loadDemo();
+  const research = env.page('research'); research.onLoad(); research.onShow();
+  research.preview(); env.failWrites(); research.runDemo();
+  assert.equal(env.routes.length, 0);
+  assert.equal(research.data.result, null);
+  assert.ok(env.notices.some(n => n.title === '未完成操作'));
 });
 
 test('packaged validation never attempts dynamically generated code in the restricted host', () => {

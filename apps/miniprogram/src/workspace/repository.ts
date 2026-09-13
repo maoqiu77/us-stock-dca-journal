@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { sha256 } from '@portfolio/ai-context';
 import { idSchema, policySchema, timestampSchema, type Policy } from '@portfolio/domain';
 import { type Runtime, type Snapshot, utf8Size } from '../model.ts';
 import { type StoragePort } from '../repository.ts';
@@ -6,39 +7,55 @@ import {
   analysisRunSchema,
   conversationSchema,
   journalEntrySchema,
+  legacyAnalysisRunSchema,
+  legacyMessageSchema,
+  legacySourceSnapshotSchema,
   messageSchema,
   migrationStateSchema,
+  outboxTurnSchema,
   sourceSnapshotSchema,
   workspaceStateSchema,
   type AnalysisRun,
   type Conversation,
   type JournalEntry,
   type Message,
+  type OutboxTurn,
   type SourceSnapshot,
   type WorkspaceState,
 } from '../journal/model.ts';
 
-export const WORKSPACE_PREFIX = 'portfolio.wechat.workspace.v1';
+export const WORKSPACE_PREFIX = 'portfolio.wechat.workspace.v2';
+export const LEGACY_WORKSPACE_PREFIX = 'portfolio.wechat.workspace.v1';
 export const WORKSPACE_ROOT_KEY = `${WORKSPACE_PREFIX}.root`;
 export const WORKSPACE_PREVIOUS_KEY = `${WORKSPACE_PREFIX}.previous`;
-export const WORKSPACE_PENDING_KEY = `${WORKSPACE_PREFIX}.pending-v1`;
+export const WORKSPACE_PENDING_KEY = `${WORKSPACE_PREFIX}.pending-v2`;
 export const WORKSPACE_PENDING_BEFORE_KEY = `${WORKSPACE_PENDING_KEY}.before`;
 export const WORKSPACE_PENDING_NEXT_KEY = `${WORKSPACE_PENDING_KEY}.next`;
 
 const partitionRefSchema = z.strictObject({ key: z.string().min(1).max(300), checksum: z.string().regex(/^[0-9a-f]{8}$/), bytes: z.number().int().nonnegative() });
 const manifestSchema = z.strictObject({
-  version: z.literal(1), instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), created_at: timestampSchema,
+  version: z.literal(2), instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), created_at: timestampSchema,
   migration: migrationStateSchema,
-  partitions: z.strictObject({ journal: partitionRefSchema, chat: partitionRefSchema, run: partitionRefSchema, source: partitionRefSchema, policy: partitionRefSchema }),
+  partitions: z.strictObject({ journal: partitionRefSchema, chat: partitionRefSchema, run: partitionRefSchema, source: partitionRefSchema, policy: partitionRefSchema, outbox: partitionRefSchema }),
 });
-const rootSchema = z.strictObject({ version: z.literal(1), active_instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), manifest_key: z.string().min(1).max(300), switched_at: timestampSchema });
-const pendingSchema = z.strictObject({ version: z.literal(1), replacement: z.boolean() });
-const journalPartitionSchema = z.strictObject({ version: z.literal(1), entries: z.array(journalEntrySchema).max(10000) });
-const chatPartitionSchema = z.strictObject({ version: z.literal(1), conversations: z.array(conversationSchema).max(1000), messages: z.array(messageSchema).max(20000) });
-const runPartitionSchema = z.strictObject({ version: z.literal(1), runs: z.array(analysisRunSchema).max(5000) });
-const prereleaseRunPartitionSchema = z.strictObject({ version: z.literal(1), runs: z.array(analysisRunSchema.omit({ source_ids: true })).max(5000) });
-const sourcePartitionSchema = z.strictObject({ version: z.literal(1), sources: z.array(sourceSnapshotSchema).max(10000) });
-const policyPartitionSchema = z.strictObject({ version: z.literal(1), policies: workspaceStateSchema.shape.policies });
+const rootSchema = z.strictObject({ version: z.literal(2), active_instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), manifest_key: z.string().min(1).max(300), switched_at: timestampSchema });
+const pendingSchema = z.strictObject({ version: z.literal(2), replacement: z.boolean() });
+const journalPartitionSchema = z.strictObject({ version: z.literal(2), entries: z.array(journalEntrySchema).max(10000) });
+const chatPartitionSchema = z.strictObject({ version: z.literal(2), conversations: z.array(conversationSchema).max(1000), messages: z.array(messageSchema).max(20000) });
+const runPartitionSchema = z.strictObject({ version: z.literal(2), runs: z.array(analysisRunSchema).max(5000) });
+const interimAnalysisRunSchema = analysisRunSchema.omit({ source_ids: true }).extend({ source_ids: analysisRunSchema.shape.source_ids.optional() });
+const interimRunPartitionSchema = z.strictObject({ version: z.literal(2), runs: z.array(interimAnalysisRunSchema).max(5000) });
+const sourcePartitionSchema = z.strictObject({ version: z.literal(2), sources: z.array(sourceSnapshotSchema).max(10000) });
+const policyPartitionSchema = z.strictObject({ version: z.literal(2), policies: workspaceStateSchema.shape.policies });
+const outboxPartitionSchema = z.strictObject({ version: z.literal(2), turns: z.array(outboxTurnSchema).max(2000) });
+const legacyManifestSchema = z.strictObject({ version: z.literal(1), instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), created_at: timestampSchema, migration: migrationStateSchema, partitions: z.strictObject({ journal: partitionRefSchema, chat: partitionRefSchema, run: partitionRefSchema, source: partitionRefSchema, policy: partitionRefSchema }) });
+const legacyRootSchema = z.strictObject({ version: z.literal(1), active_instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), manifest_key: z.string().min(1).max(300), switched_at: timestampSchema });
+const legacyJournalPartitionSchema = z.strictObject({ version: z.literal(1), entries: z.array(journalEntrySchema).max(10000) });
+const legacyChatPartitionSchema = z.strictObject({ version: z.literal(1), conversations: z.array(conversationSchema).max(1000), messages: z.array(legacyMessageSchema).max(20000) });
+const interimLegacyRunSchema = legacyAnalysisRunSchema.omit({ source_ids: true }).extend({ source_ids: legacyAnalysisRunSchema.shape.source_ids.optional() });
+const legacyRunPartitionSchema = z.strictObject({ version: z.literal(1), runs: z.array(interimLegacyRunSchema).max(5000) });
+const legacySourcePartitionSchema = z.strictObject({ version: z.literal(1), sources: z.array(legacySourceSnapshotSchema).max(10000) });
+const legacyPolicyPartitionSchema = z.strictObject({ version: z.literal(1), policies: z.array(policySchema).max(1000) });
 type Root = z.infer<typeof rootSchema>;
 
 export class WorkspacePersistenceError extends Error {
@@ -65,6 +82,20 @@ function unique(runtime: Runtime, used: Set<string>) {
 function heads(entries: JournalEntry[]) {
   const parents = new Set(entries.map(item => item.parent_revision).filter(Boolean));
   return entries.filter(item => !parents.has(item.revision_id));
+}
+function storedCitationIds(result: unknown) {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return [];
+  const value = result as Record<string, unknown>, ids: string[] = [];
+  for (const field of ['evidence', 'counterarguments', 'candidates']) {
+    const items = value[field];
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const sourceIds = (item as Record<string, unknown>).source_ids;
+      if (Array.isArray(sourceIds)) ids.push(...sourceIds.filter((id): id is string => typeof id === 'string'));
+    }
+  }
+  return [...new Set(ids)];
 }
 
 export type WorkspaceDependencies = { readFinancial(): Snapshot; ledgerPending(): boolean };
@@ -126,7 +157,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     const before = raw(WORKSPACE_ROOT_KEY, '无法读取工作区根指针。'), nextText = JSON.stringify(rootSchema.parse(next));
     setVerified(storage, WORKSPACE_PENDING_BEFORE_KEY, before, '工作区原指针暂存失败');
     setVerified(storage, WORKSPACE_PENDING_NEXT_KEY, nextText, '工作区新指针暂存失败');
-    setVerified(storage, WORKSPACE_PENDING_KEY, JSON.stringify({ version: 1, replacement }), '工作区提交屏障保存失败');
+    setVerified(storage, WORKSPACE_PENDING_KEY, JSON.stringify({ version: 2, replacement }), '工作区提交屏障保存失败');
     try { storage.set(WORKSPACE_ROOT_KEY, nextText); } catch { /* readback decides */ }
     const op = pending();
     if (!op) throw new WorkspacePersistenceError('WORKSPACE_UNKNOWN', '工作区保存状态丢失，已停止写入。');
@@ -143,20 +174,6 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     if (!result.success) throw Error(`工作区${label}分区损坏或版本不兼容。`);
     return result.data;
   }
-  function readRuns(ref: z.infer<typeof partitionRefSchema>): AnalysisRun[] {
-    const text = raw(ref.key, '无法读取工作区分析分区。');
-    if (utf8Size(text) !== ref.bytes || contentHash(text) !== ref.checksum) throw Error('工作区分析分区损坏或不完整。');
-    const input = parse(text, '工作区分析分区损坏。');
-    const current = runPartitionSchema.safeParse(input);
-    if (current.success) return current.data.runs;
-    const prerelease = prereleaseRunPartitionSchema.safeParse(input);
-    if (!prerelease.success) throw Error('工作区分析分区损坏或版本不兼容。');
-    return prerelease.data.runs.map(run => {
-      const result = run.result as { evidence?: Array<{ source_ids?: string[] }>; counterarguments?: Array<{ source_ids?: string[] }>; candidates?: Array<{ source_ids?: string[] }> };
-      const sourceIds = [...(result.evidence ?? []), ...(result.counterarguments ?? []), ...(result.candidates ?? [])].flatMap(item => item.source_ids ?? []);
-      return analysisRunSchema.parse({ ...run, source_ids: [...new Set(sourceIds)] });
-    });
-  }
   function readAt(root: Root): WorkspaceState {
     const text = raw(root.manifest_key, '无法读取工作区清单。');
     const parsed = manifestSchema.safeParse(parse(text, '工作区清单损坏。'));
@@ -165,10 +182,12 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     if (manifest.instance_id !== root.active_instance_id || manifest.portfolio_id !== root.portfolio_id || manifest.generation !== root.generation) throw Error('工作区清单与根指针不一致。');
     const journal = readPartition(manifest.partitions.journal, journalPartitionSchema, '日记').entries;
     const chat = readPartition(manifest.partitions.chat, chatPartitionSchema, '会话');
-    const runs = readRuns(manifest.partitions.run);
+    const storedRuns = readPartition(manifest.partitions.run, interimRunPartitionSchema, '分析').runs;
+    const runs = storedRuns.map(run => analysisRunSchema.parse({ ...run, source_ids: run.source_ids ?? storedCitationIds(run.result) }));
     const sources = readPartition(manifest.partitions.source, sourcePartitionSchema, '来源').sources;
     const policies = readPartition(manifest.partitions.policy, policyPartitionSchema, '计划').policies;
-    const state = workspaceStateSchema.safeParse({ version: 1, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages, runs, sources, policies });
+    const outbox = readPartition(manifest.partitions.outbox, outboxPartitionSchema, '待处理请求').turns;
+    const state = workspaceStateSchema.safeParse({ version: 2, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages, runs, sources, policies, outbox });
     if (!state.success) throw Error('工作区引用损坏或版本不兼容。');
     validateWorkspaceReferences(state.data);
     return state.data;
@@ -177,11 +196,12 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     const valid = workspaceStateSchema.parse(state), revision = runtime.id();
     const base = `${WORKSPACE_PREFIX}.instance.${valid.instance_id}.${revision}`;
     const payloads = {
-      journal: JSON.stringify(journalPartitionSchema.parse({ version: 1, entries: valid.journal })),
-      chat: JSON.stringify(chatPartitionSchema.parse({ version: 1, conversations: valid.conversations, messages: valid.messages })),
-      run: JSON.stringify(runPartitionSchema.parse({ version: 1, runs: valid.runs })),
-      source: JSON.stringify(sourcePartitionSchema.parse({ version: 1, sources: valid.sources })),
-      policy: JSON.stringify(policyPartitionSchema.parse({ version: 1, policies: valid.policies })),
+      journal: JSON.stringify(journalPartitionSchema.parse({ version: 2, entries: valid.journal })),
+      chat: JSON.stringify(chatPartitionSchema.parse({ version: 2, conversations: valid.conversations, messages: valid.messages })),
+      run: JSON.stringify(runPartitionSchema.parse({ version: 2, runs: valid.runs })),
+      source: JSON.stringify(sourcePartitionSchema.parse({ version: 2, sources: valid.sources })),
+      policy: JSON.stringify(policyPartitionSchema.parse({ version: 2, policies: valid.policies })),
+      outbox: JSON.stringify(outboxPartitionSchema.parse({ version: 2, turns: valid.outbox })),
     };
     if (Object.values(payloads).some(text => utf8Size(text) > 800 * 1024)) throw Error('工作区单个分区超过 800 KiB，请先导出完整备份并整理旧内容。');
     if (storage.info) {
@@ -194,8 +214,8 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     }
     const nextGeneration = valid.root_generation;
     const manifestKey = `${base}.manifest`;
-    setVerified(storage, manifestKey, JSON.stringify(manifestSchema.parse({ version: 1, instance_id: valid.instance_id, portfolio_id: valid.portfolio_id, generation: nextGeneration, created_at: runtime.now(), migration: valid.migration, partitions })), '工作区清单保存失败');
-    const root: Root = { version: 1, active_instance_id: valid.instance_id, portfolio_id: valid.portfolio_id, generation: nextGeneration, manifest_key: manifestKey, switched_at: runtime.now() };
+    setVerified(storage, manifestKey, JSON.stringify(manifestSchema.parse({ version: 2, instance_id: valid.instance_id, portfolio_id: valid.portfolio_id, generation: nextGeneration, created_at: runtime.now(), migration: valid.migration, partitions })), '工作区清单保存失败');
+    const root: Root = { version: 2, active_instance_id: valid.instance_id, portfolio_id: valid.portfolio_id, generation: nextGeneration, manifest_key: manifestKey, switched_at: runtime.now() };
     return { root, state: valid, bytes: Object.values(payloads).reduce((sum, text) => sum + utf8Size(text), utf8Size(JSON.stringify(root))) };
   }
   function writeState(state: WorkspaceState, replacement = false) {
@@ -203,12 +223,33 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     commitRoot(staged.root, replacement);
     return readAt(rootSchema.parse(JSON.parse(storage.get(WORKSPACE_ROOT_KEY))));
   }
+  function readLegacyPartition<T>(ref: z.infer<typeof partitionRefSchema>, schema: z.ZodType<T>, label: string): T {
+    const text = raw(ref.key, `无法读取旧工作区${label}分区。`);
+    if (utf8Size(text) !== ref.bytes || contentHash(text) !== ref.checksum) throw Error(`旧工作区${label}分区损坏或不完整。`);
+    return schema.parse(parse(text, `旧工作区${label}分区损坏。`));
+  }
+  function readLegacyState(): WorkspaceState | undefined {
+    const rootText = raw(`${LEGACY_WORKSPACE_PREFIX}.root`, '无法读取旧工作区根指针。');
+    if (!rootText) return undefined;
+    const root = legacyRootSchema.parse(parse(rootText, '旧工作区根指针损坏。'));
+    const manifest = legacyManifestSchema.parse(parse(raw(root.manifest_key, '无法读取旧工作区清单。'), '旧工作区清单损坏。'));
+    const journal = readLegacyPartition(manifest.partitions.journal, legacyJournalPartitionSchema, '日记').entries;
+    const chat = readLegacyPartition(manifest.partitions.chat, legacyChatPartitionSchema, '会话');
+    const oldRuns = readLegacyPartition(manifest.partitions.run, legacyRunPartitionSchema, '分析').runs
+      .map(run => legacyAnalysisRunSchema.parse({ ...run, source_ids: run.source_ids ?? storedCitationIds(run.result) }));
+    const oldSources = readLegacyPartition(manifest.partitions.source, legacySourcePartitionSchema, '来源').sources;
+    const policies = readLegacyPartition(manifest.partitions.policy, legacyPolicyPartitionSchema, '计划').policies;
+    const sources = oldSources.map(source => sourceSnapshotSchema.parse({ id: source.id, origin_entity_id: source.id, origin_revision: source.revision, type: source.type, as_of: source.as_of, available_at: source.available_at, content_digest: sha256(source.content), content: source.content }));
+    const runs = oldRuns.map(run => analysisRunSchema.parse({ schema_version: 2, id: run.id, request_id: run.request_id, conversation_id: run.conversation_id, parent_run_id: run.parent_run_id, mode: run.mode, journal_date: run.journal_date, state: run.state, output_validated: run.output_validated, local_saved: run.local_saved, execution_kind: 'fake', data_mode: 'demo', provider_id: 'legacy-fake', source_integrity: 'legacy_unverified', source_ids: run.source_ids, final_manifest: { legacy_workspace_version: 1, source_ids: run.source_ids }, provider_metadata: { protocol: 'legacy-local', model: 'deterministic-fake', credential_mode: 'not_applicable', input_units: 0, output_units: 0 }, result: run.result, created_at: run.created_at, completed_at: run.completed_at }));
+    return workspaceStateSchema.parse({ version: 2, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation + 1, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages.map(message => messageSchema.parse({ ...message, execution_kind: message.role === 'assistant' ? 'fake' : null })), runs, sources, policies, outbox: [] });
+  }
   function replacementState(input: WorkspaceState, financial: Snapshot) {
     validateWorkspaceReferences(input);
     if (input.portfolio_id !== financial.portfolio.id) throw Error('完整备份的账本与工作区不匹配。');
     const instance = runtime.id();
     const conversations = input.conversations.map(item => ({ ...item, workspace_instance_id: instance }));
-    return workspaceStateSchema.parse({ ...input, instance_id: instance, portfolio_id: financial.portfolio.id, root_generation: 1, conversations });
+    const outbox = input.outbox.map(turn => outboxTurnSchema.parse({ ...turn, status: 'detached', updated_at: runtime.now(), detached_reason: '备份导入后已隔离，不会自动重发。' }));
+    return workspaceStateSchema.parse({ ...input, instance_id: instance, portfolio_id: financial.portfolio.id, root_generation: 1, conversations, outbox });
   }
   function legacyState(financial: Snapshot) {
     const used = new Set<string>(), instance = unique(runtime, used), map: Record<string, string> = {};
@@ -216,7 +257,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
       const id = unique(runtime, used); map[review.date] = id;
       return journalEntrySchema.parse({ id, revision_id: unique(runtime, used), parent_revision: null, journal_date: review.date, type: 'personal_note', ref_id: null, body: review.text, classification: 'user_original', created_at: review.updated_at, updated_at: review.updated_at });
     });
-    return workspaceStateSchema.parse({ version: 1, instance_id: instance, portfolio_id: financial.portfolio.id, root_generation: 1, migration: { source: 'legacy_reviews', completed_at: runtime.now(), legacy_review_map: map }, journal, conversations: [], messages: [], runs: [], sources: [], policies: [{ portfolio_id: financial.portfolio.id, status: 'unknown' }] });
+    return workspaceStateSchema.parse({ version: 2, instance_id: instance, portfolio_id: financial.portfolio.id, root_generation: 1, migration: { source: 'legacy_reviews', completed_at: runtime.now(), legacy_review_map: map }, journal, conversations: [], messages: [], runs: [], sources: [], policies: [{ portfolio_id: financial.portfolio.id, status: 'unknown' }], outbox: [] });
   }
   function prepareReplacement(input: WorkspaceState | undefined, financial: Snapshot) {
     if (pending()) throw new WorkspacePersistenceError('WORKSPACE_PENDING', '有一笔工作区保存待核验，已暂停恢复。');
@@ -241,7 +282,11 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
       else throw new WorkspacePersistenceError('WORKSPACE_PENDING', '工作区保存已确认未写入，请安全重试原提交。');
     }
     const financial = dependencies.readFinancial(), root = readRoot();
-    if (!root) return migrate(financial);
+    if (!root) {
+      const legacy = readLegacyState();
+      if (legacy) return writeState(legacy, true);
+      return migrate(financial);
+    }
     if (root.portfolio_id !== financial.portfolio.id) throw Error('工作区与当前账本不匹配，已停止写入。');
     generation = Math.max(generation, root.generation);
     return readAt(root);
@@ -270,11 +315,12 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     });
     return conversation;
   }
-  function archiveAnalysis(input: { conversation: Conversation; user_message: Message; assistant_message: Message; run: AnalysisRun; sources?: SourceSnapshot[] }) {
+  function archiveAnalysis(input: { conversation: Conversation; user_message: any; assistant_message: any; run: any; sources?: SourceSnapshot[] }) {
     let journal!: JournalEntry;
     mutate(state => {
       const existing = state.runs.find(item => item.id === input.run.id || item.request_id === input.run.request_id);
       if (existing) {
+        if (existing.id !== input.run.id || JSON.stringify(existing.result) !== JSON.stringify(input.run.result) || JSON.stringify(existing.source_ids) !== JSON.stringify(input.run.source_ids)) throw Error('分析幂等冲突：同一请求对应不同结果。');
         journal = heads(state.journal).find(item => item.type === 'analysis_ref' && item.ref_id === existing.id)!;
         return state;
       }
@@ -283,11 +329,42 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
       const user = messageSchema.parse(input.user_message), assistant = messageSchema.parse(input.assistant_message);
       const used = new Set(state.journal.flatMap(item => [item.id, item.revision_id]));
       journal = journalEntrySchema.parse({ id: unique(runtime, used), revision_id: unique(runtime, used), parent_revision: null, journal_date: run.journal_date, type: 'analysis_ref', ref_id: run.id, body: null, classification: 'ai_reference', created_at: run.completed_at, updated_at: run.completed_at });
-      const knownSources = new Set(state.sources.map(item => item.id));
-      const sources = (input.sources ?? []).filter(item => !knownSources.has(item.id)).map(item => sourceSnapshotSchema.parse(item));
+      const knownSources = new Map(state.sources.map(item => [item.id, item]));
+      const parsedSources = (input.sources ?? []).map(item => sourceSnapshotSchema.parse(item));
+      for (const source of parsedSources) {
+        const known = knownSources.get(source.id);
+        if (known && JSON.stringify(known) !== JSON.stringify(source)) throw Error('来源快照冲突：同一快照编号对应不同内容。');
+      }
+      const sources = parsedSources.filter(item => !knownSources.has(item.id));
       return { ...state, root_generation: state.root_generation + 1, messages: [...state.messages, user, assistant], runs: [...state.runs, run], sources: [...state.sources, ...sources], journal: [...state.journal, journal] };
     });
     return { journal, run: input.run };
+  }
+  function saveOutbox(turn: OutboxTurn) {
+    let saved!: OutboxTurn;
+    mutate(state => {
+      const parsed = outboxTurnSchema.parse(turn);
+      const existing = state.outbox.find(item => item.request_id === parsed.request_id || (item.workspace_instance_id === parsed.workspace_instance_id && item.client_turn_id === parsed.client_turn_id));
+      if (existing) {
+        if (existing.payload_digest !== parsed.payload_digest || existing.request_id !== parsed.request_id) throw Error('待处理请求幂等冲突。');
+        saved = existing; return state;
+      }
+      saved = parsed;
+      return { ...state, root_generation: state.root_generation + 1, outbox: [...state.outbox, parsed] };
+    });
+    return saved;
+  }
+  function updateOutbox(requestId: string, expectedDigest: string, change: (turn: OutboxTurn) => OutboxTurn) {
+    let saved!: OutboxTurn;
+    mutate(state => {
+      const index = state.outbox.findIndex(item => item.request_id === requestId);
+      if (index < 0) throw Error('待处理请求不存在。');
+      if (state.outbox[index].payload_digest !== expectedDigest) throw Error('待处理请求摘要冲突。');
+      saved = outboxTurnSchema.parse(change(state.outbox[index]));
+      const outbox = state.outbox.slice(); outbox[index] = saved;
+      return { ...state, root_generation: state.root_generation + 1, outbox };
+    });
+    return saved;
   }
   function timeline(date: string) {
     return heads(read().journal).filter(item => item.journal_date === date).sort((a, b) => b.updated_at.localeCompare(a.updated_at) || b.id.localeCompare(a.id));
@@ -320,7 +397,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     });
     return policy;
   }
-  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, createConversation, archiveAnalysis, timeline, conversation, confirmPolicy };
+  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, createConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, conversation, confirmPolicy };
 }
 
 export function validateWorkspaceReferences(state: WorkspaceState) {
@@ -330,6 +407,7 @@ export function validateWorkspaceReferences(state: WorkspaceState) {
   if (state.conversations.some(item => item.workspace_instance_id !== state.instance_id)) throw Error('工作区会话引用了其他实例。');
   if (state.messages.some(item => !conversations.has(item.conversation_id) || (item.run_id && !runs.has(item.run_id)))) throw Error('工作区消息引用损坏。');
   if (state.runs.some(item => !conversations.has(item.conversation_id))) throw Error('工作区分析引用损坏。');
+  if (state.outbox.some(item => item.envelope.request.workspace_instance_id !== item.workspace_instance_id || item.envelope.payload_digest !== item.payload_digest || (item.status !== 'detached' && (item.workspace_instance_id !== state.instance_id || !conversations.has(item.conversation_id))))) throw Error('工作区待处理请求引用损坏。');
   for (const run of state.runs) {
     const manifestSources = new Set(run.source_ids);
     if (run.source_ids.some(id => !sourceIds.has(id))) throw Error('工作区分析来源引用损坏。');

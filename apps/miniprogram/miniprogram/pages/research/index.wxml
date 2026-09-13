@@ -1,14 +1,15 @@
 <view class="container">
-  <view class="eyebrow">AI RESEARCH</view><view class="title">AI 投研</view><view class="subtitle">先看清本地发送范围，再运行可重复的离线演示。</view>
+  <view class="eyebrow">AI RESEARCH</view><view class="title">AI 投研</view><view class="subtitle">预览并确认本次冻结上下文。</view>
   <view class="demo">{{capability.label}}</view><view wx:if="{{error}}" class="error">{{error}}</view>
   <view class="task-grid"><button class="{{mode === 'portfolio_review' ? 'primary' : 'secondary'}}" bindtap="selectPortfolio">分析我的持仓</button><button class="{{mode === 'instrument_research' ? 'primary' : 'secondary'}}" bindtap="selectInstrument">研究一只股票</button><button class="secondary" bindtap="selectCandidate">筛选候选标的</button></view>
   <view wx:if="{{candidateUnavailable}}" class="error">候选筛选属于 A4；真实数据源未接入，当前不会生成假排行榜。</view>
   <view wx:if="{{!candidateUnavailable}}" class="card">
     <view wx:if="{{mode === 'instrument_research'}}" class="field"><view class="label">已确认的代码</view><input value="{{symbol}}" maxlength="15" bindinput="onSymbol" placeholder="例如 AAPL"/></view>
     <view class="field"><view class="label">你想了解什么</view><textarea value="{{question}}" maxlength="10000" bindinput="onQuestion"/></view>
-    <view class="actions"><button class="secondary" bindtap="preview">预览只读上下文</button><button class="primary" bindtap="runDemo">运行离线演示</button></view>
+    <checkbox-group><label><checkbox checked="{{includeJournal}}" data-key="includeJournal" bindchange="toggleSelection"/>当日个人记录</label><label><checkbox checked="{{includeTradeReasons}}" data-key="includeTradeReasons" bindchange="toggleSelection"/>交易理由</label><label><checkbox checked="{{includePolicy}}" data-key="includePolicy" bindchange="toggleSelection"/>已确认计划</label></checkbox-group>
+    <view class="actions"><button class="secondary" bindtap="preview">预览并冻结</button><button class="secondary" bindtap="runDemo">运行离线演示</button><button wx:if="{{capability.realProviderConfigured}}" class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="runCloud">发送已冻结请求</button></view>
   </view>
-  <view wx:if="{{previewData}}" class="card"><view class="symbol">本次上下文</view><view wx:for="{{previewData.facts}}" wx:key="id" class="note">{{item.name}}：{{item.value}}</view><view wx:for="{{previewData.excerpts}}" wx:key="id" class="note">选中原文：{{item.text}}</view><view class="muted">约 {{previewData.approximateCharacters}} 字符 · 缺失：{{previewData.missingText}}</view></view>
+  <view wx:if="{{previewData}}" class="card"><view class="symbol">本次冻结上下文</view><view wx:for="{{previewData.facts}}" wx:key="id" class="note">{{item.name}}：{{item.value}}</view><view wx:for="{{previewData.excerpts}}" wx:key="id" class="note">选中原文：{{item.text}}</view><view class="muted">约 {{previewData.approximateCharacters}} 字符 · 历史省略 {{previewData.historyOmittedCount}} 条 · 摘要 {{previewData.digest}} · 缺失：{{previewData.missingText}}</view></view>
   <view wx:if="{{result}}" class="card"><view class="demo">离线合成结果</view><view class="note">{{result.summary}}</view><view class="muted">结论：{{result.stance}}</view></view>
   <view class="section">最近分析</view><view wx:if="{{!recent.length}}" class="card empty muted">还没有分析。</view><view wx:for="{{recent}}" wx:key="id" class="card"><view class="row"><text>{{item.date}}</text><text class="badge">离线合成</text></view><view class="note">{{item.summary}}</view><button class="link" data-id="{{item.conversationId}}" bindtap="openConversation">继续追问</button></view>
 </view>

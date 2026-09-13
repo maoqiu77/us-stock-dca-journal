@@ -1,4 +1,4 @@
 <view class="container"><view class="eyebrow">ONE CONVERSATION</view><view class="title">同一会话</view><view class="demo">{{label}}</view><view wx:if="{{error}}" class="error">{{error}}</view>
-  <view wx:for="{{messages}}" wx:key="id" class="card {{item.role === 'assistant' ? 'assistant' : ''}}"><view class="badge">{{item.role === 'assistant' ? '离线合成 AI' : '我'}}</view><view class="note">{{item.content}}</view></view>
-  <view class="card"><textarea value="{{question}}" maxlength="10000" bindinput="onQuestion" placeholder="继续追问，会使用同一 conversation_id"/><view class="actions"><button class="primary" bindtap="send">发送离线演示</button></view></view>
+  <view wx:for="{{messages}}" wx:key="id" class="card {{item.role === 'assistant' ? 'assistant' : ''}}"><view class="badge">{{item.role === 'assistant' ? (item.execution_kind === 'real' ? '模型生成' : '离线合成 AI') : '我'}}</view><view class="note">{{item.content}}</view></view>
+  <view class="card"><textarea value="{{question}}" maxlength="10000" bindinput="onQuestion" placeholder="继续追问"/><view class="actions"><button class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="send">{{cloud ? '发送已冻结追问' : '发送离线演示'}}</button></view></view>
 </view>

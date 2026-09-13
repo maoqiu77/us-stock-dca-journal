@@ -27,7 +27,7 @@ test('readonly context preview exposes deterministic ledger facts, selected orig
 test('fake analysis archives once, stays visibly demo, and leaves the financial snapshot unchanged', () => {
   const f = fixture(), financial = f.service.exportBackup();
   const result = f.service.ai().analyze({ origin: 'portfolio', anchorId: f.service.snapshot().portfolio.id, mode: 'portfolio_review', journalDate: '2026-09-10', question: '分析我的持仓', excludedJournalIds: [f.privateNote.id] });
-  assert.equal(result.run.provider, 'fake'); assert.equal(result.run.demo, true);
+  assert.equal(result.run.execution_kind, 'fake'); assert.equal(result.run.data_mode, 'personal');
   assert.match(result.result.summary, /离线合成演示/);
   assert.equal(result.result.stance, 'insufficient_data');
   assert.equal(JSON.stringify(result.request).includes('将被排除'), false);
@@ -44,13 +44,49 @@ test('portfolio, instrument and daily-review origins use the same engine and fol
     ['daily_review', '2026-09-10', 'daily_review'],
   ] as const) {
     const f = fixture();
-    const first = f.service.ai().analyze({ origin, anchorId, mode, journalDate: '2026-09-10', question: '请整理已有记录' });
+    const instrument = origin === 'instrument' ? f.service.ai().confirmResearchInstrument(anchorId, 'ETF') : undefined;
+    const first = f.service.ai().analyze({ origin, anchorId, instrument, mode, journalDate: '2026-09-10', question: '请整理已有记录' });
     const follow = f.service.ai().followUp({ conversationId: first.conversation.id, journalDate: '2026-09-10', question: '还缺什么信息？' });
     assert.equal(follow.conversation.id, first.conversation.id);
     const view = f.service.ai().conversation(first.conversation.id);
     assert.equal(view.messages.length, 4); assert.equal(view.runs.length, 2);
     assert.equal(view.messages.every(item => item.conversation_id === first.conversation.id), true);
   }
+});
+
+test('F1 creates immutable source snapshots for changed ledger state', () => {
+  const f = fixture();
+  const first = f.service.ai().analyze({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-10', question: '第一次' });
+  f.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: '2026-09-10', quantity: '1', price: '11', fee: '0', note: '加仓' });
+  const second = f.service.ai().analyze({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-10', question: '第二次' });
+  const a = first.envelope.source_snapshots.find(item => item.type === 'ledger')!, b = second.envelope.source_snapshots.find(item => item.type === 'ledger')!;
+  assert.notEqual(a.id, b.id); assert.notEqual(a.content_digest, b.content_digest);
+  assert.match(a.content, /"quantity":"2"/); assert.match(b.content, /"quantity":"3"/);
+});
+
+test('F2 daily review target does not treat journal date as a symbol filter and prepare freezes preview', () => {
+  const f = fixture();
+  const prepared = f.service.ai().prepare({ origin: 'daily_review', anchorId: '2026-09-10', mode: 'daily_review', journalDate: '2026-09-10', question: '复盘' });
+  assert.equal(prepared.envelope.target.kind, 'daily_review');
+  assert.equal(prepared.envelope.request.facts.some(item => String(item.value).includes('QQQ 2 股')), true);
+  assert.deepEqual(prepared.envelope.request.facts, prepared.preview.facts);
+});
+
+test('F3 follow-up envelope carries bounded real history without making AI text a fact source', () => {
+  const f = fixture();
+  const first = f.service.ai().analyze({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-10', question: '先分析' });
+  const prepared = f.service.ai().prepare({ origin: 'portfolio', conversationId: first.conversation.id, mode: 'follow_up', journalDate: '2026-09-10', question: '接着说', includeHistory: true });
+  assert.deepEqual(prepared.envelope.history.map(item => item.role), ['user', 'assistant']);
+  assert.equal(prepared.envelope.history[1].execution_kind, 'fake');
+  assert.equal(prepared.envelope.source_snapshots.some(item => item.type === 'ai_output'), false);
+});
+
+test('F4 unheld instrument identity is explicit even when the question omits its symbol', () => {
+  const f = fixture(), instrument = f.service.ai().confirmResearchInstrument('AAPL', 'STOCK');
+  const prepared = f.service.ai().prepare({ origin: 'instrument', instrument, anchorId: 'AAPL', mode: 'instrument_research', journalDate: '2026-09-10', question: '它还缺什么资料？' });
+  assert.equal(prepared.envelope.target.kind, 'instrument');
+  if (prepared.envelope.target.kind === 'instrument') assert.equal(prepared.envelope.target.instrument.symbol, 'AAPL');
+  assert.equal(prepared.envelope.request.facts.some(item => item.value === '当前未持有 AAPL'), true);
 });
 
 test('fake failure, timeout and invalid citation never archive a successful run', () => {

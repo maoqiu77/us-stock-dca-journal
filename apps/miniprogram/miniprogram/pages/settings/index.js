@@ -21,7 +21,7 @@ Page({
   },
   exportFile() {
     try {
-      const data = service.exportFullBackup(); const fileName = `交易日记-完整备份-v3-${today()}.json`;
+      const data = service.exportFullBackup(); const fileName = `交易日记-完整备份-v4-${today()}.json`;
       const path = `${wx.env.USER_DATA_PATH}/${fileName}`;
       // One stable dated path avoids creating a new file on every tap.
       wx.getFileSystemManager().writeFile({ filePath: path, data, encoding: 'utf8', success: () => {
@@ -46,7 +46,7 @@ Page({
   restoreBackup() {
     if (!this.data.preview || this.data.importing) return;
     const text = this._backupFileText || this.data.backupText;
-    wx.showModal({ title: '用备份替换当前完整工作区？', content: `将恢复 ${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.personalNotes} 条个人记录、${this.data.preview.runs} 份分析。${this.data.preview.complete ? '这是 v3 完整备份。' : '这是旧备份，将创建新工作区。'}`, confirmText: '确认恢复', success: result => {
+    wx.showModal({ title: '用备份替换当前完整工作区？', content: `将恢复 ${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.personalNotes} 条个人记录、${this.data.preview.runs} 份分析。${this.data.preview.version === 4 ? '这是 v4 完整备份。' : this.data.preview.complete ? '这是旧版完整备份，将迁移到 v4。' : '这是旧备份，将创建新工作区。'}`, confirmText: '确认恢复', success: result => {
       if (!result.confirm || this.data.importing) return;
       this.setData({ importing: true });
       try { service.restoreCompleteBackup(text); this._backupFileText = ''; this.setData({ backupText: '', backupFileName: '', preview: null }); this.onShow(); wx.showToast({ title: '恢复成功' }); }

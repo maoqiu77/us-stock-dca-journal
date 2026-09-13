@@ -1,0 +1,1 @@
+{"name":"portfolio-ai-cleanup-cloud-function","version":"0.1.0","private":true,"main":"index.js","dependencies":{"wx-server-sdk":"4.0.2"}}

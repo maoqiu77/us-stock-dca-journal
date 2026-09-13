@@ -6,7 +6,8 @@
     "apps/web",
     "apps/mobile",
     "packages/*",
-    "apps/miniprogram"
+    "apps/miniprogram",
+    "apps/ai-gateway"
   ],
   "scripts": {
     "setup:api": "python3 -m venv .venv && .venv/bin/pip install -r apps/api/requirements.txt",
@@ -27,5 +28,6 @@
     "test:weapp": "npm run test -w @portfolio/miniprogram",
     "check:weapp": "npm run typecheck -w @portfolio/miniprogram && npm run build:weapp && npm run test:weapp",
     "package:weapp": "npm run check:weapp && npm run package -w @portfolio/miniprogram"
+    ,"check:ai-gateway": "npm run typecheck -w @portfolio/ai-gateway && npm run test -w @portfolio/ai-gateway && npm run build -w @portfolio/ai-gateway"
   }
 }

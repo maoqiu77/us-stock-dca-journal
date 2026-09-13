@@ -5,6 +5,7 @@ import { PENDING_KEY as LEDGER_PENDING_KEY, STORAGE_KEY, type StoragePort } from
 import {
   WORKSPACE_PENDING_KEY,
   WORKSPACE_ROOT_KEY,
+  contentHash,
   createWorkspaceRepository,
 } from '../src/workspace/repository.ts';
 
@@ -91,11 +92,13 @@ test('personal notes append and edits create revisions without touching legacy f
 test('a logical AI archive commit stores one run, messages and one reference idempotently', () => {
   const f = fixture(); const repo = f.open(); repo.read();
   const conversation = repo.createConversation({ origin: 'portfolio', anchor_id: f.ledger.portfolio.id, context_mode: 'current' });
+  const source = { id: f.runtime.id(), origin_entity_id: f.ledger.portfolio.id, origin_revision: 'ledger-r1', type: 'ledger' as const, as_of: f.runtime.now(), available_at: f.runtime.now(), content_digest: '0'.repeat(64), content: '' };
   const archive = {
     conversation,
-    user_message: { id: f.runtime.id(), conversation_id: conversation.id, role: 'user' as const, content: '分析持仓', parent_message_id: null, client_turn_id: f.runtime.id(), run_id: null, status: 'saved' as const, classification: 'user_original' as const, created_at: f.runtime.now() },
-    assistant_message: { id: f.runtime.id(), conversation_id: conversation.id, role: 'assistant' as const, content: '仅离线合成分析', parent_message_id: null, client_turn_id: f.runtime.id(), run_id: f.runtime.id(), status: 'saved' as const, classification: 'ai_generated' as const, created_at: f.runtime.now() },
-    run: { id: '', request_id: f.runtime.id(), conversation_id: conversation.id, parent_run_id: null, mode: 'portfolio_review' as const, journal_date: '2026-09-10', state: 'succeeded' as const, output_validated: true as const, local_saved: true as const, provider: 'fake' as const, demo: true as const, source_ids: [], result: { summary: '仅离线合成分析' }, created_at: f.runtime.now(), completed_at: f.runtime.now() },
+    user_message: { id: f.runtime.id(), conversation_id: conversation.id, role: 'user' as const, content: '分析持仓', parent_message_id: null, client_turn_id: f.runtime.id(), run_id: null, status: 'saved' as const, classification: 'user_original' as const, execution_kind: null, created_at: f.runtime.now() },
+    assistant_message: { id: f.runtime.id(), conversation_id: conversation.id, role: 'assistant' as const, content: '仅离线合成分析', parent_message_id: null, client_turn_id: f.runtime.id(), run_id: f.runtime.id(), status: 'saved' as const, classification: 'ai_generated' as const, execution_kind: 'fake' as const, created_at: f.runtime.now() },
+    run: { schema_version: 2 as const, id: '', request_id: f.runtime.id(), conversation_id: conversation.id, parent_run_id: null, mode: 'portfolio_review' as const, journal_date: '2026-09-10', state: 'succeeded' as const, output_validated: true as const, local_saved: true as const, execution_kind: 'fake' as const, data_mode: 'demo' as const, provider_id: 'test-fake', source_integrity: 'verified' as const, source_ids: [source.id], final_manifest: {}, provider_metadata: { protocol: 'test', model: 'fake', credential_mode: 'not_applicable' as const, input_units: 0, output_units: 0 }, result: { summary: '仅离线合成分析', evidence: [{ statement: '仅有账本', source_ids: [source.id] }] }, created_at: f.runtime.now(), completed_at: f.runtime.now() },
+    sources: [source],
   };
   archive.run.id = archive.assistant_message.run_id!;
   const saved = repo.archiveAnalysis(archive);
@@ -106,6 +109,16 @@ test('a logical AI archive commit stores one run, messages and one reference ide
   assert.equal(state.messages.length, 2);
   assert.equal(state.journal.filter(item => item.type === 'analysis_ref').length, 1);
   assert.equal(JSON.parse(f.values.get(STORAGE_KEY)!).reviews.length, 1);
+
+  const root = JSON.parse(f.values.get(WORKSPACE_ROOT_KEY)!);
+  const manifest = JSON.parse(f.values.get(root.manifest_key)!);
+  const runPartition = JSON.parse(f.values.get(manifest.partitions.run.key)!);
+  delete runPartition.runs[0].source_ids;
+  const runText = JSON.stringify(runPartition);
+  f.values.set(manifest.partitions.run.key, runText);
+  manifest.partitions.run = { ...manifest.partitions.run, checksum: contentHash(runText), bytes: new TextEncoder().encode(runText).length };
+  f.values.set(root.manifest_key, JSON.stringify(manifest));
+  assert.deepEqual(f.open().read().runs[0].source_ids, [source.id]);
 });
 
 test('partition corruption fails closed while the previous root stays available', () => {
