@@ -23,6 +23,26 @@ test('capabilities exposes only a hashed trusted principal for allow-list setup'
   }
 });
 
+test('public access requires a server consent record before analysis', async () => {
+  const calls = { value: 0 }; let consented = false, ids = 300;
+  const model = provider(calls), store = createMemoryRequestStore();
+  const handler = createPortfolioAiHandler({
+    config: { expectedAppId: 'wx-test', enabled: true, consentVersion: 1, accessMode: 'public', dailyLimit: 10, globalDailyLimit: 100, maxInflight: 1, maxInputBytes: 200000, maxOutputTokens: 1500, maxExpiryMs: 600000, providerConfigured: true },
+    store, providerResolver: { configured: () => true, byokEnabled: () => false, resolve: async () => ({ provider: model, credentialMode: 'sponsored' as const, selection: { provider: 'deepseek' as const, protocol: 'openai-compatible-chat-completions' as const, baseUrl: 'https://api.deepseek.com' as const, model: 'deepseek-flash' as const } }) },
+    access: { allowed: async () => consented, status: async () => ({ enrolled: true, consented, allowed: consented }), accept: async () => { consented = true; } }, now: () => '2026-09-12T10:01:00.000Z', id: () => id(++ids),
+  });
+  const before = await handler({ action: 'analyze', envelope: envelope() }, context); assert.equal(before.ok, false); assert.equal(calls.value, 0);
+  assert.equal((await handler({ action: 'consent', accepted: true, consent_version: 1 }, context)).ok, true);
+  assert.equal((await handler({ action: 'analyze', envelope: envelope() }, context)).ok, true); assert.equal(calls.value, 1);
+});
+
+test('global daily budget stops new identities without calling the provider', async () => {
+  const calls = { value: 0 }; let ids = 400; const store = createMemoryRequestStore(), model = provider(calls);
+  const handler = createPortfolioAiHandler({ config: { expectedAppId: 'wx-test', enabled: true, consentVersion: 1, dailyLimit: 10, globalDailyLimit: 1, maxInflight: 1, maxInputBytes: 200000, maxOutputTokens: 1500, maxExpiryMs: 600000, providerConfigured: true }, store, providerResolver: { configured: () => true, byokEnabled: () => false, resolve: async () => ({ provider: model, credentialMode: 'sponsored' as const, selection: { provider: 'deepseek' as const, protocol: 'openai-compatible-chat-completions' as const, baseUrl: 'https://api.deepseek.com' as const, model: 'deepseek-flash' as const } }) }, access: { allowed: async () => true }, now: () => '2026-09-12T10:01:00.000Z', id: () => id(++ids) });
+  await handler({ action: 'analyze', envelope: envelope() }, context);
+  const denied = await handler({ action: 'analyze', envelope: envelope(id(50), id(51)) }, context); assert.equal(denied.ok, false); if (!denied.ok) assert.equal(denied.error.code, 'SERVICE_BUDGET_EXHAUSTED'); assert.equal(calls.value, 1);
+});
+
 test('trusted identity is mandatory and another owner cannot read or ack results', async () => {
   const f = fixture(), e = envelope();
   assert.equal((await f.handler({ action: 'analyze', envelope: e }, { ...context, appId: 'forged' })).ok, false);

@@ -9,6 +9,7 @@ import {
   journalEntrySchema,
   legacyAnalysisRunSchema,
   legacyMessageSchema,
+  legacyOutboxTurnV1Schema,
   legacySourceSnapshotSchema,
   messageSchema,
   migrationStateSchema,
@@ -47,7 +48,7 @@ const interimAnalysisRunSchema = analysisRunSchema.omit({ source_ids: true }).ex
 const interimRunPartitionSchema = z.strictObject({ version: z.literal(2), runs: z.array(interimAnalysisRunSchema).max(5000) });
 const sourcePartitionSchema = z.strictObject({ version: z.literal(2), sources: z.array(sourceSnapshotSchema).max(10000) });
 const policyPartitionSchema = z.strictObject({ version: z.literal(2), policies: workspaceStateSchema.shape.policies });
-const outboxPartitionSchema = z.strictObject({ version: z.literal(2), turns: z.array(outboxTurnSchema).max(2000) });
+const outboxPartitionSchema = z.strictObject({ version: z.literal(2), turns: z.array(z.union([outboxTurnSchema, legacyOutboxTurnV1Schema])).max(2000) });
 const legacyManifestSchema = z.strictObject({ version: z.literal(1), instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), created_at: timestampSchema, migration: migrationStateSchema, partitions: z.strictObject({ journal: partitionRefSchema, chat: partitionRefSchema, run: partitionRefSchema, source: partitionRefSchema, policy: partitionRefSchema }) });
 const legacyRootSchema = z.strictObject({ version: z.literal(1), active_instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), manifest_key: z.string().min(1).max(300), switched_at: timestampSchema });
 const legacyJournalPartitionSchema = z.strictObject({ version: z.literal(1), entries: z.array(journalEntrySchema).max(10000) });
@@ -186,8 +187,8 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     const runs = storedRuns.map(run => analysisRunSchema.parse({ ...run, source_ids: run.source_ids ?? storedCitationIds(run.result) }));
     const sources = readPartition(manifest.partitions.source, sourcePartitionSchema, '来源').sources;
     const policies = readPartition(manifest.partitions.policy, policyPartitionSchema, '计划').policies;
-    const outbox = readPartition(manifest.partitions.outbox, outboxPartitionSchema, '待处理请求').turns;
-    const state = workspaceStateSchema.safeParse({ version: 2, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages, runs, sources, policies, outbox });
+    const outbox = readPartition(manifest.partitions.outbox, outboxPartitionSchema, '待处理请求').turns.map(turn => turn.schema_version === 2 ? turn : outboxTurnSchema.parse({ ...turn, schema_version: 2, status: 'detached', detached_reason: '旧版本待处理请求已隔离，不会自动联网重放。' }));
+    const state = workspaceStateSchema.safeParse({ version: 3, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages, runs, sources, policies, outbox });
     if (!state.success) throw Error('工作区引用损坏或版本不兼容。');
     validateWorkspaceReferences(state.data);
     return state.data;
@@ -241,7 +242,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     const policies = readLegacyPartition(manifest.partitions.policy, legacyPolicyPartitionSchema, '计划').policies;
     const sources = oldSources.map(source => sourceSnapshotSchema.parse({ id: source.id, origin_entity_id: source.id, origin_revision: source.revision, type: source.type, as_of: source.as_of, available_at: source.available_at, content_digest: sha256(source.content), content: source.content }));
     const runs = oldRuns.map(run => analysisRunSchema.parse({ schema_version: 2, id: run.id, request_id: run.request_id, conversation_id: run.conversation_id, parent_run_id: run.parent_run_id, mode: run.mode, journal_date: run.journal_date, state: run.state, output_validated: run.output_validated, local_saved: run.local_saved, execution_kind: 'fake', data_mode: 'demo', provider_id: 'legacy-fake', source_integrity: 'legacy_unverified', source_ids: run.source_ids, final_manifest: { legacy_workspace_version: 1, source_ids: run.source_ids }, provider_metadata: { protocol: 'legacy-local', model: 'deterministic-fake', credential_mode: 'not_applicable', input_units: 0, output_units: 0 }, result: run.result, created_at: run.created_at, completed_at: run.completed_at }));
-    return workspaceStateSchema.parse({ version: 2, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation + 1, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages.map(message => messageSchema.parse({ ...message, execution_kind: message.role === 'assistant' ? 'fake' : null })), runs, sources, policies, outbox: [] });
+    return workspaceStateSchema.parse({ version: 3, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation + 1, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages.map(message => messageSchema.parse({ ...message, execution_kind: message.role === 'assistant' ? 'fake' : null })), runs, sources, policies, outbox: [] });
   }
   function replacementState(input: WorkspaceState, financial: Snapshot) {
     validateWorkspaceReferences(input);
@@ -257,7 +258,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
       const id = unique(runtime, used); map[review.date] = id;
       return journalEntrySchema.parse({ id, revision_id: unique(runtime, used), parent_revision: null, journal_date: review.date, type: 'personal_note', ref_id: null, body: review.text, classification: 'user_original', created_at: review.updated_at, updated_at: review.updated_at });
     });
-    return workspaceStateSchema.parse({ version: 2, instance_id: instance, portfolio_id: financial.portfolio.id, root_generation: 1, migration: { source: 'legacy_reviews', completed_at: runtime.now(), legacy_review_map: map }, journal, conversations: [], messages: [], runs: [], sources: [], policies: [{ portfolio_id: financial.portfolio.id, status: 'unknown' }], outbox: [] });
+    return workspaceStateSchema.parse({ version: 3, instance_id: instance, portfolio_id: financial.portfolio.id, root_generation: 1, migration: { source: 'legacy_reviews', completed_at: runtime.now(), legacy_review_map: map }, journal, conversations: [], messages: [], runs: [], sources: [], policies: [{ portfolio_id: financial.portfolio.id, status: 'unknown' }], outbox: [] });
   }
   function prepareReplacement(input: WorkspaceState | undefined, financial: Snapshot) {
     if (pending()) throw new WorkspacePersistenceError('WORKSPACE_PENDING', '有一笔工作区保存待核验，已暂停恢复。');
@@ -372,7 +373,9 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
   function conversation(id: string) {
     const state = read(), item = state.conversations.find(candidate => candidate.id === id);
     if (!item) throw Error('会话不存在。');
-    return { conversation: item, messages: state.messages.filter(message => message.conversation_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)), runs: state.runs.filter(run => run.conversation_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)) };
+    const runs = state.runs.filter(run => run.conversation_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+    const sourceIds = new Set(runs.flatMap(run => run.source_ids));
+    return { conversation: item, messages: state.messages.filter(message => message.conversation_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)), runs, sources: state.sources.filter(source => sourceIds.has(source.id)) };
   }
   function readPrevious() {
     const text = raw(WORKSPACE_PREVIOUS_KEY, '无法读取工作区恢复点。');
@@ -397,7 +400,14 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     });
     return policy;
   }
-  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, createConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, conversation, confirmPolicy };
+  function purge() {
+    const current = raw(WORKSPACE_ROOT_KEY, '无法读取工作区根指针。'), previous = raw(WORKSPACE_PREVIOUS_KEY, '无法读取工作区恢复点。');
+    setVerified(storage, WORKSPACE_ROOT_KEY, '', '删除工作区失败');
+    setVerified(storage, WORKSPACE_PREVIOUS_KEY, '', '删除工作区恢复点失败');
+    for (const key of [WORKSPACE_PENDING_KEY, WORKSPACE_PENDING_BEFORE_KEY, WORKSPACE_PENDING_NEXT_KEY, `${LEGACY_WORKSPACE_PREFIX}.root`]) try { storage.set(key, ''); } catch { throw Error('删除工作区待处理数据失败。'); }
+    cleanupCommittedRoot(current); cleanupCommittedRoot(previous); generation++;
+  }
+  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, createConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, conversation, confirmPolicy, purge };
 }
 
 export function validateWorkspaceReferences(state: WorkspaceState) {

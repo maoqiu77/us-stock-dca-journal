@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { sealResearchTurnV2, sha256 } from '@portfolio/ai-context';
+import { createPortfolioAiHandler } from '../src/handler.ts';
+import { createMemoryRequestStore } from '../src/request-store.ts';
+import { createMemoryMarketReceiptStore } from '../src/market/receipt-store.ts';
+
+const id = (n: number) => `85000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const at = '2026-09-13T10:00:00.000Z';
+const quote = { schema_version: 1 as const, instrument_key: 'US:XNAS:AAPL', symbol: 'AAPL', currency: 'USD' as const, price: '221.10', price_kind: 'last_trade' as const, previous_close: '220', previous_close_date: '2026-09-12', change: '1.10', change_percent: '0.5', volume: '1', volume_scope: 'feed_only' as const, session: 'regular' as const, market_status: 'open' as const, trading_date: '2026-09-13', exchange_timezone: 'America/New_York' as const, provider: 'Twelve Data', feed: 'licensed', coverage: 'venue_subset' as const, timeliness: 'delayed' as const, delay_seconds: 900, as_of: at, received_at: at, served_at: at, freshness: 'current' as const, cache_state: 'miss' as const, status: 'available' as const, reason: null, adjustment: 'unadjusted' as const, attribution: 'Twelve Data' };
+
+test('AI V2 resolves only the owner receipt, archives its exact quote body, and ACK removes private receipt', async () => {
+  const receipts = createMemoryMarketReceiptStore();
+  const receipt = await receipts.create({ owner: 'owner-a', id: id(10), purpose: 'portfolio_review', instrumentKeys: [quote.instrument_key], quotes: [quote], provider: 'Twelve Data', feed: 'licensed', entitlementVersion: 'market-v1', createdAt: at, expiresAt: '2026-09-13T10:10:00.000Z' });
+  const content = '{"positions":[]}'; const personal = { id: id(8), origin_entity_id: id(3), origin_revision: id(9), type: 'ledger' as const, as_of: at, available_at: at, content_digest: sha256(content), content };
+  const envelope = sealResearchTurnV2({ transport_version: 2, request: { schema_version: 2, request_id: id(1), workspace_instance_id: id(2), portfolio_id: id(3), conversation_id: id(4), client_turn_id: id(5), mode: 'portfolio_review', journal_date: '2026-09-13', personal_snapshot_at: at, question: '分析', facts: [{ id: id(6), name: '持仓', value: '无', source_ids: [personal.id], freshness: 'current', completeness: 'complete' }], excerpts: [], excluded_source_ids: [] }, target: { kind: 'portfolio', portfolio_id: id(3) }, history: [], history_omitted_count: 0, source_snapshots: [personal], consent: { scope_version: 1, confirmed_at: at, include_positions: true, include_journal: false, include_trade_reasons: false, include_policy: false, include_history: false }, market: { use_market_data: true, receipt_id: receipt.id, receipt_digest: receipt.digest }, prepared_at: at, expires_at: '2026-09-13T10:10:00.000Z' });
+  let quoteSourceId = '';
+  const provider = { async invoke(e: any) { const source = e.source_snapshots.find((item: any) => item.type === 'quote'); quoteSourceId = source.id; return { providerId: 'test', protocol: 'test', model: 'test', credentialMode: 'sponsored' as const, inputUnits: 1, outputUnits: 1, result: { schema_version: 2 as const, request_id: e.request.request_id, classification: 'ai_generated' as const, mode: e.request.mode, summary: '引用行情', stance: 'observe' as const, evidence: [{ statement: '报价 221.10', source_ids: [source.id] }], counterarguments: [], conditions: [], missing_information: [], candidates: [], next_questions: [] } }; } };
+  let ids = 100;
+  const handler = createPortfolioAiHandler({ config: { expectedAppId: 'wx-test', enabled: true, consentVersion: 1, dailyLimit: 10, maxInflight: 1, maxInputBytes: 200000, maxOutputTokens: 1500, maxExpiryMs: 600000, providerConfigured: true }, store: createMemoryRequestStore(), receipts, providerResolver: { configured: () => true, byokEnabled: () => false, resolve: async () => ({ provider, credentialMode: 'sponsored' as const, selection: {} as any }) }, access: { allowed: async owner => owner === 'owner-a' }, now: () => '2026-09-13T10:01:00.000Z', id: () => id(++ids) });
+  const started = await handler({ action: 'analyze', envelope }, { appId: 'wx-test', openId: 'owner-a', source: 'wechat-miniprogram' }); assert.equal(started.ok, true);
+  const response = await handler({ action: 'result', request_id: id(1), payload_digest: envelope.payload_digest }, { appId: 'wx-test', openId: 'owner-a', source: 'wechat-miniprogram' });
+  assert.equal(response.ok, true); if (!response.ok) return;
+  const data = response.data as any; assert.equal(data.transport_version, 2); assert.equal(data.external_source_snapshots[0].id, quoteSourceId); assert.equal(JSON.parse(data.external_source_snapshots[0].content).price, '221.10');
+  assert.equal((await handler({ action: 'analyze', envelope }, { appId: 'wx-test', openId: 'owner-b', source: 'wechat-miniprogram' })).ok, false);
+  await handler({ action: 'ack', request_id: id(1), payload_digest: envelope.payload_digest, response_digest: data.response_digest }, { appId: 'wx-test', openId: 'owner-a', source: 'wechat-miniprogram' });
+  assert.equal(await receipts.get('owner-a', receipt.id), undefined);
+});

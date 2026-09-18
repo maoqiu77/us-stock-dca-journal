@@ -25,7 +25,7 @@ This project is the new shadcn/Next/FastAPI implementation. Do not edit the olde
 ## Backend
 
 - Keep the FastAPI API local-first.
-- External market providers must degrade to deterministic sample data so the UI remains usable.
+- Production market providers may return only real observations, timestamped real caches, or an explicit unavailable state. Deterministic sample data is allowed only through explicit development/test injection and must not enter a production dependency graph.
 - Runtime writes must target `storage/local` by default.
 
 ## Local Runtime

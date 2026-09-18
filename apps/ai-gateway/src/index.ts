@@ -4,3 +4,4 @@ export * from './cloudbase-store.ts';
 export * from './providers/deepseek.ts';
 export * from './credentials.ts';
 export * from './cleanup.ts';
+export * from './market/index.ts';

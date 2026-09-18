@@ -1,0 +1,1 @@
+.quote{background:#f4f7f2;border-radius:16rpx;padding:20rpx;margin-top:20rpx}.row{display:flex;justify-content:space-between;gap:16rpx;line-height:1.8}.number{font-weight:650}.meta{color:#77847b;font-size:22rpx;line-height:1.6;margin-top:10rpx;overflow-wrap:anywhere}

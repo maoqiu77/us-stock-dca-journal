@@ -10,6 +10,7 @@ function boot(service, options = {}) {
   const wx = {
     navigateTo: value => calls.navigate.push(value.url),
     navigateBack: () => { calls.back += 1; },
+    setNavigationBarTitle: () => {},
     showToast: value => calls.notices.push(value),
     showModal: value => { calls.notices.push(value); value.success?.({ confirm: true }); },
     setClipboardData: value => { calls.clipboard.push(value.data); value.success?.(); },

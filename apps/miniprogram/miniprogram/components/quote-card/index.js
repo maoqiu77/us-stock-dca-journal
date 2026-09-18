@@ -1,0 +1,1 @@
+Component({ properties: { price: { type: String, value: '' }, marketValue: { type: String, value: '' }, unrealized: { type: String, value: '' }, weight: { type: String, value: '' }, asOf: { type: String, value: '' }, freshness: { type: String, value: 'unavailable' }, attribution: { type: String, value: '' }, mappingStatus: { type: String, value: 'not_found' } } });

@@ -14,6 +14,11 @@ function fixture(retention = '86400000') {
     ['ai_requests/unknown', { _id: 'unknown', state: 'outcome_unknown', createdAt: '2026-09-11T11:00:00.000Z', envelope: 'remove unknown body' }],
     ['ai_usage/counter', { count: 3, inflight: 1 }],
     ['ai_turn_keys/key', { digest: 'keep' }],
+    ['market_receipts_private/unused', { _id: 'unused', expiresAt: '2026-09-11T10:00:00.000Z' }],
+    ['market_receipts_private/done', { _id: 'done', acceptedRequestId: 'request-done', requestDocumentId: 'done-request', retainedUntil: '2026-09-13T11:00:00.000Z' }],
+    ['ai_requests/done-request', { _id: 'done-request', state: 'succeeded', createdAt: '2026-09-13T10:00:00.000Z' }],
+    ['market_receipts_private/live', { _id: 'live', acceptedRequestId: 'request-live', requestDocumentId: 'live-request', retainedUntil: '2026-09-13T11:00:00.000Z' }],
+    ['ai_requests/live-request', { _id: 'live-request', state: 'running', createdAt: '2026-09-13T10:00:00.000Z' }],
   ]);
   let reads = 0;
   const db = {
@@ -73,6 +78,9 @@ test('cleanup accepts authenticated timer Message and purges both body copies, i
   assert.equal(f.rows.get('ai_requests/running').envelope, 'keep');
   assert.deepEqual(f.rows.get('ai_usage/counter'), { count: 3, inflight: 1 });
   assert.deepEqual(f.rows.get('ai_turn_keys/key'), { digest: 'keep' });
+  assert.equal(f.rows.has('market_receipts_private/unused'), false);
+  assert.equal(f.rows.has('market_receipts_private/done'), false);
+  assert.equal(f.rows.has('market_receipts_private/live'), true);
   const after = JSON.stringify([...f.rows]);
   await f.main({ token: 'synthetic-test-token' });
   assert.equal(JSON.stringify([...f.rows]), after);

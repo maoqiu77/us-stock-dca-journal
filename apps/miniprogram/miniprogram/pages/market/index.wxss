@@ -1,0 +1,1 @@
+.row{gap:20rpx}.row>view:first-child{flex:1}input{background:#f4f6f2;padding:20rpx;border-radius:16rpx;margin-bottom:16rpx}

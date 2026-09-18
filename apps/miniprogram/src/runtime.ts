@@ -10,24 +10,18 @@ import '@formatjs/intl-datetimeformat/locale-data/en';
 import '@formatjs/intl-datetimeformat/add-golden-tz';
 import { createService } from './service.ts';
 import { createCloudTransport } from './ai/cloud-transport.ts';
+import { createCloudMarketTransport } from './market/cloud-transport.ts';
 
-export function today() {
-  // Account calendar is explicit Asia/Shanghai; no implicit device timezone.
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-}
-function id() {
-  // Local record identity only; never use this generator for secrets or sessions.
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => {
-    const n = Math.floor(Math.random() * 16); return (char === 'x' ? n : (n & 3) | 8).toString(16);
-  });
-}
-const config = (globalThis as any).__PORTFOLIO_CONFIG__ as { aiTransport?: string; aiFunctionName?: string } | undefined;
-const aiTransport = config?.aiTransport === 'cloud' ? createCloudTransport((options) => wx.cloud.callFunction(options as any) as any, config.aiFunctionName ?? '') : undefined;
+export function today() { return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10); }
+function id() { return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, char => { const n = Math.floor(Math.random() * 16); return (char === 'x' ? n : (n & 3) | 8).toString(16); }); }
+const config = (globalThis as any).__PORTFOLIO_CONFIG__ as { aiTransport?: string; aiFunctionName?: string; marketFunctionName?: string; version?: string; profile?: string } | undefined;
+const aiTransport = config?.aiTransport === 'cloud' ? createCloudTransport(options => wx.cloud.callFunction(options as any) as any, config.aiFunctionName ?? '') : undefined;
+const marketTransport = config?.marketFunctionName ? createCloudMarketTransport(options => wx.cloud.callFunction(options as any) as any, config.marketFunctionName) : undefined;
 export const service = createService({
   get(key) { const raw: unknown = wx.getStorageSync(key); if (raw === '') return ''; if (typeof raw !== 'string') throw Error('invalid_storage_type'); return raw; },
   set(key, value) { wx.setStorageSync(key, value); },
+  keys() { return wx.getStorageInfoSync().keys; },
   info() { const { currentSize, limitSize } = wx.getStorageInfoSync(); return { currentSize, limitSize }; },
-}, { today, now: () => new Date().toISOString(), id }, { aiTransport });
-export function showError(error: unknown) {
-  wx.showModal({ title: '未完成操作', content: error instanceof Error ? error.message : '操作失败，请重试。', showCancel: false });
-}
+}, { today, now: () => new Date().toISOString(), id }, { aiTransport, marketTransport });
+export const buildInfo = { version: config?.version ?? '', profile: config?.profile ?? '' };
+export function showError(error: unknown) { wx.showModal({ title: '未完成操作', content: error instanceof Error ? error.message : '操作失败，请重试。', showCancel: false }); }

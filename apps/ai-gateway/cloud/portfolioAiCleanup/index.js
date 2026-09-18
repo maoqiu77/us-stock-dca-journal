@@ -51,5 +51,17 @@ exports.main = async event => {
     cursor = payloads.data[payloads.data.length - 1]._id;
     if (payloads.data.length < 100) break;
   }
-  return { removed, purgedRequests };
+  // Private market receipts follow the request lifecycle. Prepared-but-unused
+  // receipts receive the same retention grace; accepted receipts are removed
+  // after retainedUntil only when their AI request is no longer running.
+  let removedReceipts = 0;
+  const stalePrepared = await db.collection('market_receipts_private').where({ expiresAt: db.command.lt(before), acceptedRequestId: db.command.exists(false) }).field({ _id: true }).limit(100).get();
+  for (const row of stalePrepared.data) { await db.collection('market_receipts_private').doc(row._id).remove(); removedReceipts++; }
+  const retained = await db.collection('market_receipts_private').where({ retainedUntil: db.command.lt(now), acceptedRequestId: db.command.exists(true) }).field({ _id: true, requestDocumentId: true }).limit(100).get();
+  for (const row of retained.data) {
+    const request = row.requestDocumentId ? document(await db.collection('ai_requests').doc(row.requestDocumentId).get()) : null;
+    if (request?.state === 'running') continue;
+    await db.collection('market_receipts_private').doc(row._id).remove(); removedReceipts++;
+  }
+  return { removed, purgedRequests, removedReceipts };
 };

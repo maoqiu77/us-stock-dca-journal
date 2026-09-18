@@ -1,10 +1,14 @@
-import { decimal, decimalText, dateSchema, ledgerEventSchema, projectLedger, type LedgerEvent } from '@portfolio/domain';
+import { decimal, decimalText, dateSchema, ledgerEventSchema, projectLedger, valuePortfolio, type LedgerEvent } from '@portfolio/domain';
 import { createRepository, type StoragePort } from './repository.ts';
 import { activeEvents, clockState, emptySnapshot, projection, validateSnapshot, type Runtime, type Snapshot } from './model.ts';
 import { createWorkspaceRepository } from './workspace/repository.ts';
 import { backupPreview, encodeFullBackup, parseCompleteBackup } from './workspace/backup.ts';
 import { createAiEngine } from './ai/engine.ts';
 import type { AiTransport } from './ai/transport.ts';
+import type { FakeAiProvider } from './ai/fake-provider.ts';
+import { createMarketClient } from './market/client.ts';
+import type { MarketTransport } from './market/transport.ts';
+import { createMarketDiscovery } from './market/discovery.ts';
 
 export class ServiceError extends Error {
   readonly code: string;
@@ -39,10 +43,13 @@ const ledgerMessages: Record<string, string> = {
   order_conflict: '同日记录顺序冲突，请重新预览后保存。',
 };
 
-export function createService(storage: StoragePort, runtime: Runtime, options: { aiTransport?: AiTransport } = {}) {
+export type ServiceOptions = { aiTransport?: AiTransport; fakeProvider?: FakeAiProvider; demoFactory?: (runtime: Runtime) => Snapshot; marketTransport?: MarketTransport };
+export function createService(storage: StoragePort, runtime: Runtime, options: ServiceOptions = {}) {
   const repo = createRepository(storage, runtime);
   const workspace = createWorkspaceRepository(storage, runtime, { readFinancial: repo.ensurePersisted, ledgerPending: repo.pendingSave });
   let aiEngine: ReturnType<typeof createAiEngine> | undefined;
+  const marketClient = createMarketClient(storage, options.marketTransport, { now: runtime.now });
+  const marketDiscovery = createMarketDiscovery(storage, options.marketTransport, { now: runtime.now });
   // Exact content plus replacement generation: never rely on a short hash for stale edits.
   function snapshotToken(data: Snapshot) { return `${repo.generation()}:${JSON.stringify(data)}`; }
   function fail(code: string, message: string): never { throw new ServiceError(code, message); }
@@ -178,16 +185,20 @@ export function createService(storage: StoragePort, runtime: Runtime, options: {
 
   function overview(cutoff?: { throughDate: string; knownAt: string }) {
     const data = repo.read(), projected = cutoff ? projection(data, runtime, { through_date: cutoff.throughDate, known_at: cutoff.knownAt }) : projection(data, runtime), state = clockState(data, runtime);
-    const positions = projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => { const instrument = data.instruments.find(candidate => candidate.id === item.instrument_id)!; return { id: item.instrument_id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: item.quantity, cost: money(item.remaining_cost), unitCost: item.unit_cost ? calculated(item.unit_cost).toFixed(4) : '—', realized: money(item.realized_pnl) }; });
+    const held = projected.positions.filter(item => calculated(item.quantity).gt(0)), instruments = held.map(item => data.instruments.find(candidate => candidate.id === item.instrument_id)!), market = marketClient.snapshot(instruments), { observations: _marketObservations, ...marketView } = market;
+    const valuation = valuePortfolio(projected, data.mode === 'demo' ? [] : market.observations, { as_of: projected.known_at, max_age_ms: 20 * 60 * 1000 });
+    const valued = new Map(valuation.positions.map(item => [item.instrument_id, item]));
+    const positions = held.map(item => { const instrument = data.instruments.find(candidate => candidate.id === item.instrument_id)!, value = valued.get(item.instrument_id), marketRow = market.instruments.find(candidate => candidate.id === item.instrument_id); return { id: item.instrument_id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: item.quantity, cost: money(item.remaining_cost), unitCost: item.unit_cost ? calculated(item.unit_cost).toFixed(4) : '—', realized: money(item.realized_pnl), marketPrice: value?.quote?.price ?? null, marketValue: value?.market_value ? money(value.market_value) : null, unrealized: value?.unrealized_pnl ? money(value.unrealized_pnl) : null, weightExCash: value?.position_weight_ex_cash ? `${calculated(value.position_weight_ex_cash).times(100).toFixed(2)}%` : null, quoteAsOf: value?.quote?.as_of ?? null, quoteFreshness: marketRow?.stale ? 'stale' : value?.quote ? 'current' : 'unavailable', mappingStatus: marketRow?.mapping ?? 'not_found', attribution: marketRow?.quote?.attribution ?? '' }; });
     return { mode: data.mode, positions, totalCost: money(projected.positions.reduce((sum, item) => sum.plus(item.remaining_cost), decimal('0')).toString()), realized: money(projected.realized_pnl), cash: projected.cash,
-      marketValue: null, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
+      marketValue: valuation.stock_coverage.current_complete && held.length ? money(valuation.covered_market_value) : null, coveredMarketValue: valuation.stock_coverage.covered ? money(valuation.covered_market_value) : null, netValue: valuation.net_value ? money(valuation.net_value) : null, market: marketView, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
       clockAnomaly: state.clock_anomaly, throughDate: projected.through_date, knownAt: projected.known_at };
   }
   function positionDetail(idOrSymbol: string) {
     const data = repo.read(), instrument = data.instruments.find(item => item.id === idOrSymbol || item.symbol === idOrSymbol.trim().toUpperCase()); if (!instrument) return fail('NOT_FOUND', '标的不存在。');
     const projected = replay(data).positions.find(item => item.instrument_id === instrument.id), related = active(data).filter(item => 'instrument_id' in item && item.instrument_id === instrument.id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position' && !item.voided);
     const time = clockState(data, runtime);
-    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id: instrument.id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: projected?.quantity ?? '0', cost: money(projected?.remaining_cost ?? '0'), unitCost: projected?.unit_cost ? calculated(projected.unit_cost).toFixed(4) : '—', realized: money(projected?.realized_pnl ?? '0'), opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean) };
+    const priced = overview().positions.find(item => item.id === instrument.id), marketIdentity = marketClient.snapshot([instrument]).instruments[0]?.canonicalInstrument ?? null;
+    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id: instrument.id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: projected?.quantity ?? '0', cost: money(projected?.remaining_cost ?? '0'), unitCost: projected?.unit_cost ? calculated(projected.unit_cost).toFixed(4) : '—', realized: money(projected?.realized_pnl ?? '0'), marketPrice: priced?.marketPrice ?? null, marketValue: priced?.marketValue ?? null, unrealized: priced?.unrealized ?? null, weightExCash: priced?.weightExCash ?? null, quoteAsOf: priced?.quoteAsOf ?? null, quoteFreshness: priced?.quoteFreshness ?? 'unavailable', mappingStatus: priced?.mappingStatus ?? 'not_found', attribution: priced?.attribution ?? '', marketIdentity, opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean) };
   }
   function journalTimeline(date: string) {
     const state = workspace.read(), runs = new Map(state.runs.map(item => [item.id, item]));
@@ -205,7 +216,31 @@ export function createService(storage: StoragePort, runtime: Runtime, options: {
     journal: () => workspace,
     workspacePending: workspace.pendingSave, verifyWorkspacePending: workspace.verifyPending, retryWorkspacePending: workspace.retryPending,
     journalTimeline,
-    ai: () => aiEngine ??= createAiEngine(workspace, { snapshot: repo.read, overview, records, positionDetail }, runtime, options.aiTransport),
+    async refreshMarket() { const data = repo.read(), projected = projection(data, runtime), heldIds = new Set(projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => item.instrument_id)); await marketClient.refresh(data.instruments.filter(item => heldIds.has(item.id))); },
+    invalidateMarketRequest: marketClient.invalidate,
+    clearMarketCache: marketClient.clear,
+    searchMarket: marketDiscovery.search,
+    cancelMarketSearch: marketDiscovery.cancelSearch,
+    marketDiscovery: marketDiscovery.view,
+    addWatchlist: marketDiscovery.add,
+    removeWatchlist: marketDiscovery.remove,
+    marketBars: marketDiscovery.loadBars,
+    async prepareAnalysisMarket(mode: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up', symbol?: string) {
+      if (!options.marketTransport?.prepareAnalysisSnapshot) return null;
+      const data = repo.read(), projected = projection(data, runtime);
+      const heldIds = new Set(projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => item.instrument_id));
+      const ledger = data.instruments.filter(item => heldIds.has(item.id)), mapped = marketClient.snapshot(ledger).instruments;
+      let keys = mapped.map(item => item.instrumentKey).filter((key): key is string => !!key);
+      if (symbol) {
+        const normalized = symbol.trim().toUpperCase();
+        const selected = [...marketDiscovery.view().results, ...marketDiscovery.view().watchlist].find(item => item.symbol === normalized);
+        keys = selected ? [selected.instrument_key] : mapped.filter(item => item.symbol === normalized).map(item => item.instrumentKey).filter((key): key is string => !!key);
+      }
+      keys = [...new Set(keys)];
+      if (!keys.length) return null;
+      return options.marketTransport.prepareAnalysisSnapshot(keys, mode);
+    },
+    ai: () => aiEngine ??= createAiEngine(workspace, { snapshot: repo.read, overview, records, positionDetail }, runtime, options.aiTransport, options.fakeProvider),
     firstUse() { const data = repo.read(), events = active(data).filter(item => !item.voided); const hasOpeningPositions = events.some(item => item.kind === 'opening_position'); return { isEmpty: events.length === 0, openingDate: hasOpeningPositions ? data.portfolio.opening_date : null, hasOpeningPositions }; },
     previewTrade(input: TradeInput) {
       repo.assertWritable(); const data = repo.read(), built = buildTrade(data, input);
@@ -234,17 +269,18 @@ export function createService(storage: StoragePort, runtime: Runtime, options: {
     saveReview(date: string, text: string) { const data = repo.read(); checkDate(data, date); const trimmed = text.trim(); if (!trimmed || trimmed.length > 4000) fail('INVALID_INPUT', '请填写 1–4000 字的复盘内容。'); repo.write({ ...data, reviews: [...data.reviews.filter(item => item.date !== date), { date, text: trimmed, updated_at: runtime.now() }].sort((a, b) => b.date.localeCompare(a.date)) }); },
     exportBackup: repo.exportBackup, exportRaw: repo.exportRaw,
     previewBackup(text: string) { const data = repo.parseBackup(text); return { openings: active(data).filter(item => !item.voided && item.kind === 'opening_position').length, trades: active(data).filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, reviews: data.reviews.length, mode: data.mode }; },
-    exportFullBackup() { return encodeFullBackup(repo.read(), workspace.read(), runtime); },
+    exportFullBackup() { return encodeFullBackup(repo.read(), workspace.read(), runtime, marketDiscovery.exportWatchlist()); },
     previewCompleteBackup(text: string) { return backupPreview(parseCompleteBackup(text, runtime), runtime); },
-    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); },
+    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); marketDiscovery.replaceWatchlist(parsed.watchlist); marketClient.clear(); },
     restoreBackup(text: string) { const financial = repo.parseBackup(text); const prepared = workspace.prepareReplacement(undefined, financial); repo.replace(financial); prepared.commit(); },
     recoverPrevious() { const financial = repo.readPrevious(), previousWorkspace = workspace.readPreviousOptional(), prepared = workspace.prepareReplacement(previousWorkspace, financial); repo.recoverPrevious(); prepared.commit(); },
     loadDemo() {
+      if (!options.demoFactory) throw Error('当前构建不提供示例数据。');
       const data = repo.read(); if (data.events.length || data.reviews.length || data.mode === 'demo') fail('NOT_EMPTY', '只有空账本可以载入示例。');
-      const samples = new Map<string, string>(); const sampleStore = { get: (key: string) => samples.get(key) ?? '', set: (key: string, value: string) => { samples.set(key, value); } }; samples.set('portfolio.wechat.v1', JSON.stringify({ ...emptySnapshot(runtime), mode: 'demo' as const })); const sample = createService(sampleStore, runtime);
-      sample.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: runtime.today(), quantity: '2', price: '100', fee: '1', note: '合成示例，不是真实行情或交易' }); sample.saveTrade({ kind: 'sell', symbol: 'QQQ', date: runtime.today(), quantity: '0.5', price: '110', fee: '0.2', note: '合成示例：练习部分卖出' }); sample.saveReview(runtime.today(), '这是一条示例复盘：记录买入理由、执行情况和下一次改进。'); const next = { ...sample.snapshot(), mode: 'demo' as const }; const prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit();
+      const next = options.demoFactory(runtime); const prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit();
     },
     startEmpty() { const next = emptySnapshot(runtime), prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit(); },
+    deleteAllLocalData() { workspace.purge(); repo.purge(); marketClient.clear(); marketDiscovery.replaceWatchlist([]); },
   };
   return service;
 }

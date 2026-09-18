@@ -1,7 +1,8 @@
-const { service, today, showError } = require('../../lib/core');
+const { service, today, showError, buildInfo = {} } = require('../../lib/core');
 Page({
-  data: { pendingSave: false, workspacePending: false, retryable: false, workspaceRetryable: false, error: '', mode: '', trades: 0, reviews: 0, conversations: 0, runs: 0, sources: 0, backupText: '', backupFileName: '', preview: null, importing: false, canExportRaw: false, clockAnomaly: null, horizon: '', maxSingleWeight: '', effectiveFrom: '' },
-  onShow() { this.refreshPending(); try { const state = service.snapshot(), workspace = service.journal().read(), view = service.overview(), policy = workspace.policies.at(-1), parents = new Set(workspace.journal.map(item => item.parent_revision).filter(Boolean)), personalNotes = workspace.journal.filter(item => !parents.has(item.revision_id) && item.type === 'personal_note').length; this.setData({ mode: state.mode, trades: service.records().filter(r => !r.voided && !r.isOpening).length, reviews: personalNotes, conversations: workspace.conversations.length, runs: workspace.runs.length, sources: workspace.sources.length, horizon: policy?.status === 'confirmed' ? policy.horizon || '' : '', maxSingleWeight: policy?.status === 'confirmed' ? policy.max_single_weight || '' : '', effectiveFrom: policy?.status === 'confirmed' ? policy.effective_from : today(), error: '', canExportRaw: false, clockAnomaly: view.clockAnomaly ? { asOf: view.knownAt, throughDate: view.throughDate, message: '设备时间早于已保存记录，请校准时间。' } : null }); } catch (e) { this.setData({ error: e.message, canExportRaw: true, clockAnomaly: null }); } },
+  data: { version: buildInfo.version || '未知', pendingSave: false, workspacePending: false, retryable: false, workspaceRetryable: false, error: '', mode: '', trades: 0, reviews: 0, conversations: 0, runs: 0, sources: 0, backupText: '', backupFileName: '', preview: null, importing: false, deleting: false, canExportRaw: false, clockAnomaly: null, aiCapability: null, horizon: '', maxSingleWeight: '', effectiveFrom: '' },
+  onShow() { wx.setNavigationBarTitle({ title: '数据与设置' }); this.refreshPending(); this.refreshAiStatus(); try { const state = service.snapshot(), workspace = service.journal().read(), view = service.overview(), policy = workspace.policies.at(-1), parents = new Set(workspace.journal.map(item => item.parent_revision).filter(Boolean)), personalNotes = workspace.journal.filter(item => !parents.has(item.revision_id) && item.type === 'personal_note').length; this.setData({ mode: state.mode, trades: service.records().filter(r => !r.voided && !r.isOpening).length, reviews: personalNotes, conversations: workspace.conversations.length, runs: workspace.runs.length, sources: workspace.sources.length, horizon: policy?.status === 'confirmed' ? policy.horizon || '' : '', maxSingleWeight: policy?.status === 'confirmed' ? policy.max_single_weight || '' : '', effectiveFrom: policy?.status === 'confirmed' ? policy.effective_from : today(), error: '', canExportRaw: false, clockAnomaly: view.clockAnomaly ? { asOf: view.knownAt, throughDate: view.throughDate, message: '设备时间早于已保存记录，请校准时间。' } : null }); } catch (e) { this.setData({ error: e.message, canExportRaw: true, clockAnomaly: null }); } },
+  async refreshAiStatus() { try { this.setData({ aiCapability: await service.ai().capabilities() }); } catch { this.setData({ aiCapability: { label: '无法取得 AI 服务状态。', usage: null } }); } },
   refreshPending() { try { this.setData({ pendingSave: !!service.pendingSave?.(), workspacePending: !!service.workspacePending?.() }); } catch (e) { this.setData({ pendingSave: true }); showError(e); } },
   verifySave() { try { const result = service.verifyPending(); this.setData({ pendingSave: result === 'retryable', retryable: result === 'retryable' }); if (result === 'confirmed') { this.setData({ backupText: '', preview: null }); wx.showToast({ title: '已核验保存成功' }); this.onShow(); } if (result === 'none') showError(Error('当前没有待核验提交，请先检查记录后再操作。')); } catch (e) { this.setData({ pendingSave: true, retryable: false }); showError(e); } },
   retrySave() { if (!this.data.retryable) return; try { service.retryPending(); this.setData({ pendingSave: false, retryable: false, backupText: '', preview: null }); this.onShow(); wx.showToast({ title: '已保存' }); } catch (e) { this.setData({ retryable: false }); showError(e); } },
@@ -21,7 +22,7 @@ Page({
   },
   exportFile() {
     try {
-      const data = service.exportFullBackup(); const fileName = `交易日记-完整备份-v4-${today()}.json`;
+      const data = service.exportFullBackup(); const fileName = `交易日记-完整备份-v5-${today()}.json`;
       const path = `${wx.env.USER_DATA_PATH}/${fileName}`;
       // One stable dated path avoids creating a new file on every tap.
       wx.getFileSystemManager().writeFile({ filePath: path, data, encoding: 'utf8', success: () => {
@@ -46,7 +47,7 @@ Page({
   restoreBackup() {
     if (!this.data.preview || this.data.importing) return;
     const text = this._backupFileText || this.data.backupText;
-    wx.showModal({ title: '用备份替换当前完整工作区？', content: `将恢复 ${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.personalNotes} 条个人记录、${this.data.preview.runs} 份分析。${this.data.preview.version === 4 ? '这是 v4 完整备份。' : this.data.preview.complete ? '这是旧版完整备份，将迁移到 v4。' : '这是旧备份，将创建新工作区。'}`, confirmText: '确认恢复', success: result => {
+    wx.showModal({ title: '用备份替换当前完整工作区？', content: `将恢复 ${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.personalNotes} 条个人记录、${this.data.preview.runs} 份分析。${this.data.preview.version === 5 ? '这是 v5 完整备份。' : this.data.preview.complete ? '这是旧版完整备份，将迁移到 v5。' : '这是旧备份，将创建新工作区。'}`, confirmText: '确认恢复', success: result => {
       if (!result.confirm || this.data.importing) return;
       this.setData({ importing: true });
       try { service.restoreCompleteBackup(text); this._backupFileText = ''; this.setData({ backupText: '', backupFileName: '', preview: null }); this.onShow(); wx.showToast({ title: '恢复成功' }); }
@@ -56,6 +57,7 @@ Page({
   onPolicyField(e) { this.setData({ [e.currentTarget.dataset.field]: e.detail.value }); },
   onPolicyDate(e) { this.setData({ effectiveFrom: e.detail.value }); },
   confirmPolicy() { try { const raw = this.data.maxSingleWeight.trim(), normalized = raw.includes('.') ? raw.replace(/0+$/, '').replace(/\.$/, '') : raw; service.journal().confirmPolicy({ effective_from: this.data.effectiveFrom || today(), horizon: this.data.horizon.trim() || null, max_single_weight: normalized || null }); this.onShow(); wx.showToast({ title: '投资计划已确认' }); } catch (e) { showError(e); } },
+  clearMarketCache() { try { service.clearMarketCache(); wx.showToast({ title: '行情缓存已清理', icon: 'none' }); } catch (e) { showError(e); } },
   recoverPrevious() {
     wx.showModal({ title: '返回上一个恢复点？', content: '当前账本将被恢复点覆盖，恢复点本身保留。若需保留当前内容，请先导出备份。', success: r => {
       if (r.confirm) { try { service.recoverPrevious(); this.onShow(); } catch (e) { this.refreshPending(); showError(e); } }
@@ -64,6 +66,18 @@ Page({
   startEmpty() {
     wx.showModal({ title: '开始新的空账本？', content: '建议先导出备份。当前账本将保留为一个恢复点；新账本不会包含示例或历史交易。', confirmText: '新建账本', success: r => {
       if (r.confirm) { try { service.startEmpty(); this.onShow(); } catch (e) { this.refreshPending(); showError(e); } }
+    } });
+  },
+  deleteAllLocalData() {
+    if (this.data.deleting) return;
+    wx.showModal({ title: '删除当前设备上的全部数据？', content: '将删除活动账本、恢复点、个人记录、会话、分析、来源快照和本地待处理请求，无法撤销。已导出的备份文件不在小程序控制范围内，不会被删除。本机删除不能取消已经发送的云请求；任务结束后，云端正文按保存确认或服务端保留期清理。', confirmText: '继续', success: first => {
+      if (!first.confirm) return;
+      wx.showModal({ title: '最后确认', content: '请先确认已导出需要保留的备份。删除后会回到新的空账本。', confirmText: '彻底删除本机数据', success: second => {
+        if (!second.confirm || this.data.deleting) return;
+        this.setData({ deleting: true });
+        try { service.deleteAllLocalData(); this._backupFileText = ''; this.setData({ backupText: '', backupFileName: '', preview: null }); this.onShow(); wx.showToast({ title: '本机数据已删除', icon: 'none' }); }
+        catch (e) { showError(e); } finally { this.setData({ deleting: false }); }
+      } });
     } });
   },
 });

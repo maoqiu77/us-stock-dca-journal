@@ -15,7 +15,7 @@
     "dev:web": "npm --prefix apps/web run dev",
     "dev:api": ".venv/bin/python -m uvicorn app.main:app --reload --reload-dir apps/api --app-dir apps/api",
     "test": "npm run test:api && npm run test:web",
-    "test:api": "PYTHONPATH=apps/api .venv/bin/python -m unittest discover -s apps/api/tests -p 'test_*.py'",
+    "test:api": "PATH=\"$PWD/.venv/bin:$PATH\" PYTHONPATH=apps/api .venv/bin/python -m unittest discover -s apps/api/tests -p 'test_*.py'",
     "test:web": "npm --prefix apps/web run test",
     "check": "npm run test && npm run lint && npm run build && npm run check:public-safety && npm run check:release-readiness && npm run check:weapp",
     "build": "npm --prefix apps/web run build",
@@ -26,8 +26,10 @@
     "release:publish": "bash scripts/publish_github_release.sh",
     "build:weapp": "npm run build -w @portfolio/miniprogram",
     "test:weapp": "npm run test -w @portfolio/miniprogram",
-    "check:weapp": "npm run typecheck -w @portfolio/miniprogram && npm run build:weapp && npm run test:weapp",
-    "package:weapp": "npm run check:weapp && npm run package -w @portfolio/miniprogram"
-    ,"check:ai-gateway": "npm run typecheck -w @portfolio/ai-gateway && npm run test -w @portfolio/ai-gateway && npm run build -w @portfolio/ai-gateway"
+    "check:weapp": "npm run typecheck -w @portfolio/miniprogram && npm run test:weapp && npm run build:weapp",
+    "check:weapp-production": "npm run check:production -w @portfolio/miniprogram",
+    "check:market-data": "npm run typecheck -w @portfolio/market-data && npm run test -w @portfolio/market-data",
+    "package:weapp": "npm run check:weapp && npm run package -w @portfolio/miniprogram",
+    "check:ai-gateway": "npm run typecheck -w @portfolio/ai-gateway && npm run test -w @portfolio/ai-gateway && npm run build -w @portfolio/ai-gateway"
   }
 }

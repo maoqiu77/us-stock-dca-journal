@@ -55,6 +55,16 @@ test('CloudBase access can use only the hashed document identity', async () => {
   assert.equal(await createCloudbaseAccess(db as never).allowed(owner), true);
 });
 
+test('CloudBase public consent is server-recorded without exposing the owner identity', async () => {
+  const owner = 'trusted-openid', rows = new Map<string, any>();
+  const db = { collection() { return { doc(id: string) { return { async get() { return { data: rows.get(id) ?? [] }; }, async set({ data }: { data: any }) { rows.set(id, [data]); } }; } }; } };
+  const access = createCloudbaseAccess(db as never);
+  assert.deepEqual(await access.status(owner, 'public', 1), { enrolled: true, consented: false, allowed: false });
+  await access.accept(owner, 'public', 1, '2026-09-13T00:00:00.000Z');
+  assert.deepEqual(await access.status(owner, 'public', 1), { enrolled: true, consented: true, allowed: true });
+  assert.equal(JSON.stringify([...rows.values()]).includes(owner), false);
+});
+
 // The external SDK boundary is in-memory; production ACK logic executes unchanged.
 function ackFixture() {
   const owner = 'synthetic-owner', requestId = 'synthetic-request';

@@ -3,33 +3,34 @@ import test from 'node:test';
 import { createService } from '../src/service.ts';
 import { STORAGE_KEY, type StoragePort } from '../src/repository.ts';
 import { WORKSPACE_ROOT_KEY, LEGACY_WORKSPACE_PREFIX, contentHash } from '../src/workspace/repository.ts';
+import { fakeAiProvider } from '../src/ai/fake-provider.ts';
 
 function fixture(capacity = 10240) {
   const values = new Map<string, string>(); let counter = 0;
   const runtime = { today: () => '2026-09-10', now: () => '2026-09-10T12:00:00.000Z', id: () => `71000000-0000-4000-8000-${String(++counter).padStart(12, '0')}` };
   const storage: StoragePort = { get: key => values.get(key) ?? '', set: (key, value) => { values.set(key, value); }, info: () => ({ currentSize: 0, limitSize: capacity }) };
-  return { values, runtime, storage, service: createService(storage, runtime) };
+  return { values, runtime, storage, service: createService(storage, runtime, { fakeProvider: fakeAiProvider }) };
 }
 
-test('v4 full backup declares every included partition and keeps new notes out of financial v2', () => {
+test('v5 full backup declares every included partition and keeps new notes out of financial v2', () => {
   const f = fixture();
   f.service.saveReview('2026-09-09', '旧复盘');
   f.service.journal().savePersonalNote('2026-09-10', '新记录');
   const backup = JSON.parse(f.service.exportFullBackup());
   assert.equal(backup.format, 'portfolio-wechat-backup');
-  assert.equal(backup.version, 4);
-  assert.deepEqual(backup.scope, { financial: true, journal: true, conversations: true, analysis_runs: true, sources: true, policies: true, outbox: true });
+  assert.equal(backup.version, 5);
+  assert.deepEqual(backup.scope, { financial: true, journal: true, conversations: true, analysis_runs: true, sources: true, policies: true, outbox: true, watchlist: true });
   assert.equal(backup.data.financial.version, 2);
   assert.deepEqual(backup.data.financial.reviews.map((item: { text: string }) => item.text), ['旧复盘']);
   assert.deepEqual(backup.data.workspace.journal.map((item: { body: string }) => item.body), ['旧复盘', '新记录']);
 });
 
-test('v4 restore validates all references and creates a fresh workspace with matching ledger', () => {
+test('v5 restore validates all references and creates a fresh workspace with matching ledger', () => {
   const source = fixture(); source.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: '2026-09-10', quantity: '2', price: '10', fee: '1' });
   source.service.journal().savePersonalNote('2026-09-10', '人工决定：观察');
   const text = source.service.exportFullBackup(), oldInstance = JSON.parse(text).data.workspace.instance_id;
   const target = fixture(); const preview = target.service.previewCompleteBackup(text);
-  assert.deepEqual(preview, { version: 4, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, mode: 'personal', complete: true });
+  assert.deepEqual(preview, { version: 5, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
   target.service.restoreCompleteBackup(text);
   assert.equal(target.service.overview().totalCost, '21.00');
   assert.equal(target.service.journal().timeline('2026-09-10')[0].body, '人工决定：观察');
@@ -38,6 +39,27 @@ test('v4 restore validates all references and creates a fresh workspace with mat
   const broken = JSON.parse(text);
   broken.data.workspace.journal.push({ ...broken.data.workspace.journal[0], id: '71000000-0000-4000-8000-999999999999', revision_id: '71000000-0000-4000-8000-999999999998', type: 'analysis_ref', ref_id: '71000000-0000-4000-8000-999999999997', body: null, classification: 'ai_reference' });
   assert.throws(() => target.service.previewCompleteBackup(JSON.stringify(broken)), /引用/);
+});
+
+test('v5 roundtrips versioned watchlist but excludes clearable market cache and live receipts', () => {
+  const source = fixture();
+  source.service.addWatchlist({ schema_version: 1, instrument_key: 'US:XNAS:QQQ', symbol: 'QQQ', name: 'Invesco QQQ Trust', mic: 'XNAS', exchange: 'NASDAQ', market: 'US', currency: 'USD', asset_type: 'ETF', provider_symbol: 'QQQ', provider_catalog_version: 'v1', status: 'active' });
+  const text = source.service.exportFullBackup(), encoded = JSON.parse(text);
+  assert.equal(encoded.excludes.market_cache, true); assert.equal(encoded.excludes.live_receipts, true);
+  assert.deepEqual(encoded.data.watchlist.map((item: any) => [item.symbol, item.asset_type]), [['QQQ', 'ETF']]);
+  assert.equal(JSON.stringify(encoded).includes('portfolio.wechat.market.v1'), false);
+  const target = fixture(); target.service.restoreCompleteBackup(text);
+  assert.deepEqual(target.service.marketDiscovery().watchlist.map((item: any) => item.symbol), ['QQQ']);
+});
+
+test('imported v5 outbox is detached and recovery never sends a model request', async () => {
+  const source = fixture(); source.service.ai().prepare({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-10', question: '不应重放' });
+  const text = source.service.exportFullBackup(); let calls = 0;
+  const targetBase = fixture();
+  const transport: any = { capabilities: async () => { throw Error('unused'); }, analyze: async () => { calls++; throw Error('must_not_run'); }, status: async () => { calls++; throw Error('must_not_run'); }, result: async () => { calls++; throw Error('must_not_run'); }, ack: async () => { calls++; } };
+  const target = createService(targetBase.storage, targetBase.runtime, { aiTransport: transport }); target.restoreCompleteBackup(text);
+  assert.equal(target.journal().read().outbox[0].status, 'detached');
+  assert.deepEqual(await target.ai().recoverPending(), []); assert.equal(calls, 0);
 });
 
 test('v1/v2 import becomes a complete fresh workspace and never mixes current conversations', () => {
@@ -125,7 +147,7 @@ test('pre-release local v1 recovers citations and migrates without changing old 
   f.values.set(`${LEGACY_WORKSPACE_PREFIX}.root`, JSON.stringify({ ...root, version: 1, manifest_key: manifestKey }));
   f.values.delete(WORKSPACE_ROOT_KEY);
   const reopened = createService(f.storage, f.runtime), migrated = reopened.journal().read();
-  assert.equal(migrated.version, 2);
+  assert.equal(migrated.version, 3);
   assert.equal(migrated.runs[0].id, state.runs[0].id);
   assert.deepEqual(migrated.runs[0].source_ids, state.runs[0].source_ids);
   assert.equal(migrated.runs[0].source_integrity, 'legacy_unverified');
@@ -133,9 +155,10 @@ test('pre-release local v1 recovers citations and migrates without changing old 
   for (const [key, text] of oldBytes) assert.equal(f.values.get(key), text);
 
   const { outbox, ...legacyState } = state;
-  const { outbox: scopeOutbox, ...legacyScope } = backup.scope;
+  const { outbox: scopeOutbox, watchlist: scopeWatchlist, ...legacyScope } = backup.scope;
   const { excludes, ...legacyBackup } = backup;
-  const external = { ...legacyBackup, version: 3, scope: legacyScope, data: { ...backup.data, workspace: { ...legacyState, version: 1, runs: legacyRuns, sources: legacySources, messages: legacyMessages } } };
+  const { watchlist, ...legacyData } = backup.data;
+  const external = { ...legacyBackup, version: 3, scope: legacyScope, data: { ...legacyData, workspace: { ...legacyState, version: 1, runs: legacyRuns, sources: legacySources, messages: legacyMessages } } };
   assert.throws(() => reopened.previewCompleteBackup(JSON.stringify(external)), /版本/);
   external.data.workspace.runs[0].source_ids = state.runs[0].source_ids;
   assert.equal(reopened.previewCompleteBackup(JSON.stringify(external)).version, 3);

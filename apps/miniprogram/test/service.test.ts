@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { STORAGE_KEY } from '../src/repository.ts';
 import { createService } from '../src/service.ts';
+import { demoSnapshot } from '../src/dev-fixtures.ts';
 
 function fixture() {
   const values = new Map<string, string>(); let counter = 0; let fail = false;
-  const storage = { get: (key: string) => values.get(key) ?? '', set: (key: string, value: string) => { if (fail) throw Error('disk full'); values.set(key, value); } };
+  const storage = { get: (key: string) => values.get(key) ?? '', set: (key: string, value: string) => { if (fail) throw Error('disk full'); values.set(key, value); }, keys: () => [...values.keys()] };
   const runtime = { now: () => '2026-09-10T12:00:00.000Z', today: () => '2026-09-10', id: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, '0')}` };
-  return { values, storage, runtime, service: createService(storage, runtime), failWrites: () => { fail = true; } };
+  return { values, storage, runtime, service: createService(storage, runtime, { demoFactory: demoSnapshot }), failWrites: () => { fail = true; } };
 }
 const buy = { kind: 'buy' as const, symbol: 'qqq', assetType: 'ETF' as const, date: '2026-09-09', quantity: '2.00', price: '10.0', fee: '1', note: '长期记录' };
 test('FIFO fractional sale includes fees and survives restart without inventing cash or market value', () => {
@@ -122,4 +123,12 @@ test('failed external restore cannot replace a valid recovery point with corrupt
   const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('quota'); f.storage.set(key, value); } };
   assert.throws(() => createService(storage, f.runtime).restoreBackup(backup));
   assert.equal(f.values.get(`${STORAGE_KEY}.previous`), previous);
+});
+test('explicit deletion clears active data, recovery points and workspace partitions', () => {
+  const f = fixture(); f.service.saveTrade(buy); f.service.journal().savePersonalNote('2026-09-10', 'private note'); f.service.startEmpty(); f.service.recoverPrevious();
+  assert.ok([...f.values.values()].some(value => value.includes('private note')));
+  f.service.deleteAllLocalData();
+  assert.equal(f.service.records().length, 0); assert.equal(f.service.journal().read().journal.length, 0);
+  assert.equal([...f.values.values()].some(value => value.includes('private note') || value.includes('长期记录')), false);
+  assert.equal(f.values.get('portfolio.wechat.v1.previous'), ''); assert.equal(f.values.get('portfolio.wechat.workspace.v2.previous'), '');
 });

@@ -9,8 +9,10 @@ function boot(values = new Map()) {
   const wx = {
     getStorageSync: key => { if (key === 'portfolio.wechat.v1.pending-v1' && manifestFault) throw Error('manifest unavailable'); if (key === 'portfolio.wechat.v1.pending-v1' && cleanupRead) { cleanupRead = false; throw Error('cleanup readback'); } if (key === 'portfolio.wechat.v1' && unreadable) throw Error('readback'); return values.get(key) ?? ''; },
     setStorageSync: (key, value) => { if (fail || (failPrimaryBefore && key === 'portfolio.wechat.v1')) throw Error('quota'); values.set(key, value); if (failManifestOnWrite && key === 'portfolio.wechat.v1.pending-v1' && value) manifestFault = true; if (cleanupFault && key === 'portfolio.wechat.v1.pending-v1' && !value) cleanupRead = true; if (key === 'portfolio.wechat.v1' && failReadback) unreadable = true; },
+    getStorageInfoSync: () => ({ keys: [...values.keys()], currentSize: 0, limitSize: 10240 }),
     showToast: options => notices.push(options),
     showModal: options => { notices.push(options); if (options.success) options.success({ confirm: true }); },
+    setNavigationBarTitle: () => {},
     navigateBack: () => { navigated = true; }, navigateTo: options => { routes.push(options.url); },
   };
   const context = vm.createContext({ module: { exports: {} }, wx, Intl: undefined, console, Function: function() { evalAttempts++; throw Error('dynamic code disabled'); } }, { codeGeneration: { strings: false, wasm: false } });
@@ -52,29 +54,16 @@ test('all five tab controllers initialize and review creates an independent time
   assert.equal(reopened.snapshot().reviews.length, 0);
 });
 
-test('packaged fake research archives and conversation follows up in the same engine', async () => {
-  const env = boot(); env.core.service.loadDemo();
-  const research = env.page('research'); research.onLoad(); research.onShow(); research.setData({ question: '分析我的持仓' }); research.preview(); research.runDemo();
-  assert.equal(research.data.error, '');
-  assert.match(research.data.result.summary, /离线合成演示/);
-  assert.ok(env.routes.at(-1).startsWith('/pages/conversation/index?id='));
-  const id = research.data.conversationId, conversation = env.page('conversation'); conversation.onLoad({ id });
-  conversation.onQuestion({ detail: { value: '还缺什么？' } }); await conversation.send();
-  assert.equal(env.core.service.ai().conversation(id).messages.length, 4);
-  assert.equal(env.core.service.snapshot().events.length, 2);
-});
-
-test('failed packaged research never claims success or navigates to an empty conversation', () => {
-  const env = boot(); env.core.service.loadDemo();
-  const research = env.page('research'); research.onLoad(); research.onShow();
-  research.preview(); env.failWrites(); research.runDemo();
-  assert.equal(env.routes.length, 0);
-  assert.equal(research.data.result, null);
-  assert.ok(env.notices.some(n => n.title === '未完成操作'));
+test('packaged research preview stays readonly and disabled AI cannot generate', async () => {
+  const env = boot();
+  const research = env.page('research'); research.onLoad(); await research.onShow(); const before = [...env.values.entries()]; research.setData({ question: '分析我的持仓' }); research.preview();
+  assert.deepEqual([...env.values.entries()], before); assert.equal(research.data.capability.realProviderConfigured, false);
+  research.onQuestion({ detail: { value: '修改后的问题' } }); await research.runCloud();
+  assert.equal(env.routes.length, 0); assert.ok(env.notices.some(n => n.content?.includes('先查看')));
 });
 
 test('packaged validation never attempts dynamically generated code in the restricted host', () => {
-  const env = boot(); env.core.service.loadDemo(); assert.equal(env.evalAttempts(), 0);
+  const env = boot(); env.core.service.overview(); assert.equal(env.evalAttempts(), 0);
 });
 test('every WXML event binding resolves to an implemented page handler', () => {
   const env = boot();
@@ -153,6 +142,12 @@ test('packaged settings verifies unknown replacement without replacing its origi
   assert.equal(settings.data.pendingSave, true); settings.startEmpty(); env.restoreReads(); settings.verifySave();
   assert.equal(settings.data.pendingSave, false); assert.equal(env.core.service.snapshot().reviews.length, 0);
   assert.equal(env.values.get('portfolio.wechat.v1.previous'), before);
+});
+test('packaged explicit deletion removes active data and recovery points after two confirmations', () => {
+  const env = boot(); env.core.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: env.core.today(), quantity: '2', price: '10', fee: '1', note: 'private' }); env.core.service.startEmpty(); env.core.service.recoverPrevious();
+  const settings = env.page('settings'); settings.onShow(); settings.deleteAllLocalData();
+  assert.equal(env.core.service.records().length, 0); assert.equal([...env.values.values()].some(value => value.includes('private')), false);
+  assert.ok(env.notices.filter(item => item.title?.includes('删除') || item.title === '最后确认').length >= 2);
 });
 test('packaged entry correction reconciles the exact revision after readback failure', () => {
   const env = boot(), service = env.core.service;

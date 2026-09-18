@@ -1,1 +1,1 @@
-module.exports = { cloudEnvId: '', aiFunctionName: 'portfolioAi', aiTransport: 'fake' };
+module.exports = { cloudEnvId: '', aiFunctionName: '', aiTransport: 'disabled', profile: 'development', version: '' };

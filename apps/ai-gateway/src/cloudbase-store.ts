@@ -7,6 +7,7 @@ type Database = { collection(name: string): Collection; runTransaction<T>(fn: (t
 const requestKey = (owner: string, requestId: string) => sha256(`${owner}:${requestId}`);
 const turnKey = (owner: string, workspace: string, turn: string) => sha256(`${owner}:${workspace}:${turn}`);
 const usageKey = (owner: string, date: string) => sha256(`${owner}:${date}`);
+const globalUsageKey = (date: string) => sha256(`global:${date}`);
 async function data(doc: Doc) {
   try {
     const value = (await doc.get()).data;
@@ -18,8 +19,9 @@ async function data(doc: Doc) {
 
 export function createCloudbaseRequestStore(db: Database): RequestStore {
   return {
+    usage: async (owner, now) => { const date = now.slice(0, 10), value = await data(db.collection('ai_usage').doc(usageKey(owner, date))); return { date, used: value?.count ?? 0, inflight: value?.inflight ?? 0 }; },
     claim: input => db.runTransaction<Claim>(async tx => {
-      const requests = tx.collection('ai_requests'), payloads = tx.collection('ai_payloads'), usage = tx.collection('ai_usage'), turns = tx.collection('ai_turn_keys');
+      const requests = tx.collection('ai_requests'), payloads = tx.collection('ai_payloads'), usage = tx.collection('ai_usage'), globalUsage = tx.collection('ai_global_usage'), turns = tx.collection('ai_turn_keys');
       const id = requestKey(input.owner, input.envelope.request.request_id), existing = await data(requests.doc(id));
       if (existing) return existing.digest === input.envelope.payload_digest ? { kind: 'existing', record: existing as RequestRecord } : { kind: 'conflict' };
       const turnId = turnKey(input.owner, input.envelope.request.workspace_instance_id, input.envelope.request.client_turn_id);
@@ -27,10 +29,13 @@ export function createCloudbaseRequestStore(db: Database): RequestStore {
       const day = input.now.slice(0, 10), usageId = usageKey(input.owner, day), counter = await data(usage.doc(usageId)) ?? { count: 0, inflight: 0 };
       if (counter.count >= input.dailyLimit) return { kind: 'quota' };
       if (counter.inflight >= input.maxInflight) return { kind: 'inflight' };
+      const globalId = globalUsageKey(day), globalCounter = await data(globalUsage.doc(globalId)) ?? { count: 0 };
+      if (globalCounter.count >= (input.globalDailyLimit ?? Number.MAX_SAFE_INTEGER)) return { kind: 'global_quota' };
       const record: RequestRecord = { owner: input.owner, requestId: input.envelope.request.request_id, digest: input.envelope.payload_digest, workspaceId: input.envelope.request.workspace_instance_id, clientTurnId: input.envelope.request.client_turn_id, state: 'running', executionToken: input.executionToken, envelope: input.envelope, createdAt: input.now, updatedAt: input.now };
       await requests.doc(id).set({ data: record }); await payloads.doc(id).set({ data: { owner: input.owner, envelope: input.envelope, expiresAt: input.envelope.expires_at } });
       await turns.doc(turnId).set({ data: { owner: input.owner, requestId: record.requestId, digest: record.digest } });
       await usage.doc(usageId).set({ data: { owner: input.owner, date: day, count: counter.count + 1, inflight: counter.inflight + 1, updatedAt: input.now } });
+      await globalUsage.doc(globalId).set({ data: { date: day, count: globalCounter.count + 1, updatedAt: input.now } });
       return { kind: 'claimed', record };
     }),
     get: async (owner, requestId) => { const value = await data(db.collection('ai_requests').doc(requestKey(owner, requestId))); return value?.owner === owner ? value as RequestRecord : undefined; },
@@ -61,6 +66,19 @@ export function createCloudbaseAccess(db: Database) {
     async allowed(owner: string) {
       const value = await data(db.collection('ai_access').doc(sha256(owner)));
       return value?.enabled === true && value?.consentVersion === 1 && (value.owner === undefined || value.owner === owner);
+    },
+    async status(owner: string, accessMode: 'closed_beta' | 'public', consentVersion: number) {
+      const value = await data(db.collection('ai_access').doc(sha256(owner)));
+      const owned = !value || value.owner === undefined || value.owner === owner;
+      const enrolled = owned && value?.enabled === true;
+      const consented = owned && value?.consentVersion === consentVersion && !!value?.consentedAt;
+      return { enrolled: accessMode === 'public' || enrolled, consented, allowed: (accessMode === 'public' || enrolled) && consented };
+    },
+    async accept(owner: string, accessMode: 'closed_beta' | 'public', consentVersion: number, now: string) {
+      const ref = db.collection('ai_access').doc(sha256(owner)), value = await data(ref);
+      const enrolled = value?.enabled === true && (value.owner === undefined || value.owner === owner);
+      if (accessMode === 'closed_beta' && !enrolled) throw Error('ACCESS_DENIED');
+      await ref.set({ data: { ...(value ?? {}), ownerHash: sha256(owner), enabled: accessMode === 'public' ? true : enrolled, consentVersion, consentedAt: now, updatedAt: now } });
     },
   };
 }

@@ -1,0 +1,4 @@
+<view class="quote">
+  <block wx:if="{{price}}"><view class="row"><text>参考价</text><text class="number">${{price}}</text></view><view class="row"><text>持仓市值</text><text>${{marketValue}}</text></view><view class="row"><text>浮动盈亏</text><text>${{unrealized}}</text></view><view wx:if="{{weight}}" class="row"><text>持仓内部占比</text><text>{{weight}}</text></view><view class="meta">{{freshness === 'stale' ? '历史参考 · 已过期' : '当前参考'}} · {{asOf}}<text wx:if="{{attribution}}"> · {{attribution}}</text></view></block>
+  <view wx:else class="meta">{{mappingStatus === 'ambiguous' ? '同名标的不唯一，需确认交易所' : mappingStatus === 'type_conflict' ? '标的类型与账本不一致' : '暂无可用报价'}}</view>
+</view>

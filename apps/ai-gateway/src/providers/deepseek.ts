@@ -1,8 +1,8 @@
-import { analysisResultV2Schema, type ResearchTurnEnvelopeV1 } from '@portfolio/ai-context';
+import { analysisResultV2Schema, type ResearchTurnEnvelopeV1, type ResearchTurnEnvelopeV2 } from '@portfolio/ai-context';
 
 export type CredentialMode = 'sponsored' | 'byok';
 export type ProviderResult = { result: ReturnType<typeof analysisResultV2Schema.parse>; providerId: string; protocol: string; model: string; credentialMode: CredentialMode; inputUnits: number; outputUnits: number };
-export interface ModelProvider { invoke(envelope: ResearchTurnEnvelopeV1, executionToken: string): Promise<ProviderResult>; }
+export interface ModelProvider { invoke(envelope: ResearchTurnEnvelopeV1 | ResearchTurnEnvelopeV2, executionToken: string): Promise<ProviderResult>; }
 export type DeepSeekConfig = { baseUrl: string; apiKey: string; model: string; timeoutMs: number; maxOutputTokens: number; credentialMode: CredentialMode };
 
 const responseContract = `Return exactly one JSON object with these model-owned fields:

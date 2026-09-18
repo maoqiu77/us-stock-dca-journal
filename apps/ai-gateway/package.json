@@ -6,10 +6,12 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
-    "build": "node scripts/build.mjs"
+    "build": "node scripts/build.mjs",
+    "smoke:market": "node scripts/smoke-market.mjs"
   },
   "dependencies": {
     "@portfolio/ai-context": "0.0.0",
+    "@portfolio/market-data": "0.0.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

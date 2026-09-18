@@ -1,0 +1,14 @@
+import type { BarsV1, CanonicalInstrument, MarketCapabilities, QuoteV1 } from '@portfolio/market-data';
+
+export interface MarketTransport {
+  capabilities(): Promise<MarketCapabilities>;
+  search(query: string, limit: number): Promise<CanonicalInstrument[]>;
+  quotes(instrumentKeys: string[]): Promise<QuoteV1[]>;
+  bars?(instrumentKey: string, range: '1M' | '3M' | '1Y', interval: '1day'): Promise<BarsV1>;
+  prepareAnalysisSnapshot?(instrumentKeys: string[], purpose: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up'): Promise<{ receipt_id: string; receipt_digest: string; created_at: string; expires_at: string; provider: string; feed: string; attribution: string; quotes: QuoteV1[] }>;
+}
+
+export class MarketTransportError extends Error {
+  readonly code: string; readonly outcomeUnknown: boolean;
+  constructor(code: string, message: string, outcomeUnknown: boolean) { super(message); this.name = 'MarketTransportError'; this.code = code; this.outcomeUnknown = outcomeUnknown; }
+}

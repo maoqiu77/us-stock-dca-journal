@@ -1,5 +1,7 @@
 # AI 日记工作区与完整备份 ADR
 
+> 2026-09-14 Round 4 amendment: the current logical workspace schema is v3, outbox turn schema is v2, and complete backup is v5. Backup v5 adds the canonical watchlist and archived provider-observed source bodies, while explicitly excluding clearable market cache and live private receipt bodies. All imported outbox entries are detached. The `portfolio.wechat.workspace.v2` physical key prefix is intentionally retained so the atomic root/manifest reader can migrate older local partitions; the payload's strict `version: 3` is authoritative. Sections below document the earlier v2/v4 design and remain the basis of its strict legacy reader.
+
 - 状态：A2/A3 历史真实合成请求已验证；本地 ACK/cleanup 修正已回归但未部署，usage/云配置/A3恢复和真机验收未完成
 - 日期：2026-09-13
 - 基线：`e2e517cea84ec3c9b9236ba90d856ce596463efe`

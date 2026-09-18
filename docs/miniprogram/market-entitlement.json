@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "pending_business_confirmation",
+  "provider": "Twelve Data (candidate only)",
+  "product_or_feed": null,
+  "covered_markets": ["US listed common stocks", "US listed ETFs"],
+  "price_kind": null,
+  "timeliness": "unknown",
+  "delay_seconds": null,
+  "external_display_allowed": null,
+  "redistribution_allowed": null,
+  "eligible_users": null,
+  "rate_and_daily_quota": null,
+  "cache_retention": null,
+  "historical_retention": null,
+  "ai_input_allowed": null,
+  "local_analysis_archive_allowed": null,
+  "plaintext_backup_export_allowed": null,
+  "attribution_required": null,
+  "confirmed_by": null,
+  "confirmed_at": null,
+  "notes": "No credential, price, contract secret, or claim of production authorization is stored here. Keep market and AI-source flags disabled until every relevant field is confirmed."
+}

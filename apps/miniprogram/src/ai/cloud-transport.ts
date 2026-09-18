@@ -1,5 +1,5 @@
-import { researchTurnResponseV1Schema, type ResearchTurnEnvelopeV1 } from '@portfolio/ai-context';
-import { type AiTransport, TransportError } from './transport.ts';
+import { researchTurnResponseV1Schema, researchTurnResponseV2Schema } from '@portfolio/ai-context';
+import { aiCapabilitiesSchema, type AiTransport, TransportError } from './transport.ts';
 
 type CloudCall = (options: { name: string; data: unknown }) => Promise<{ result?: unknown }>;
 export function createCloudTransport(callFunction: CloudCall, functionName: string): AiTransport {
@@ -16,10 +16,11 @@ export function createCloudTransport(callFunction: CloudCall, functionName: stri
     }
   }
   return {
-    capabilities: async () => await call({ action: 'capabilities' }) as any,
+    capabilities: async () => aiCapabilitiesSchema.parse(await call({ action: 'capabilities' })),
+    acceptConsent: async version => { await call({ action: 'consent', accepted: true, consent_version: version }); },
     analyze: async envelope => await call({ action: 'analyze', envelope }) as any,
     status: async (requestId, payloadDigest) => await call({ action: 'status', request_id: requestId, payload_digest: payloadDigest }) as any,
-    result: async (requestId, payloadDigest) => researchTurnResponseV1Schema.parse(await call({ action: 'result', request_id: requestId, payload_digest: payloadDigest })),
+    result: async (requestId, payloadDigest) => { const value = await call({ action: 'result', request_id: requestId, payload_digest: payloadDigest }); const v2 = researchTurnResponseV2Schema.safeParse(value); return v2.success ? v2.data : researchTurnResponseV1Schema.parse(value); },
     ack: async (requestId, payloadDigest, responseDigest) => { await call({ action: 'ack', request_id: requestId, payload_digest: payloadDigest, response_digest: responseDigest }); },
   };
 }

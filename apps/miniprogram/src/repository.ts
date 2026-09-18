@@ -3,6 +3,7 @@ import { assertSize, backupSchema, backupV1Schema, clockState, emptySnapshot, mi
 export interface StoragePort {
   get(key: string): string;
   set(key: string, value: string): void;
+  keys?(): string[];
   /** WeChat reports both values in KiB. */
   info?(): { currentSize: number; limitSize: number };
 }
@@ -163,6 +164,11 @@ export function createRepository(storage: StoragePort, runtime: Runtime) {
     begin(data, true, previous);
   }
   function decodeTrusted(raw: string) { assertSize(raw); return decodeSnapshot(raw, runtime).data; }
+  function purge() {
+    const keys = storage.keys ? storage.keys().filter(key => key.startsWith('portfolio.wechat.')) : [STORAGE_KEY, RECOVERY_KEY, MIGRATION_KEY, PENDING_KEY, PENDING_BEFORE_KEY, PENDING_NEXT_KEY];
+    for (const key of keys) setVerified(storage, key, '', '删除本地账本失败');
+    initial = undefined; currentGeneration++;
+  }
   return {
     read, write, parseBackup, replace, assertWritable, pendingSave: () => !!pending(), pendingIdentity: () => pending()?.next ?? '', verifyPending, retryPending, generation: () => currentGeneration,
     ensurePersisted() { const data = read(); if (!rawPrimary()) write(data); return data; },
@@ -179,6 +185,7 @@ export function createRepository(storage: StoragePort, runtime: Runtime) {
       let data: Snapshot; try { data = decodeTrusted(raw); } catch { throw Error('恢复点损坏或不兼容，请选择其他备份。'); }
       begin(data, true);
     },
+    purge,
     exportBackup() { const text = JSON.stringify({ format: 'portfolio-wechat-backup', version: 2, data: read() }); assertSize(text); return text; },
   };
 }

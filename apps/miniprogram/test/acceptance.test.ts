@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createService } from '../src/service.ts';
+import type { MarketTransport } from '../src/market/transport.ts';
 
 const v1 = readFileSync(new URL('./fixtures/v1-backup.json', import.meta.url), 'utf8');
 const hand = JSON.parse(readFileSync(new URL('./fixtures/mp1-hand-calculation.json', import.meta.url), 'utf8'));
@@ -59,4 +60,22 @@ test('MP0/MP1 fixed v1 fixture imports as v2; duplicate revisions and collisions
   assert.throws(() => s.restoreBackup(JSON.stringify(backup)));
   assert.equal(s.exportBackup(), before);
   assert.equal(createService(f.storage, f.runtime).snapshot().reviews[0].text, '仅用于测试的复盘。');
+});
+
+test('Phase 5 market refresh adds exact reference valuation without changing the ledger or inventing cash', async () => {
+  const f = setup();
+  const transport: MarketTransport = {
+    capabilities: async () => ({ schema_version: 1, enabled: true, provider_configured: true, authorized: true, access_mode: 'public', quote_access: true, bars_access: false, search_access: true, ai_source_access: false, archive_access: false, provider: 'Twelve Data', feed: 'licensed-feed', coverage: 'venue_subset', timeliness: 'delayed', delay_seconds: 900, attribution: 'Twelve Data', limits: { quote_batch: 30, search_results: 10, bars: 400 } }),
+    search: async query => [{ schema_version: 1, instrument_key: `US:XNAS:${query}`, symbol: query, name: query, mic: 'XNAS', exchange: 'NASDAQ', market: 'US', currency: 'USD', asset_type: query === 'QQQ' ? 'ETF' : 'STOCK', provider_symbol: query, provider_catalog_version: 'v1', status: 'active' }],
+    quotes: async keys => keys.map(key => ({ schema_version: 1, instrument_key: key, symbol: key.split(':')[2], currency: 'USD', price: '50', price_kind: 'last_trade', previous_close: '49', previous_close_date: '2026-09-09', change: '1', change_percent: '2.0408163265', volume: '100', volume_scope: 'feed_only', session: 'regular', market_status: 'open', trading_date: '2026-09-10', exchange_timezone: 'America/New_York', provider: 'Twelve Data', feed: 'licensed-feed', coverage: 'venue_subset', timeliness: 'delayed', delay_seconds: 900, as_of: '2026-09-10T11:59:00.000Z', received_at: '2026-09-10T12:00:00.000Z', served_at: '2026-09-10T12:00:00.000Z', freshness: 'current', cache_state: 'miss', status: 'available', reason: null, adjustment: 'unadjusted', attribution: 'Twelve Data' })),
+  };
+  const service = createService(f.storage, f.runtime, { marketTransport: transport });
+  service.saveOpening({ date: '2026-09-10', symbol: 'QQQ', assetType: 'ETF', quantity: '2', totalCost: '80' });
+  const ledgerBefore = service.exportBackup(); await service.refreshMarket();
+  const view = service.overview();
+  assert.equal(service.exportBackup(), ledgerBefore);
+  assert.equal(view.cash, null); assert.equal(view.netValue, null);
+  assert.equal(view.marketValue, '100.00'); assert.equal(view.coveredMarketValue, '100.00');
+  assert.equal(view.positions[0].marketPrice, '50'); assert.equal(view.positions[0].unrealized, '20.00'); assert.equal(view.positions[0].weightExCash, '100.00%');
+  assert.equal(view.market.attribution, 'Twelve Data');
 });
