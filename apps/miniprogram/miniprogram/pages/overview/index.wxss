@@ -1,3 +1,17 @@
 /* Shared visual tokens are defined in app.wxss. */
 .right { text-align: right; min-width: 180rpx; }
-.holding-name { max-width: 380rpx; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.holding-name { max-width: 100%; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.currency-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16rpx; margin-bottom: 20rpx; }
+.currency-control { display: flex; align-items: center; gap: 16rpx; }
+.currency-switch { background: #d6e9ff; color: #173d67; padding: 16rpx 22rpx; border: 2rpx solid #a8cef8; border-radius: 14rpx; font-size: 29rpx; font-weight: 600; }
+.currency-hint { color: #ffffff; font-size: 23rpx; line-height: 1.5; }
+.currency-hint view { color: #c5dacf; font-size: 20rpx; }
+.hero .refresh-quotes { width: auto; flex: none; color: #e0efe6; font-size: 23rpx; padding: 8rpx 0; margin: 0; min-width: 0; }
+
+.holding-card { padding: 24rpx 28rpx; }
+.holding-identity { flex: 1; min-width: 0; }
+.holding-values { display: flex; justify-content: space-between; gap: 20rpx; margin-top: 16rpx; }
+.holding-values > view { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.holding-values .muted { font-size: 23rpx; margin-bottom: 6rpx; }
+.snapshot-tag { font-size: 21rpx; }

@@ -6,3 +6,9 @@
 .sticky-actions button { flex: 1; }
 .type-row, .candidate-list { display: flex; flex-wrap: wrap; gap: 12rpx; margin-bottom: 20rpx; }
 .candidate-list .label { width: 100%; }
+
+.image-grid { display: flex; flex-wrap: wrap; gap: 12rpx; }
+.image-grid .preview-image { width: 196rpx; height: 240rpx; }
+.type-row button { flex: 1; min-width: 0; margin: 0; }
+
+.row > button.small { width: auto; flex-shrink: 0; margin: 0; }

@@ -20,11 +20,20 @@ export const holdingAssetSchema = z.strictObject({
   confirmed_at: timestampSchema,
 });
 const checkpointHeadSchema = z.strictObject({ record_id: idSchema, revision_id: idSchema });
+export const screenshotMetricsSchema = z.strictObject({
+  marketValueText: z.string().max(40).nullable().optional(),
+  holdingPnlText: z.string().max(40).nullable().optional(),
+  holdingReturnRateText: z.string().max(40).nullable().optional(),
+  dailyChangeRateText: z.string().max(40).nullable().optional(),
+  navText: z.string().max(40).nullable().optional(),
+  navDateText: z.string().max(40).nullable().optional(),
+});
 export const holdingCheckpointSchema = z.strictObject({
   id: idSchema,
   instrument_id: idSchema,
   quantity: decimalStringSchema,
   unit_cost: decimalStringSchema.nullable(),
+  screenshot_metrics: screenshotMetricsSchema.optional(),
   observed_at: timestampSchema,
   baseline_heads: z.array(checkpointHeadSchema).max(2000),
   source: z.enum(['manual', 'screenshot', 'migration']),

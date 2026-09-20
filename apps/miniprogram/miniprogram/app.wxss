@@ -27,6 +27,12 @@ button.link { background: transparent; color: #58705f; font-size: 24rpx; line-he
 button[disabled] { opacity: .45; }
 .actions { display: flex; gap: 16rpx; margin-top: 24rpx; }
 .actions button { flex: 1; }
+.page-header .title { overflow-wrap: anywhere; }
+.page-header-actions { box-sizing: border-box; width: 100%; margin: 16rpx 0 24rpx; }
+.page-header-actions button { min-width: 0; }
+.page-header-actions.compact { justify-content: flex-end; }
+.page-header-actions.compact button { flex: none; }
+.page-header-actions.compact button.primary { min-width: 72rpx; }
 .field { margin-bottom: 28rpx; }
 .label { display: block; font-weight: 550; margin-bottom: 14rpx; font-size: 26rpx; }
 input, textarea, .picker { box-sizing: border-box; background: #f3f6f0; border: 1rpx solid #e2e8de; border-radius: 12rpx; padding: 20rpx; width: 100%; font-size: 29rpx; }

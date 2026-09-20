@@ -1,2 +1,4 @@
 /* Shared visual tokens are defined in app.wxss. */
 .choice { display: flex; gap: 16rpx; flex-wrap: wrap; }
+
+.delete-holding { margin-top: 36rpx; background: #fff1ef; color: #b43e36; border: 1rpx solid #edc8c3; }

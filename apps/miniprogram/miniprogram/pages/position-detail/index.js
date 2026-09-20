@@ -1,8 +1,16 @@
+const moneyText = (value, currency) => value === null || value === undefined || value === '' ? '--' : `${currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : currency + ' '}${value}`;
+const present = value => value !== null && value !== undefined && String(value).trim() !== '';
 const { service, showError } = require('../../lib/core');
 Page({
   data: { error: '', detail: null, marketLoading: false },
   onLoad(options = {}) { this.symbol = options.symbol || ''; this.load(); }, onShow() { if (this.symbol) { this.load(); this.refreshMarket(); } },
-  load() { try { this.setData({ detail: service.positionDetail(this.symbol), error: '' }); } catch (e) { this.setData({ detail: null, error: e.message }); } },
+  load() { try { const detail = service.positionDetail(this.symbol); const screenshot = detail.screenshotMetrics || {};
+    const pnlFromScreenshot = !present(detail.unrealized) && present(screenshot.holdingPnlText);
+    const amountFromScreenshot = !present(detail.marketValue) && present(screenshot.marketValueText);
+    this.setData({ detail: { ...detail, pnlFromScreenshot, amountFromScreenshot,
+      holdingPnlText: moneyText(pnlFromScreenshot ? screenshot.holdingPnlText : detail.unrealized, detail.currency || 'USD'),
+      holdingAmountText: moneyText(amountFromScreenshot ? screenshot.marketValueText : detail.marketValue, detail.currency || 'USD'),
+      hasRealized: present(detail.realized), costText: moneyText(detail.cost, detail.currency || 'USD'), unitCostText: moneyText(detail.unitCost, detail.currency || 'USD'), realizedText: moneyText(detail.realized, detail.currency || 'USD') }, error: '' }); } catch (e) { this.setData({ detail: null, error: e.message }); } },
   async refreshMarket() { this.setData({ marketLoading: true }); try { await service.refreshMarket(); this.load(); } catch (_) { this.load(); } finally { this.setData({ marketLoading: false }); } },
   onHide() { service.invalidateMarketRequest(); }, onUnload() { service.invalidateMarketRequest(); },
   sell() { const item = this.data.detail; if (!item || item.quantity === '0' || item.clockAnomaly) return; wx.navigateTo({ url: `/pages/entry/index?kind=sell&symbol=${encodeURIComponent(item.symbol)}&assetType=${encodeURIComponent(item.assetType)}` }); },

@@ -24,6 +24,18 @@ test('Phase 1 navigation has exactly holdings, AI journal and board tabs while r
   assert.ok(!app.tabBar.list.some(item => item.pagePath === 'pages/records/index'));
 });
 
+test('holdings and position headers keep actions below the title on narrow screens', () => {
+  const css = readFileSync(new URL('app.wxss', source), 'utf8');
+  const overview = readFileSync(new URL('pages/overview/index.wxml', source), 'utf8');
+  const detail = readFileSync(new URL('pages/position-detail/index.wxml', source), 'utf8');
+  assert.match(css, /\.page-header-actions\s*\{[^}]*width:\s*100%/);
+  assert.match(css, /\.page-header-actions button\s*\{[^}]*min-width:\s*0/);
+  assert.match(overview, /class="page-header"[\s\S]*?class="actions page-header-actions compact"/);
+  assert.match(detail, /class="page-header"[\s\S]*?class="actions page-header-actions"/);
+  assert.doesNotMatch(overview, /class="row"><view><view class="eyebrow">PORTFOLIO/);
+  assert.doesNotMatch(detail, /class="row"><view><view class="title">\{\{detail\.name/);
+});
+
 test('holdings page add menu exposes manual and screenshot routes while records stays secondary', () => {
   const service = { overview: () => ({ clockAnomaly: false, currencies: ['USD'], selectedCurrency: 'USD', positions: [], market: { total: 0, covered: 0 }, marketValue: null, unrealizedPnl: null }), firstUse: () => ({ isEmpty: true }), refreshMarket: async () => {}, invalidateMarketRequest: () => {} };
   let choice = 0;
@@ -221,4 +233,87 @@ test('settings labels and restores the current v7 backup and owns its navigation
   controller.setData({ preview: service.previewCompleteBackup(), backupText: '{}' });
   controller.restoreBackup();
   assert.match(calls.notices.find(item => item.title === '用备份替换当前完整工作区？').content, /这是 v7 完整备份/);
+});
+
+test('multi-image import keeps successful drafts, retries failures only and leaves duplicate rows unselected', async () => {
+  const sent = []; let fail = true;
+  const vision = { capabilities: async () => ({ enabled: true, providerConfigured: true }), recognizeFile: async input => {
+    sent.push(input.tempFilePath);
+    if (input.tempFilePath === '/2.jpg' && fail) throw Error('暂时失败');
+    return { rows: [{ name: 'Example ETF', code: 'ABC', quantityText: '2', unitCostText: '10', costBasis: 'average_cost', currency: 'USD' }] };
+  } };
+  const candidate = { symbol: 'ABC', name: 'Example ETF', market: 'US', currency: 'USD', asset_type: 'ETF', instrument_key: 'US:XNAS:ABC' };
+  const service = { vision: () => vision, snapshot: () => ({ revision: 0 }), overview: () => ({ positions: [] }), searchMarket: async () => [candidate] };
+  const { controller } = page('holding-import', service, { chooseMedia: args => { assert.equal(args.count, 9); args.success({ tempFiles: [1, 2].map(i => ({ tempFilePath: `/${i}.jpg`, size: 100 })) }); } });
+  await controller.onLoad(); controller.chooseImage(); await controller.startRecognition();
+  assert.equal(controller.data.rows.length, 1); assert.equal(controller.data.failedImages.length, 1);
+  controller.onRowField({ currentTarget: { dataset: { index: 0, field: 'quantity' } }, detail: { value: '3' } });
+  fail = false; await controller.startRecognition();
+  assert.deepEqual(sent, ['/1.jpg', '/2.jpg', '/2.jpg']);
+  assert.equal(controller.data.rows[0].quantity, '3');
+  assert.equal(controller.data.rows[1].selected, false); assert.equal(controller.data.rows[1].duplicate, true);
+  assert.equal(controller.data.failedImages.length, 0);
+});
+
+test('one confirmation selects an unmatched existing holding and approves its update; final modal controls writes', async () => {
+  let saves = 0, confirm = false;
+  const service = { overview: () => ({ positions: [{ id: 'abc', symbol: 'ABC', market: 'US', currency: 'USD', quantity: '1' }] }), searchMarket: async () => [], previewHoldingImport: input => { assert.equal(input.rows[0].replaceApproved, true); return { contentToken: 'token' }; }, saveHoldingImport: input => { assert.equal(input.contentToken, 'token'); saves++; return { imported: 1 }; } };
+  const { controller } = page('holding-import', service, { showModal: args => args.success({ confirm }) });
+  controller.setData({ rows: await controller.resolveRows([{ name: 'Example ETF', code: 'ABC', quantityText: '2', costBasis: 'unknown', currency: 'USD' }]) });
+  controller.confirmManual({ currentTarget: { dataset: { index: 0 } } });
+  assert.equal(controller.data.rows[0].selected, true); assert.equal(controller.data.rows[0].replaceApproved, true);
+  assert.equal(controller.data.rows[0].issues.length, 0);
+  await controller.preview(); assert.equal(saves, 0);
+  confirm = true; await controller.preview(); assert.equal(saves, 1);
+});
+
+test('fund detail formats CNY, zero and missing values without leaking null or a dollar prefix', () => {
+  const service = { positionDetail: () => ({ currency: 'CNY', quantity: '2', cost: '100.00', unitCost: '50.0000', realized: null }) };
+  const { controller } = page('position-detail', service); controller.onLoad({ symbol: '012345' });
+  assert.equal(controller.data.detail.costText, '¥100.00'); assert.equal(controller.data.detail.realizedText, '--');
+  service.positionDetail = () => ({ currency: 'USD', cost: null, unitCost: null, realized: '0.00' }); controller.load();
+  assert.equal(controller.data.detail.costText, '--'); assert.equal(controller.data.detail.unitCostText, '--'); assert.equal(controller.data.detail.realizedText, '$0.00');
+});
+
+test('compact holding cards fall back to screenshot amounts, preserve zero and navigate to detail by id', () => {
+  let positions = [{ id: 'fund-id', symbol: '012345', currency: 'CNY', marketValue: null, unrealized: null, screenshotMetrics: { marketValueText: '2,000.00', holdingPnlText: '+50.00' } }];
+  const service = { overview: () => ({ positions, currencies: ['CNY', 'USD'], selectedCurrency: 'CNY' }), firstUse: () => ({}) };
+  const { controller, calls } = page('overview', service); controller.load();
+  assert.equal(controller.data.view.positions[0].amountText, '¥2,000.00');
+  assert.equal(controller.data.view.positions[0].pnlText, '¥+50.00');
+  assert.equal(controller.data.view.positions[0].amountFromScreenshot, true);
+  positions = [{ ...positions[0], marketValue: '2100.00', unrealized: '0.00' }];
+  controller.onCurrency({ detail: { value: 1 } });
+  assert.equal(controller.data.view.positions[0].pnlText, '¥0.00');
+  assert.equal(controller.data.view.positions[0].pnlFromScreenshot, false);
+  positions = [{ ...positions[0], marketValue: null, unrealized: null, screenshotMetrics: {} }]; controller.load();
+  assert.equal(controller.data.view.positions[0].amountText, '--');
+  controller.showPosition({ currentTarget: { dataset: { symbol: 'fund-id' } } });
+  assert.ok(calls.routes[0].endsWith('symbol=fund-id'));
+});
+
+test('position summary shows screenshot holding profit without relabeling it realized profit', () => {
+  let detail = { currency: 'CNY', marketValue: null, unrealized: null, realized: null, screenshotMetrics: { marketValueText: '2,100.00', holdingPnlText: '+100.00' } };
+  const { controller } = page('position-detail', { positionDetail: () => detail });
+  controller.onLoad({ symbol: '012345' });
+  assert.equal(controller.data.detail.holdingPnlText, '¥+100.00');
+  assert.equal(controller.data.detail.holdingAmountText, '¥2,100.00');
+  assert.equal(controller.data.detail.pnlFromScreenshot, true);
+  assert.equal(controller.data.detail.hasRealized, false);
+  detail = { ...detail, unrealized: '0.00', realized: '0.00' }; controller.load();
+  assert.equal(controller.data.detail.holdingPnlText, '¥0.00');
+  assert.equal(controller.data.detail.pnlFromScreenshot, false);
+  assert.equal(controller.data.detail.hasRealized, true);
+});
+
+test('delete holding requires confirmation, uses original identity and returns to overview', async () => {
+  const existing = { id: 'original', symbol: 'QQQ', name: 'Example ETF', market: 'US', currency: 'USD', assetType: 'ETF', status: 'verified', quantity: '2', unitCost: '10' };
+  let confirm = false; const writes = [];
+  const service = { snapshot: () => ({ revision: 3 }), overview: () => ({ positions: [existing] }), previewHolding: input => { assert.equal(input.instrument.symbol, 'QQQ'); assert.equal(input.quantity, '0'); return { contentToken: 'before-delete' }; }, saveHolding: input => writes.push(input) };
+  const { controller, calls } = page('holding-editor', service, { showModal: args => args.success({ confirm }) });
+  controller.onLoad({ id: 'original' }); controller.setData({ symbol: 'CHANGED', quantity: '99' });
+  await controller.deleteHolding(); assert.equal(writes.length, 0); assert.equal(controller.data.saving, false);
+  confirm = true; await controller.deleteHolding(); await controller.deleteHolding();
+  assert.equal(writes.length, 1); assert.equal(writes[0].contentToken, 'before-delete'); assert.equal(writes[0].expectedRevision, 3);
+  assert.deepEqual(calls.switched, ['/pages/overview/index']);
 });

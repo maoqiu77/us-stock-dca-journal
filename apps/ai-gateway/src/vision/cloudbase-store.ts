@@ -43,18 +43,25 @@ export function createCloudbaseVisionTaskStore(db: Database): VisionTaskStore {
       if (task.state === 'cancelled') return { kind: 'cancelled' as const };
       if (task.recognitionRequestId) return task.recognitionRequestId === requestId ? { kind: 'existing' as const, task } : { kind: 'conflict' as const };
       const date = now.slice(0, 10), usageRef = tx.collection('vision_usage').doc(usageKey(owner, date)), usage = await data(usageRef) ?? { ownerHash: sha256(owner), date, count: 0, inflight: 0 };
-      if (usage.count >= dailyLimit) return { kind: 'quota' as const };
+      if (dailyLimit !== null && usage.count >= dailyLimit) return { kind: 'quota' as const };
       if (usage.inflight >= maxInflight) return { kind: 'inflight' as const };
       const claimed: VisionTask = { ...task, recognitionRequestId: requestId, state: 'processing' };
       await ref.update({ data: { recognitionRequestId: requestId, state: 'processing' } });
-      await usageRef.set({ data: { ...usage, count: usage.count + 1, inflight: usage.inflight + 1, updatedAt: now } });
+      // CloudBase includes _id in fetched documents but forbids writing it in set data.
+      const { _id: _ignored, ...usageData } = usage;
+      await usageRef.set({ data: { ...usageData, count: usage.count + 1, inflight: usage.inflight + 1, updatedAt: now } });
       return { kind: 'claimed' as const, task: claimed };
     }),
     complete: (owner, taskId, requestId, response) => db.runTransaction(async tx => {
       const ref = tx.collection('vision_tasks').doc(taskKey(owner, taskId)), task = await data(ref) as VisionTask | undefined;
       if (!task || task.owner !== owner || task.recognitionRequestId !== requestId || task.state !== 'processing') throw Error('VISION_TASK_CONFLICT');
       const next: VisionTask = { ...task, state: 'completed', response, errorCode: null };
-      await ref.update({ data: { state: next.state, response, errorCode: null } }); await updateInflight(tx, task, -1); return next;
+      const { _id: _ignored, ...taskData } = next as VisionTask & { _id?: string };
+      try { await ref.set({ data: taskData }); }
+      catch { throw Error('VISION_TASK_RESPONSE_WRITE_FAILED'); }
+      try { await updateInflight(tx, task, -1); }
+      catch { throw Error('VISION_USAGE_RELEASE_FAILED'); }
+      return next;
     }),
     fail: (owner, taskId, requestId, code) => db.runTransaction(async tx => {
       const ref = tx.collection('vision_tasks').doc(taskKey(owner, taskId)), task = await data(ref) as VisionTask | undefined;

@@ -8,7 +8,7 @@ function database() {
   const collection = (name: string) => {
     const rows = collections.get(name) ?? new Map<string, any>(); collections.set(name, rows);
     return {
-      doc(id: string) { return { async get() { const value = rows.get(id); return { data: value ? { ...value } : undefined }; }, async set({ data }: any) { rows.set(id, { ...data }); }, async update({ data }: any) { const value = rows.get(id); if (!value) throw Error('NOT_FOUND'); rows.set(id, { ...value, ...data }); } }; },
+      doc(id: string) { return { async get() { const value = rows.get(id); return { data: value ? { _id: id, ...value } : undefined }; }, async set({ data }: any) { if ('_id' in data) throw Error('CANNOT_UPDATE_ID'); rows.set(id, { ...data }); }, async update({ data }: any) { const value = rows.get(id); if (!value) throw Error('NOT_FOUND'); rows.set(id, { ...value, ...data }); } }; },
       where(query: any) { return { limit() { return { async get() { return { data: [...rows.values()].filter(row => Object.entries(query).every(([key, expected]: any) => expected?.$lte !== undefined ? row[key] <= expected.$lte : row[key] === expected)) }; } }; } }; },
     };
   };
@@ -29,6 +29,13 @@ test('CloudBase vision store atomically owns upload and recognition identities',
   assert.equal((await store.claim('owner-a', original.id, 'recognize_2', '2026-09-20T04:01:00.000Z', 2, 1)).kind, 'conflict');
   const response = { requestId: 'recognize_1', status: 'review_required' as const, rows: [] };
   assert.equal((await store.complete('owner-a', original.id, 'recognize_1', response)).state, 'completed');
+  const second = task('task-2', 'upload_req_2');
+  assert.equal((await store.create(second)).kind, 'created');
+  assert.equal((await store.claim('owner-a', second.id, 'recognize_2', '2026-09-20T04:02:00.000Z', 2, 1)).kind, 'claimed');
+  await store.complete('owner-a', second.id, 'recognize_2', { ...response, requestId: 'recognize_2' });
+  const third = task('task-3', 'upload_req_3');
+  assert.equal((await store.create(third)).kind, 'created');
+  assert.equal((await store.claim('owner-a', third.id, 'recognize_3', '2026-09-20T04:03:00.000Z', null, 1)).kind, 'claimed');
 });
 
 test('CloudBase vision cleanup index retains no image bytes and supports retry candidates', async () => {

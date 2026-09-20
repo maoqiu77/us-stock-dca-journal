@@ -137,3 +137,20 @@ test('external v3 backup rejects dangling checkpoint heads and receipts without 
   assert.throws(() => f.service.restoreBackup(JSON.stringify(brokenReceipt)), /回执/);
   assert.equal(f.service.exportBackup(), original);
 });
+
+test('removing current holding keeps historical trades, persists across reload and allows readding', () => {
+  const f = setup();
+  f.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: '2026-09-19', quantity: '2', price: '10', fee: '0' });
+  f.advance();
+  const records = f.service.records();
+  const input = { ...manualHolding, batchId: 'remove_holding_001', expectedRevision: f.service.snapshot().revision, observedAt: f.runtime.now(), quantity: '0', replaceApproved: true };
+  const preview = f.service.previewHolding(input);
+  f.service.saveHolding({ ...input, contentToken: preview.contentToken });
+  assert.equal(f.service.overview().positions.length, 0);
+  assert.deepEqual(f.service.records(), records);
+  const reloaded = createService({ get: key => f.values.get(key) ?? '', set: (key, value) => { f.values.set(key, value); } }, f.runtime);
+  assert.equal(reloaded.overview().positions.length, 0);
+  reloaded.saveHolding({ ...input, batchId: 'restore_holding_001', expectedRevision: reloaded.snapshot().revision, quantity: '2' });
+  assert.equal(reloaded.overview().positions[0].quantity, '2');
+  assert.deepEqual(reloaded.records(), records);
+});

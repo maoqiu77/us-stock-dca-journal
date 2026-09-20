@@ -10,7 +10,7 @@ export type HoldingVisionConfig = {
   maxRows: number;
   timeoutMs: number;
   taskTtlMs: number;
-  dailyLimit: number;
+  dailyLimit: number | null;
   maxInflight: number;
 };
 
@@ -23,7 +23,7 @@ export const holdingVisionRowSchema = z.strictObject({
   unitCostText: nullableText(40),
   costBasis: z.enum(['average_cost', 'breakeven', 'unknown']),
   currency: z.enum(['CNY', 'USD']).nullable(),
-  accountLabel: nullableText(80),
+  accountLabel: nullableText(80), marketValueText: z.string().max(40).nullable().optional(), holdingPnlText: z.string().max(40).nullable().optional(), holdingReturnRateText: z.string().max(40).nullable().optional(), dailyChangeRateText: z.string().max(40).nullable().optional(), navText: z.string().max(40).nullable().optional(), navDateText: z.string().max(40).nullable().optional(),
 });
 export const holdingVisionOutputSchema = z.strictObject({ rows: z.array(holdingVisionRowSchema).max(20), truncated: z.literal(false) });
 export type HoldingVisionOutput = z.infer<typeof holdingVisionOutputSchema>;
@@ -57,7 +57,7 @@ export interface VisionTaskStore {
   create(task: VisionTask): Promise<{ kind: 'created' | 'existing' | 'conflict'; task: VisionTask }>;
   get(owner: string, taskId: string): Promise<VisionTask | undefined>;
   bindObject(owner: string, taskId: string, objectRef: string): Promise<VisionTask | undefined>;
-  claim(owner: string, taskId: string, requestId: string, now: string, dailyLimit: number, maxInflight: number): Promise<Claim>;
+  claim(owner: string, taskId: string, requestId: string, now: string, dailyLimit: number | null, maxInflight: number): Promise<Claim>;
   complete(owner: string, taskId: string, requestId: string, response: NonNullable<VisionTask['response']>): Promise<VisionTask>;
   fail(owner: string, taskId: string, requestId: string, code: string): Promise<VisionTask>;
   cancel(owner: string, taskId: string): Promise<VisionTask | undefined>;
@@ -83,7 +83,7 @@ export function createMemoryVisionTaskStore(): VisionTaskStore {
       if (task.state === 'cancelled') return { kind: 'cancelled' };
       if (task.recognitionRequestId) return task.recognitionRequestId === requestId ? { kind: 'existing', task } : { kind: 'conflict' };
       const day = now.slice(0, 10), ownerTasks = [...tasks.values()].filter(item => item.owner === owner);
-      if (ownerTasks.filter(item => item.recognitionRequestId && item.createdAt.slice(0, 10) === day).length >= dailyLimit) return { kind: 'quota' };
+      if (dailyLimit !== null && ownerTasks.filter(item => item.recognitionRequestId && item.createdAt.slice(0, 10) === day).length >= dailyLimit) return { kind: 'quota' };
       if (ownerTasks.filter(item => item.state === 'processing').length >= maxInflight) return { kind: 'inflight' };
       const claimed = { ...task, recognitionRequestId: requestId, state: 'processing' as const };
       tasks.set(key(owner, taskId), claimed); return { kind: 'claimed', task: claimed };
@@ -137,6 +137,13 @@ function errorMessage(code: string) {
     VISION_RATE_LIMITED: '当前识别次数已达限制，请稍后再试。',
     VISION_TIMEOUT: '识别超时，已保留你的操作，可重新尝试。',
     VISION_OUTPUT_INVALID: '这张截图未能完整识别，请裁剪或手动填写。',
+    VISION_OUTPUT_EMPTY: '截图中未识别出可审核的持仓，请裁剪或手动填写。',
+    VISION_OUTPUT_SCHEMA_INVALID: '识别结果格式不符合要求，请裁剪或手动填写。',
+    VISION_PROVIDER_NETWORK: '识别服务连接失败，请稍后重试。',
+    VISION_OBJECT_READ_FAILED: '截图上传后暂时无法读取，请重新选择。',
+    VISION_TASK_STORE_FAILED: '识别任务保存失败，请稍后重试。',
+    VISION_TASK_RESPONSE_WRITE_FAILED: '识别草稿保存失败，请稍后重试。',
+    VISION_USAGE_RELEASE_FAILED: '识别额度更新失败，请稍后重试。',
     VISION_ROWS_TRUNCATED: '截图内容过多或不完整，请分张导入。',
     VISION_TASK_NOT_FOUND: '识别任务不存在、已过期或不属于当前用户。',
     VISION_REQUEST_CONFLICT: '本次识别请求与已有内容冲突。',
@@ -203,20 +210,24 @@ export function createHoldingVisionHandler(deps: { config: HoldingVisionConfig; 
       return failure(code, errorMessage(code));
     }
     let code = 'VISION_OUTPUT_INVALID';
+    let stage: 'read' | 'provider' | 'persist' = 'read';
     try {
       const bytes = await deps.objectStore.read(claim.task.objectRef!);
       if (!(bytes instanceof Uint8Array) || bytes.byteLength !== claim.task.expectedBytes || bytes.byteLength > deps.config.maxBytes) throw Error('VISION_IMAGE_INVALID');
       const image = imageInfo(bytes);
       if (image.mimeType !== claim.task.expectedMime || image.width * image.height > deps.config.maxPixels) throw Error('VISION_IMAGE_INVALID');
+      stage = 'provider';
       const value = await withTimeout(deps.provider.recognize({ bytes, mimeType: image.mimeType, requestId: request.data }), deps.config.timeoutMs);
       if ((value as any)?.truncated === true || Array.isArray((value as any)?.rows) && (value as any).rows.length > deps.config.maxRows) throw Error('VISION_ROWS_TRUNCATED');
       const parsed = holdingVisionOutputSchema.safeParse(value);
-      if (!parsed.success || parsed.data.rows.length < 1) throw Error('VISION_OUTPUT_INVALID');
+      if (!parsed.success) throw Error('VISION_OUTPUT_SCHEMA_INVALID');
+      if (parsed.data.rows.length < 1) throw Error('VISION_OUTPUT_EMPTY');
       const response = { requestId: request.data, status: 'review_required' as const, rows: parsed.data.rows };
+      stage = 'persist';
       await deps.store.complete(owner, taskId, request.data, response);
       return ok(response);
     } catch (error) {
-      code = error instanceof Error && /^VISION_[A-Z_]+$/.test(error.message) ? error.message : 'VISION_OUTPUT_INVALID';
+      code = error instanceof Error && /^VISION_[A-Z_]+$/.test(error.message) ? error.message : stage === 'read' ? 'VISION_OBJECT_READ_FAILED' : stage === 'persist' ? 'VISION_TASK_STORE_FAILED' : 'VISION_PROVIDER_NETWORK';
       await deps.store.fail(owner, taskId, request.data, code);
       return failure(code, errorMessage(code));
     } finally {

@@ -28,7 +28,7 @@ const visionProvider = visionEnabled ? gateway.createDeepSeekVisionProvider({
   maxOutputTokens: number('AI_VISION_MAX_OUTPUT_TOKENS', 1200),
 }) : gateway.disabledVisionProvider();
 const visionHandler = gateway.createHoldingVisionHandler({
-  config: { expectedAppId: process.env.EXPECTED_WEAPP_APPID || '', enabled: visionEnabled, maxBytes: number('AI_VISION_MAX_BYTES', 4194304), maxPixels: number('AI_VISION_MAX_PIXELS', 20000000), maxRows: number('AI_VISION_MAX_ROWS', 20), timeoutMs: number('AI_VISION_TIMEOUT_MS', 35000), taskTtlMs: number('AI_VISION_TASK_TTL_MS', 86400000), dailyLimit: number('AI_VISION_DAILY_LIMIT', 3), maxInflight: 1 },
+  config: { expectedAppId: process.env.EXPECTED_WEAPP_APPID || '', enabled: visionEnabled, maxBytes: number('AI_VISION_MAX_BYTES', 4194304), maxPixels: number('AI_VISION_MAX_PIXELS', 20000000), maxRows: number('AI_VISION_MAX_ROWS', 20), timeoutMs: number('AI_VISION_TIMEOUT_MS', 35000), taskTtlMs: number('AI_VISION_TASK_TTL_MS', 86400000), dailyLimit: null, maxInflight: 1 },
   store: gateway.createCloudbaseVisionTaskStore(db),
   objectStore: { async read(fileID) { const result = await cloud.downloadFile({ fileID }); return new Uint8Array(result.fileContent); }, async remove(fileID) { await cloud.deleteFile({ fileList: [fileID] }); } },
   provider: visionProvider, now: () => new Date().toISOString(), id: () => crypto.randomUUID(),

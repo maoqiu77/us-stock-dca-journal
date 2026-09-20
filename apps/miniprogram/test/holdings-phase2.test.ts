@@ -91,3 +91,89 @@ test('storage failure cannot expose a half-imported screenshot batch', () => {
   assert.equal(failing.service.snapshot().holding_checkpoints.length, 0);
   assert.equal(failing.service.snapshot().import_receipts.length, 0);
 });
+
+test('screenshot performance survives persistence and backup without becoming a live quote or realized profit', () => {
+  const f = setup();
+  const screenshotMetrics = { marketValueText: '2,040.00', holdingPnlText: '+40.00', holdingReturnRateText: '+2.00%', dailyChangeRateText: '-0.50%', navText: '2.0400', navDateText: '09-18' };
+  const input = { batchId: 'screenshot_metrics_1', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'one', instrument: { ...asset('012345', 'CNY'), assetType: 'FUND' as const }, quantity: '1000', unitCost: '2', screenshotMetrics }] };
+  const preview = f.service.previewHoldingImport(input);
+  f.service.saveHoldingImport({ ...input, contentToken: preview.contentToken });
+  assert.deepEqual(f.service.snapshot().holding_checkpoints[0].screenshot_metrics, screenshotMetrics);
+  const detail = f.service.positionDetail('012345');
+  assert.deepEqual(detail.screenshotMetrics, screenshotMetrics);
+  assert.equal(detail.realized, null); assert.equal(detail.marketPrice, null);
+  assert.equal(f.service.overview().marketValue, null);
+  assert.equal(f.service.records().length, 0);
+  assert.throws(() => f.service.saveHoldingImport({ ...input, rows: [{ ...input.rows[0], screenshotMetrics: { ...screenshotMetrics, holdingReturnRateText: '+3%' } }] }), /变化|检查/);
+  const backup = f.service.exportFullBackup();
+  assert.match(backup, /holdingReturnRateText/);
+  const restored = setup();
+  restored.service.restoreCompleteBackup(backup);
+  assert.deepEqual(restored.service.positionDetail('012345').screenshotMetrics, screenshotMetrics);
+});
+
+test('invalid screenshot percentages are rejected before writing and zero is preserved', () => {
+  const f = setup();
+  const input = { batchId: 'screenshot_metrics_2', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'one', instrument: asset('TEST'), quantity: '1', screenshotMetrics: { dailyChangeRateText: 'unknown' } }] };
+  assert.throws(() => f.service.previewHoldingImport(input), /百分比/);
+  assert.equal(f.service.snapshot().holding_checkpoints.length, 0);
+  input.rows[0].screenshotMetrics.dailyChangeRateText = '0.00%';
+  f.service.saveHoldingImport(input);
+  assert.equal(f.service.positionDetail('TEST').screenshotMetrics?.dailyChangeRateText, '0.00%');
+});
+
+test('minimal fund screenshot imports without cost or performance fields', () => {
+  const f = setup();
+  const input = { batchId: 'minimal_fund_001', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'fund', instrument: { ...asset('012345', 'CNY'), assetType: 'FUND' as const }, quantity: '12' }] };
+  const preview = f.service.previewHoldingImport(input);
+  f.service.saveHoldingImport({ ...input, contentToken: preview.contentToken });
+  const detail = f.service.positionDetail('012345');
+  assert.equal(detail.quantity, '12');
+  assert.equal(detail.cost, null); assert.equal(detail.realized, null);
+  assert.equal(detail.screenshotMetrics, null);
+});
+
+test('overview display totals include screenshot values with independent coverage and currency isolation', () => {
+  const f = setup();
+  f.service.saveHoldingImport({ batchId: 'display_totals_001', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [
+    { rowId: 'one', instrument: asset('012345', 'CNY'), quantity: '1', screenshotMetrics: { marketValueText: '1,200.10', holdingPnlText: '+100.20' } },
+    { rowId: 'two', instrument: asset('012346', 'CNY'), quantity: '1', screenshotMetrics: { marketValueText: '200.20', holdingPnlText: '-100.20' } },
+    { rowId: 'three', instrument: asset('012347', 'CNY'), quantity: '1' },
+    { rowId: 'usd', instrument: asset('USDTEST'), quantity: '1', screenshotMetrics: { marketValueText: '30.00', holdingPnlText: '2.00' } },
+  ] });
+  const cny = f.service.overview(undefined, 'CNY');
+  assert.deepEqual(cny.displayAmount, { value: '1400.30', covered: 2, screenshots: 2, partial: true });
+  assert.equal(cny.displayPnl.value, '0.00');
+  assert.equal(cny.displayIncludesScreenshots, true);
+  assert.equal(cny.marketValue, null);
+  const usd = f.service.overview(undefined, 'USD');
+  assert.equal(usd.displayAmount.value, '30.00'); assert.equal(usd.displayPnl.value, '2.00'); assert.equal(usd.displayAmount.partial, false);
+});
+
+test('deleted funds can be reimported together without replacement approval or duplicate quantities', () => {
+  const f = setup();
+  const rows = ['012345', '012346'].map((symbol, index) => ({ rowId: `fund_${index}`, instrument: { ...asset(symbol, 'CNY'), assetType: 'FUND' as const }, quantity: String(index + 2), unitCost: '10', screenshotMetrics: { holdingPnlText: '+1.00' } }));
+  const observedAt = '2026-09-20T04:00:00.000Z';
+  f.service.saveHoldingImport({ batchId: 'initial_fund_batch', expectedRevision: 0, observedAt, rows });
+  const originalIds = f.service.overview().positions.map(item => item.id).sort();
+  for (const row of rows) f.service.saveHolding({ batchId: `delete_${row.rowId}`, expectedRevision: f.service.snapshot().revision, observedAt, instrument: row.instrument, quantity: '0', replaceApproved: true });
+  assert.equal(f.service.overview().positions.length, 0);
+  const input = { batchId: 'reimport_fund_batch', expectedRevision: f.service.snapshot().revision, observedAt, rows: rows.map(row => ({ ...row, unitCost: '', replaceApproved: false })) };
+  const preview = f.service.previewHoldingImport(input);
+  assert.deepEqual(preview.rows.map(row => row.before.quantity), ['0', '0']);
+  f.service.saveHoldingImport({ ...input, contentToken: preview.contentToken });
+  assert.deepEqual(f.service.overview().positions.map(item => item.id).sort(), originalIds);
+  assert.deepEqual(f.service.overview().positions.map(item => item.quantity).sort(), ['2', '3']);
+  assert.equal(f.service.positionDetail('012345').cost, null);
+  assert.equal(f.service.records().length, 0);
+  assert.equal(f.service.saveHoldingImport(input).kind, 'already_applied');
+  assert.throws(() => f.service.previewHoldingImport({ ...input, batchId: 'active_fund_batch', expectedRevision: f.service.snapshot().revision }), /已有持仓/);
+});
+
+test('manual readdition after deletion needs no replacement approval', () => {
+  const f = setup(), instrument = asset('012349', 'CNY'), observedAt = '2026-09-20T04:00:00.000Z';
+  f.service.saveHolding({ batchId: 'manual_before_delete', expectedRevision: 0, observedAt, instrument, quantity: '4' });
+  f.service.saveHolding({ batchId: 'manual_delete_zero', expectedRevision: 1, observedAt, instrument, quantity: '0', replaceApproved: true });
+  f.service.saveHolding({ batchId: 'manual_after_delete', expectedRevision: 2, observedAt, instrument, quantity: '5' });
+  assert.equal(f.service.overview().positions[0].quantity, '5');
+});
