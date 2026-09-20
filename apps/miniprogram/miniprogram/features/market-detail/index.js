@@ -47,6 +47,6 @@ Page({
    this.setData({ bars, startDate: bars[0]?.trading_date || '', endDate: last?.trading_date || '', averages: [5, 20, 60].map(period => ({ period, value: last?.['ma' + period] == null ? '--' : last['ma' + period].toFixed(3) })) });
  },
  toggle() { if (!this.data.instrument) return; if (this.data.domestic) return wx.showToast({ title: '国内目录直接在分类中查看', icon: 'none' }); const exists = service.marketDiscovery().watchlist.some(item => item.instrument_key === this.key); if (exists) service.removeWatchlist(this.key); else service.addWatchlist(this.data.instrument); wx.showToast({ title: exists ? '已取消关注' : '已关注', icon: 'none' }); },
- addHolding() { wx.navigateTo({ url: `/pages/holding-editor/index?key=${encodeURIComponent(this.key)}` }); },
+ addHolding() { wx.navigateTo({ url: `/features/holding-editor/index?key=${encodeURIComponent(this.key)}` }); },
  analyze() { const item = this.data.instrument; if (!item) return; wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { workspaceId: service.journal().read().instance_id, type: item.market === 'CN' ? 'domestic_research' : 'instrument_research', symbol: item.symbol, instrumentKey: item.instrument_key, question: `帮我研究 ${item.symbol}`, expiresAt: Date.now() + 300000 }); wx.switchTab({ url: '/pages/research/index', fail: () => wx.removeStorageSync('portfolio.wechat.navigation-intent.v1') }); },
 });

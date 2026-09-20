@@ -31,7 +31,8 @@ await rm(join(out, 'miniprogram'), { recursive: true, force: true });
 await mkdir(join(out, 'miniprogram/lib'), { recursive: true });
 const sourceApp = JSON.parse(await readFile(join(root, 'miniprogram/app.json'), 'utf8'));
 const components = await componentGraph(join(root, 'miniprogram'));
-const staticFiles = ['utils/journal.js', 'app.js', 'app.json', 'app.wxss', 'config.js', 'sitemap.json', ...sourceApp.pages.flatMap(page => ['js', 'json', 'wxml', 'wxss'].map(ext => `${page}.${ext}`)), ...components.flatMap(component => ['js', 'json', 'wxml', 'wxss'].map(ext => `${component}.${ext}`))];
+const sourcePages = [...sourceApp.pages, ...(sourceApp.subPackages ?? []).flatMap(pkg => pkg.pages.map(page => `${pkg.root}/${page}`))];
+const staticFiles = ['utils/journal.js', 'app.js', 'app.json', 'app.wxss', 'config.js', 'sitemap.json', ...sourcePages.flatMap(page => ['js', 'json', 'wxml', 'wxss'].map(ext => `${page}.${ext}`)), ...components.flatMap(component => ['js', 'json', 'wxml', 'wxss'].map(ext => `${component}.${ext}`))];
 for (const file of staticFiles) {
   if (file.includes('..') || file.startsWith('/')) throw Error('invalid_source_path');
   await mkdir(dirname(join(out, 'miniprogram', file)), { recursive: true });
@@ -62,7 +63,7 @@ const mobileTimezones = { name: 'mobile-timezones', setup(builder) {
 const result = await build({ plugins: [mobileTimezones], entryPoints: [entry], outfile: join(out, 'miniprogram/lib/core.js'), bundle: true, format: 'cjs', platform: 'browser', target: 'es2018', minify: true, legalComments: 'eof', metafile: true, banner: { js: 'if(typeof globalThis.Intl === "undefined") globalThis.Intl = {};' } });
 for (const output of Object.values(result.metafile.outputs)) if (output.imports.length) throw Error(`unbundled_runtime_dependency: ${JSON.stringify(output.imports)}`);
 const app = JSON.parse(await readFile(join(out, 'miniprogram/app.json'), 'utf8'));
-for (const page of app.pages) for (const extension of ['js', 'json', 'wxml', 'wxss']) await stat(join(out, 'miniprogram', `${page}.${extension}`));
+for (const page of sourcePages) for (const extension of ['js', 'json', 'wxml', 'wxss']) await stat(join(out, 'miniprogram', `${page}.${extension}`));
 await componentGraph(join(out, 'miniprogram'));
 for (const tab of app.tabBar.list) if (!app.pages.includes(tab.pagePath)) throw Error(`missing_tab_page: ${tab.pagePath}`);
 async function size(path) { let bytes = 0; for (const item of await readdir(path, { withFileTypes: true })) bytes += item.isDirectory() ? await size(join(path, item.name)) : (await stat(join(path, item.name))).size; return bytes; }
@@ -88,7 +89,9 @@ async function treeDigest(path) {
   }
   return { sha256: digest.digest('hex'), bytes, files: files.length };
 }
-const bytes = await size(join(out, 'miniprogram'));
+const subpackages = await Promise.all((app.subPackages ?? []).map(async item => ({ root: item.root, bytes: await size(join(out, 'miniprogram', item.root)) })));
+for (const pkg of subpackages) if (pkg.bytes > 2 * 1024 * 1024) throw Error(`subpackage_over_2MiB:${pkg.root}`);
+const bytes = await size(join(out, 'miniprogram')) - subpackages.reduce((sum, pkg) => sum + pkg.bytes, 0);
 if (bytes > 2 * 1024 * 1024) throw Error(`main_package_over_2MiB: ${bytes}`);
 const commit = (await promisify(execFile)('git', ['rev-parse', 'HEAD'], { cwd: repoRoot })).stdout.trim();
 const workingTreeDirty = (await promisify(execFile)('git', ['status', '--porcelain'], { cwd: repoRoot })).stdout.trim().length > 0;
@@ -101,8 +104,7 @@ await cp(join(gatewayRoot, 'dist/gateway.cjs'), join(out, 'cloudfunctions/portfo
 await cp(join(gatewayRoot, 'dist/market.cjs'), join(out, 'cloudfunctions/portfolioMarket/market.cjs'));
 const cloudFunctionNames = (await readdir(join(out, 'cloudfunctions'), { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name).sort();
 const cloudFunctions = Object.fromEntries(await Promise.all(cloudFunctionNames.map(async name => [name, await treeDigest(join(out, 'cloudfunctions', name))])));
-const subpackages = await Promise.all((app.subPackages ?? app.subpackages ?? []).map(async item => ({ root: item.root, bytes: await size(join(out, 'miniprogram', item.root)) })));
-const manifest = { schemaVersion: 2, version: packageJson.version, commit, workingTreeDirty, profile, features: { aiTransport: transport, marketTransport: local.marketFunctionName ? 'cloud' : 'disabled', marketCloudSkeletonIncluded: true, marketProviderConfigured: false, fakeProviderIncluded: profile === 'development', demoFixtureIncluded: profile === 'development' }, mainPackageBytes: bytes, pageCount: app.pages.length, subpackages, cloudFunctions, runtimeInputs: Object.keys(result.metafile.inputs).map(path => relative(repoRoot, resolve(path))).sort() };
+const manifest = { schemaVersion: 2, version: packageJson.version, commit, workingTreeDirty, profile, features: { aiTransport: transport, marketTransport: local.marketFunctionName ? 'cloud' : 'disabled', marketCloudSkeletonIncluded: true, marketProviderConfigured: false, fakeProviderIncluded: profile === 'development', demoFixtureIncluded: profile === 'development' }, mainPackageBytes: bytes, pageCount: sourcePages.length, subpackages, cloudFunctions, runtimeInputs: Object.keys(result.metafile.inputs).map(path => relative(repoRoot, resolve(path))).sort() };
 await writeFile(join(out, 'release-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 await writeFile(join(out, 'README.txt'), `交易日记 · 微信小程序 ${packageJson.version}\n\nprofile：${profile}\ntransport：${transport}\ncloudfunctions 与 miniprogram 同级，不进入小程序主包。\n${transport === 'cloud' ? '客户端不包含模型密钥。' : 'AI 服务已关闭；本地记账、阅读历史和备份仍可用。'}\n`);
-console.log(`WeChat project built: ${out}\nMain package: ${(bytes / 1024).toFixed(1)} KiB; ${app.pages.length} pages; profile=${profile}; transport=${transport}; appid=${project.appid}; cloud functions excluded.`);
+console.log(`WeChat project built: ${out}\nMain package: ${(bytes / 1024).toFixed(1)} KiB; ${sourcePages.length} pages; profile=${profile}; transport=${transport}; appid=${project.appid}; cloud functions excluded.`);

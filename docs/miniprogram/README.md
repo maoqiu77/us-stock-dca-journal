@@ -1,6 +1,12 @@
 # 当前验收入口（2026-09-21）
 
-Phase 6/7 本轮状态、运行说明、回滚及阻塞见 [交接](../implementation/chicang-slim/PHASE67_HANDOFF.md)。下文历史游客/fake 验收不代表当前云端或真机状态；当前本地构建使用私有配置，未完成上线验收。
+当前版本为 `0.3.0`，支持本地持仓、个人手记及 v7 完整备份恢复；生产构建不含 fake provider 或载入演示入口。云端 AI/行情由本地绑定配置和服务端权限共同控制。发布状态见[发布准备](../implementation/chicang-slim/RELEASE_PREPARATION.md)，历史 Phase 6/7 证据见[交接](../implementation/chicang-slim/PHASE67_HANDOFF.md)。未完成上线验收。
+
+使用 Node.js 24，在仓库根目录执行 `npm ci`、`npm run check:weapp`、`npm run check:weapp-cloud-packages`。将 `apps/miniprogram/dist` 导入开发者工具；使用自己的 AppID/云环境绑定配置。没有绑定时只能验证关闭云能力的本地路径。`check:weapp-cloud-packages` 只在临时目录安装锁定依赖并加载云函数入口，不部署、不调用函数。
+
+三个云函数的 `package-lock.json` 随构建和云包发布归档一起保留。获准部署时应使用 `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` 安装；若平台只能使用“云端安装依赖”，须核实其是否遵循锁文件，不能仅凭按钮名称认定部署依赖一致。实际云端 Node 版本也需要单独验证。
+
+下文为 `0.2.0` / A0–A1 历史指南，包括游客、fake、v3 备份和“体验示例”等旧流程，不作为当前版本的操作步骤或发布证据。
 
 # 微信小程序测试版
 

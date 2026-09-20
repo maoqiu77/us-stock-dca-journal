@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { componentGraph } from './component-graph.mjs';
+import { checkCloudLock } from './cloud-lock.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, resolve, dirname } from 'node:path';
@@ -36,10 +37,28 @@ async function treeDigest(path) {
   return { sha256: digest.digest('hex'), bytes, files: paths.length };
 }
 const actualMain = await treeDigest(join(dist, 'miniprogram'));
+for (const pkg of manifest.subpackages) {
+  const actual = await treeDigest(join(dist, 'miniprogram', pkg.root));
+  if (actual.bytes !== pkg.bytes || actual.bytes > 2 * 1024 * 1024) throw Error(`subpackage_size_mismatch:${pkg.root}`);
+  actualMain.bytes -= actual.bytes;
+}
 if (actualMain.bytes !== manifest.mainPackageBytes || actualMain.bytes > 2 * 1024 * 1024) throw Error('main_package_size_mismatch');
+// Stay within the DevTools quality target as well as the 2 MiB upload limit.
+if (actualMain.bytes >= 1_500_000) throw Error('main_package_quality_budget_exceeded');
+async function mediaBytes(directory) {
+  let bytes = 0;
+  for (const item of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, item.name);
+    if (item.isDirectory()) bytes += await mediaBytes(path);
+    else if (/\.(png|jpe?g|gif|webp|bmp|svg|mp3|wav|aac|m4a|ogg)$/i.test(item.name)) bytes += (await stat(path)).size;
+  }
+  return bytes;
+}
+if (await mediaBytes(join(dist, 'miniprogram')) > 200_000) throw Error('media_quality_budget_exceeded');
 const expectedCloudNames = ['portfolioAi', 'portfolioAiCleanup', 'portfolioMarket'];
 if (JSON.stringify(Object.keys(manifest.cloudFunctions).sort()) !== JSON.stringify(expectedCloudNames)) throw Error('cloud_function_manifest_incomplete');
 for (const name of expectedCloudNames) {
+  await checkCloudLock(join(dist, 'cloudfunctions', name));
   const actual = await treeDigest(join(dist, 'cloudfunctions', name));
   if (JSON.stringify(actual) !== JSON.stringify(manifest.cloudFunctions[name])) throw Error(`cloud_function_hash_mismatch:${name}`);
 }
@@ -49,10 +68,13 @@ const clientBundle = await readFile(join(dist, 'miniprogram/lib/core.js'), 'utf8
 if (/TWELVE_DATA_API_KEY|DEEPSEEK_API_KEY|api\.deepseek\.com|api\.twelvedata\.com/i.test(clientBundle)) throw Error('client_bundle_crosses_secret_boundary');
 for (const input of manifest.runtimeInputs) if (input.endsWith('src/ai/fake-provider.ts') || input.endsWith('src/dev-fixtures.ts')) throw Error(`production_dependency_forbidden: ${input}`);
 const app = JSON.parse(await readFile(join(dist, 'miniprogram/app.json'), 'utf8'));
-if (manifest.pageCount !== app.pages.length) throw Error('page_count_mismatch');
+if (app.lazyCodeLoading !== 'requiredComponents') throw Error('component_lazy_loading_required');
+const allPages = [...app.pages, ...(app.subPackages ?? []).flatMap(pkg => pkg.pages.map(page => `${pkg.root}/${page}`))];
+for (const tab of app.tabBar.list) if (!app.pages.includes(tab.pagePath)) throw Error('tab_must_remain_in_main_package');
+if (manifest.pageCount !== allPages.length) throw Error('page_count_mismatch');
 const packageRoots = (app.subPackages ?? app.subpackages ?? []).map(item => item.root);
 if (JSON.stringify(manifest.subpackages.map(item => item.root)) !== JSON.stringify(packageRoots)) throw Error('subpackage_manifest_mismatch');
-for (const route of app.pages) {
+for (const route of allPages) {
   const base = join(dist, 'miniprogram', route); for (const extension of ['js', 'json', 'wxml', 'wxss']) await stat(`${base}.${extension}`);
   const source = await readFile(`${base}.js`, 'utf8'), template = await readFile(`${base}.wxml`, 'utf8');
   if (/(?:bind|catch)(?::)?\w+="(?:loadDemo|runFake|runDemo)"|体验示例|运行离线演示/.test(template)) throw Error(`production_demo_entry_found:${route}`);

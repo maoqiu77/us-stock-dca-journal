@@ -36,9 +36,10 @@ test('release manifest binds the exact client structure and every cloud function
   const manifest = JSON.parse(readFileSync(new URL('release-manifest.json', dist), 'utf8'));
   const app = JSON.parse(readFileSync(new URL('miniprogram/app.json', dist), 'utf8'));
   assert.equal(manifest.schemaVersion, 2);
-  assert.equal(manifest.pageCount, app.pages.length);
-  assert.deepEqual(manifest.subpackages, []);
-  assert.equal(manifest.mainPackageBytes, hashTree(new URL('miniprogram/', dist)).bytes);
+  assert.equal(manifest.pageCount, app.pages.length + app.subPackages.reduce((n, pkg) => n + pkg.pages.length, 0));
+  assert.deepEqual(manifest.subpackages.map(pkg => pkg.root), ['features']);
+  for (const pkg of manifest.subpackages) assert.equal(pkg.bytes, hashTree(new URL(`miniprogram/${pkg.root}/`, dist)).bytes);
+  assert.equal(manifest.mainPackageBytes, hashTree(new URL('miniprogram/', dist)).bytes - manifest.subpackages.reduce((n, pkg) => n + pkg.bytes, 0));
   assert.deepEqual(Object.keys(manifest.cloudFunctions).sort(), ['portfolioAi', 'portfolioAiCleanup', 'portfolioMarket']);
   for (const [name, expected] of Object.entries(manifest.cloudFunctions)) {
     assert.deepEqual(hashTree(new URL(`cloudfunctions/${name}/`, dist)), expected);

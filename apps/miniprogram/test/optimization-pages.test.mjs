@@ -19,7 +19,7 @@ function boot(service, options = {}) {
     shareFileMessage: () => {}, env: { USER_DATA_PATH: '/tmp' },
   };
   const context = vm.createContext({ module: { exports: {} }, console, wx, require: () => ({ service, today: () => '2026-09-10', showError: e => calls.notices.push({ content: e.message }) }), Page: definition => { context.page = definition; definition.setData = update => Object.assign(definition.data, update); } });
-  return { calls, page(name) { vm.runInContext(`(function(){${readFileSync(new URL(`pages/${name}/index.js`, source), 'utf8')}\n})()`, context); return context.page; }, options };
+  return { calls, page(name) { vm.runInContext(`(function(){${readFileSync(new URL(`${['overview', 'research', 'market'].includes(name) ? 'pages' : 'features'}/${name}/index.js`, source), 'utf8')}\n})()`, context); return context.page; }, options };
 }
 
 test('overview exposes first-use choices and never renders fake totals during a clock anomaly', () => {
@@ -28,7 +28,7 @@ test('overview exposes first-use choices and never renders fake totals during a 
   assert.equal(page.data.clockAnomaly.asOf, '2026-09-09T23:59:59+08:00');
   assert.equal(page.data.view, null);
   page.startWithOpening(); page.startWithTrade();
-  assert.deepEqual(env.calls.navigate, ['/pages/holding-editor/index', '/pages/entry/index']);
+  assert.deepEqual(env.calls.navigate, ['/features/holding-editor/index', '/features/entry/index']);
 });
 
 test('entry autofills existing type, previews selected same-day order, and commits the exact preview token', () => {
@@ -63,7 +63,7 @@ test('records link to edit, revision history, and symbol detail including closed
   const service = { snapshot: () => ({ mode: 'personal' }), records: () => [{ id: 'r1', revisionId: 'v2', symbol: 'QQQ', assetType: 'ETF', isOpening: false }] };
   const env = boot(service); const page = env.page('records'); page.onShow();
   page.editRecord({ currentTarget: { dataset: { id: 'r1' } } }); page.showHistory({ currentTarget: { dataset: { id: 'r1' } } }); page.showPosition({ currentTarget: { dataset: { symbol: 'QQQ' } } });
-  assert.deepEqual(env.calls.navigate, ['/pages/entry/index?recordId=r1', '/pages/revision-detail/index?recordId=r1', '/pages/position-detail/index?symbol=QQQ']);
+  assert.deepEqual(env.calls.navigate, ['/features/entry/index?recordId=r1', '/features/revision-detail/index?recordId=r1', '/features/position-detail/index?symbol=QQQ']);
 });
 
 test('position detail offers a prefilled sell and revision detail exposes the full audit chain', () => {
@@ -85,7 +85,7 @@ test('all MP0/MP1 WXML bindings resolve to controller handlers', () => {
   const manifest = JSON.parse(readFileSync(new URL('app.json', source), 'utf8'));
   for (const route of manifest.pages) {
     const name = route.replace(/^pages\//, '').replace(/\/index$/, '');
-    const page = env.page(name); const template = readFileSync(new URL(`pages/${name}/index.wxml`, source), 'utf8');
+    const page = env.page(name); const template = readFileSync(new URL(`${['overview', 'research', 'market'].includes(name) ? 'pages' : 'features'}/${name}/index.wxml`, source), 'utf8');
     for (const match of template.matchAll(/(?:bind|catch)(?::)?\w+="([A-Za-z]\w*)"/g)) assert.equal(typeof page[match[1]], 'function', `${name}: missing ${match[1]}`);
   }
 });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const now = '2026-09-13T12:00:00.000Z';
-function fixture(retention = '86400000') {
+function fixture(retention = '86400000', context: Record<string, string | undefined> = {}, timerName = 'portfolioAiCleanupHourly') {
   const rows = new Map<string, any>([
     ['ai_requests/old', { _id: 'old', owner: 'synthetic-a', state: 'succeeded', createdAt: '2026-09-12T11:00:00.000Z', envelope: { question: 'private fixture' }, response: { response_digest: 'digest', result: 'private fixture' } }],
     ['ai_payloads/old', { _id: 'old', expiresAt: '2026-09-12T11:10:00.000Z', envelope: 'private fixture' }],
@@ -28,7 +28,7 @@ function fixture(retention = '86400000') {
         doc(id: string) {
           const key = `${name}/${id}`;
           return {
-            async get() { reads++; return { data: rows.has(key) ? structuredClone(rows.get(key)) : null }; },
+            async get() { reads++; if (!rows.has(key)) throw Object.assign(Error(`document.get:fail document with _id ${id} does not exist`), { errCode: -1 }); return { data: structuredClone(rows.get(key)) }; },
             async update({ data }: { data: any }) { rows.set(key, { ...rows.get(key), ...data }); },
             async remove() { rows.delete(key); },
           };
@@ -58,9 +58,9 @@ function fixture(retention = '86400000') {
   runInNewContext(readFileSync(new URL('../cloud/portfolioAiCleanup/index.js', import.meta.url), 'utf8'), {
     exports, require: (name: string) => {
       if (name === './gateway.cjs') return { createCloudbaseVisionTaskStore: () => ({}), cleanupExpiredVisionTasks: async () => ({ inspected: 0, removed: 0, pending: 0 }) };
-      assert.equal(name, 'wx-server-sdk'); return { init() {}, DYNAMIC_CURRENT_ENV: 'test', database: () => db };
+      assert.equal(name, 'wx-server-sdk'); return { init() {}, DYNAMIC_CURRENT_ENV: 'test', database: () => db, getWXContext: () => context };
     },
-    process: { env: { CLEANUP_JOB_TOKEN: 'synthetic-test-token', AI_PAYLOAD_RETENTION_MS: retention } }, Date: Clock,
+    process: { env: { CLEANUP_JOB_TOKEN: 'synthetic-test-token', AI_PAYLOAD_RETENTION_MS: retention, CLEANUP_TIMER_NAME: timerName } }, Date: Clock,
   });
   return { main: exports.main, rows, reads: () => reads };
 }
@@ -103,6 +103,27 @@ test('invalid retention cannot cause premature deletion', async () => {
     await assert.rejects(() => f.main({ token: 'synthetic-test-token' }), /INVALID_AI_PAYLOAD_RETENTION_MS/);
     assert.equal(f.reads(), 0);
     assert.equal(JSON.stringify([...f.rows]), before);
+  }
+});
+
+test('configured timer authenticates against trusted platform context without a custom Message', async () => {
+  const f = fixture('86400000', { SOURCE: 'wx_trigger' });
+  await f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' });
+  assert.equal(f.rows.get('ai_requests/old').envelope, null);
+  assert.equal(f.rows.has('ai_payloads/old'), false);
+  assert.equal(f.rows.get('ai_requests/running').envelope, 'keep');
+});
+
+test('forged timer events, chained callers and mismatched timer configuration cannot authorize cleanup', async () => {
+  for (const context of [{}, { SOURCE: 'wx_client' }, { SOURCE: 'wx_devtools' }, { SOURCE: 'wx_http' }, { SOURCE: 'scf' }, { SOURCE: 'wx_client,scf' }, { SOURCE: 'wx_trigger,scf' }, { SOURCE: 'wx_trigger', OPENID: 'synthetic-user' }, { SOURCE: 'wx_trigger', FROM_OPENID: 'synthetic-user' }]) {
+    const f = fixture('86400000', context);
+    await assert.rejects(() => f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly', SOURCE: 'wx_trigger', context: { SOURCE: 'wx_trigger' } }), /UNAUTHORIZED_CLEANUP/);
+    assert.equal(f.reads(), 0);
+  }
+  for (const [timerName, event] of [['', { Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' }], ['portfolioAiCleanupHourly', { Type: 'Timer', TriggerName: 'wrong' }], ['portfolioAiCleanupHourly', { TriggerName: 'portfolioAiCleanupHourly' }]] as const) {
+    const f = fixture('86400000', { SOURCE: 'wx_trigger' }, timerName);
+    await assert.rejects(() => f.main(event), /UNAUTHORIZED_CLEANUP/);
+    assert.equal(f.reads(), 0);
   }
 });
 

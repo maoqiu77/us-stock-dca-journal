@@ -9,7 +9,7 @@ function page(name, service, wxOverrides = {}) {
   const storage = new Map();
   const wx = { navigateTo: value => calls.routes.push(value.url), switchTab: value => calls.switched.push(value.url), navigateBack: () => {}, setNavigationBarTitle: value => calls.titles.push(value.title), showToast: value => calls.notices.push(value), showModal: value => { calls.notices.push(value); value.success?.({ confirm: true }); }, showActionSheet: value => value.success?.({ tapIndex: 0 }), setStorageSync: (key, value) => storage.set(key, value), getStorageSync: key => storage.get(key), removeStorageSync: key => storage.delete(key), ...wxOverrides };
   const context = vm.createContext({ module: { exports: {} }, console, wx, setInterval: (...args) => { const timer = setInterval(...args); timer.unref(); return timer; }, clearInterval, require: name => name === '../../utils/journal' ? vm.runInNewContext(`(function(){const module={exports:{}};${readFileSync(new URL('utils/journal.js', source), 'utf8')};return module.exports;})()`) : ({ service, today: () => '2026-09-10', showError: error => calls.notices.push({ content: error.message }) }), Page: definition => { context.result = definition; definition.setData = update => Object.assign(definition.data, update); } });
-  vm.runInContext(`(function(){${readFileSync(new URL(`pages/${name}/index.js`, source), 'utf8')}\n})()`, context);
+  vm.runInContext(`(function(){${readFileSync(new URL(`${['overview', 'research', 'market'].includes(name) ? 'pages' : 'features'}/${name}/index.js`, source), 'utf8')}\n})()`, context);
   return { controller: context.result, calls };
 }
 
@@ -20,14 +20,14 @@ test('Phase 1 navigation has exactly holdings, AI journal and board tabs while r
     ['pages/research/index', 'AI 手记'],
     ['pages/market/index', '看板'],
   ]);
-  assert.ok(app.pages.includes('pages/records/index'));
-  assert.ok(!app.tabBar.list.some(item => item.pagePath === 'pages/records/index'));
+  assert.ok(app.subPackages.some(pkg => pkg.root === 'features' && pkg.pages.includes('records/index')));
+  assert.ok(!app.tabBar.list.some(item => item.pagePath === 'features/records/index'));
 });
 
 test('holdings and position headers keep actions below the title on narrow screens', () => {
   const css = readFileSync(new URL('app.wxss', source), 'utf8');
   const overview = readFileSync(new URL('pages/overview/index.wxml', source), 'utf8');
-  const detail = readFileSync(new URL('pages/position-detail/index.wxml', source), 'utf8');
+  const detail = readFileSync(new URL('features/position-detail/index.wxml', source), 'utf8');
   assert.match(css, /\.page-header-actions\s*\{[^}]*width:\s*100%/);
   assert.match(css, /\.page-header-actions button\s*\{[^}]*min-width:\s*0/);
   assert.match(overview, /class="page-header"[\s\S]*?class="actions page-header-actions compact"/);
@@ -42,7 +42,7 @@ test('holdings page add menu exposes manual and screenshot routes while records 
   const { controller, calls } = page('overview', service, { showActionSheet: value => value.success?.({ tapIndex: choice }) });
   controller.onShow();
   controller.addHolding(); choice = 1; controller.addHolding(); controller.showRecords(); controller.showSettings();
-  assert.deepEqual(calls.routes, ['/pages/holding-editor/index', '/pages/holding-import/index', '/pages/records/index', '/pages/settings/index']);
+  assert.deepEqual(calls.routes, ['/features/holding-editor/index', '/features/holding-import/index', '/features/records/index', '/features/settings/index']);
 });
 
 test('screenshot import uploads only after explicit disclosure consent and produces an editable draft', async () => {
@@ -229,7 +229,7 @@ test('settings labels and restores the current v7 backup and owns its navigation
   const { controller, calls } = page('settings', service);
   controller.onShow();
   assert.deepEqual(calls.titles, ['数据与设置']);
-  const template = readFileSync(new URL('pages/settings/index.wxml', source), 'utf8');
+  const template = readFileSync(new URL('features/settings/index.wxml', source), 'utf8');
   assert.match(template, /JSON 文件（v7）/);
   controller.setData({ preview: service.previewCompleteBackup(), backupText: '{}' });
   controller.restoreBackup();
@@ -459,7 +459,7 @@ test('calendar aligns weekdays, keeps seven columns and opens the selected conve
   assert.equal(controller.data.calendarDays.length % 7, 0);
   controller.loadHistory('2026-09-20');
   controller.openHistoryItem({ currentTarget: { dataset: { id: 'c1' } } });
-  assert.equal(calls.routes[0], '/pages/conversation/index?id=c1&messageId=a2');
+  assert.equal(calls.routes[0], '/features/conversation/index?id=c1&messageId=a2');
 });
 
 test('suggested follow-up only edits the draft and invalidates the previous preview', () => {

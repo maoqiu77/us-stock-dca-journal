@@ -70,7 +70,7 @@ Page({
   previousMonth() { this.changeMonth(-1); },
   nextMonth() { this.changeMonth(1); },
   selectHistoryDay(e) { if (e.currentTarget.dataset.day) this.loadHistory(e.currentTarget.dataset.day); },
-  openHistoryItem(e) { const item = this.data.historyItems.find(candidate => candidate.id === e.currentTarget.dataset.id); if (item?.conversationId) wx.navigateTo({ url: `/pages/conversation/index?id=${encodeURIComponent(item.conversationId)}&messageId=${encodeURIComponent(item.messageId)}` }); },
+  openHistoryItem(e) { const item = this.data.historyItems.find(candidate => candidate.id === e.currentTarget.dataset.id); if (item?.conversationId) wx.navigateTo({ url: `/features/conversation/index?id=${encodeURIComponent(item.conversationId)}&messageId=${encodeURIComponent(item.messageId)}` }); },
   viewNote(e) { const item = this.data.historyItems.find(row => row.id === e.currentTarget.dataset.id); if (item?.kind === 'personal_note') wx.showModal({ title: '个人手记', content: item.summary, showCancel: false }); },
   deleteHistoryItem(e) {
     const item = this.data.historyItems.find(candidate => candidate.id === e.currentTarget.dataset.id);
@@ -90,7 +90,7 @@ Page({
   selectAuxiliary(e) { const period=e.currentTarget.dataset.period; const auxiliary=this.data.auxiliary.includes(period)?this.data.auxiliary.filter(p=>p!==period):[...this.data.auxiliary,period];this.setData({auxiliary});this.periodOptions();this.invalidate(); },
   periodOptions() { this.setData({auxiliaryOptions:PERIODS.filter(p=>p.id!==this.data.period).map(p=>({...p,selected:this.data.auxiliary.includes(p.id)}))}); },
   onParameter(e) { const field=e.currentTarget.dataset.field;if(['quantity','costPrice','maxQuantity'].includes(field)){this.setData({[field]:e.detail.value});this.invalidate();} },
-  editPlan() { wx.navigateTo({url:'/pages/settings/index'}); },
+  editPlan() { wx.navigateTo({url:'/features/settings/index'}); },
   onSymbol(e) { this.setData({ symbol: e.detail.value.trim().toUpperCase(), assetType:'STOCK' }); this.invalidate(); },
   onQuestion(e) { this.setData({ question: e.detail.value }); this.invalidate(); },
   toggleSelections(e) { const selected = new Set(e.detail.value); this.setData({ includePositions: selected.has('includePositions'), includeJournal: false, includeTradeReasons: false, includePolicy: selected.has('includePolicy'), includeHistory:false }); this.invalidate(); },
@@ -144,10 +144,10 @@ Page({
       }
       if (!capability.authorized) throw Error(capability.label);
       this.setData({ busy: true }); const prepared = service.ai().prepare(this._confirmedInput, this._confirmedPreview); this._confirmedInput = null; this._confirmedPreview = null; this._previewRevision = null; this.setData({ previewData: null }); const result = await service.ai().submitPrepared(prepared);
-      if (result?.conversation) { wx.navigateTo({ url: `/pages/conversation/index?id=${encodeURIComponent(result.conversation.id)}` }); }
+      if (result?.conversation) { wx.navigateTo({ url: `/features/conversation/index?id=${encodeURIComponent(result.conversation.id)}` }); }
       else { this.onShow(); wx.showToast({ title: '已提交，稍后返回查看结果', icon: 'none' }); }
     } catch (e) { this.setData({ error: e.message }); showError(e); } finally { this.setData({ busy: false }); }
   },
   async recover(e) { if (this.data.busy) return; try { this.setData({ busy: true }); await service.ai().recoverPending(e.currentTarget.dataset.id); this.onShow(); } catch (error) { showError(error); } finally { this.setData({ busy: false }); } },
-  openConversation(e) { wx.navigateTo({ url: `/pages/conversation/index?id=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
+  openConversation(e) { wx.navigateTo({ url: `/features/conversation/index?id=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
 });

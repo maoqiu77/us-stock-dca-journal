@@ -1,4 +1,4 @@
-<view class="container">
+<view class="container conversation-page">
   <view class="row page-heading"><view class="title">{{title}}</view><button class="link" bindtap="more" aria-label="会话更多操作">•••</button></view>
   <view wx:if="{{label && !cloud}}" class="demo">{{label}}</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
@@ -13,12 +13,12 @@
       </view>
       <view wx:if="{{item.evidence.length}}" class="section">判断依据</view><view wx:for="{{item.evidence}}" wx:for-item="evidence" wx:key="statement" class="note bullet">{{evidence.statement}}</view>
       <view wx:if="{{item.counterarguments.length}}" class="section">需要留意</view><view wx:for="{{item.counterarguments}}" wx:for-item="counter" wx:key="statement" class="note bullet">{{counter.statement}}</view>
-      <view wx:if="{{item.conditions.length}}" class="section">后续观察</view><view wx:for="{{item.conditions}}" wx:for-item="condition" wx:key="text" class="note"><text class="badge">{{condition.label}}</text><view>{{condition.text}}</view></view>
-      <view wx:if="{{item.missing.length}}" class="limitation"><view class="label">分析范围</view><view wx:for="{{item.missing}}" wx:for-item="missing" wx:key="*this" class="note">{{missing}}</view></view>
-      <view wx:if="{{item.personal.length}}" class="personal-hint"><view wx:for="{{item.personal}}" wx:for-item="personal" wx:key="*this" class="muted">{{personal}}</view><button class="link" bindtap="supplement">补充持仓信息</button></view>
-      <button wx:if="{{item.sources.length}}" class="link disclosure" data-id="{{item.id}}" data-field="expanded" bindtap="toggleTurn">{{item.expanded ? '收起数据与来源' : '数据与来源'}} · {{item.sources.length}} 项 {{item.expanded ? '⌃' : '⌄'}}</button>
+      <view wx:if="{{item.conditions.length}}" class="section">后续观察</view><view wx:for="{{item.conditions}}" wx:for-item="condition" wx:key="text" class="note observation"><view class="badge observation-badge"><image class="inline-icon" src="{{condition.basis === 'user_assumption' ? '/assets/conversation/document.png' : '/assets/conversation/bars.png'}}" aria-hidden="true" /><text>{{condition.label}}</text></view><view>{{condition.text}}</view></view>
+      <view wx:if="{{item.missing.length}}" class="limitation"><view class="label limitation-heading"><text class="warning-icon">!</text>分析范围</view><view wx:for="{{item.missing}}" wx:for-item="missing" wx:key="*this" class="note limitation-item"><view class="limitation-dot"/><view>{{missing}}</view></view></view>
+      <view wx:if="{{item.personal.length}}" class="personal-hint"><view wx:for="{{item.personal}}" wx:for-item="personal" wx:key="*this" class="muted">{{personal}}</view><button class="link supplement-button" bindtap="supplement"><text class="plus-icon">+</text>补充持仓信息</button></view>
+      <button wx:if="{{item.sources.length}}" class="link disclosure" data-id="{{item.id}}" data-field="expanded" bindtap="toggleTurn"><image class="inline-icon" src="/assets/conversation/database.png" aria-hidden="true" />{{item.expanded ? '收起数据与来源' : '数据与来源'}} · {{item.sources.length}} 项 {{item.expanded ? '⌃' : '⌄'}}</button>
       <view wx:if="{{item.expanded}}"><view wx:for="{{item.sources}}" wx:for-item="source" wx:key="id" class="source"><view class="label">{{source.label}}</view><view class="muted">{{source.detail}}</view><view class="muted">{{source.fetched}}</view><button class="link" data-id="{{source.id}}" bindtap="openSource">查看原始记录</button></view></view>
-      <view class="saved muted">已保存至 {{item.savedDate}} 手记 · 本地</view><button class="link" data-id="{{item.id}}" bindtap="startSaveNote">写下我的想法</button>
+      <view class="saved muted"><image class="inline-icon" src="/assets/conversation/calendar.png" aria-hidden="true" />已保存至 {{item.savedDate}} 手记 · 本地</view><button class="link save-thought" data-id="{{item.id}}" bindtap="startSaveNote"><image class="inline-icon" src="/assets/conversation/edit.png" aria-hidden="true" />写下我的想法</button>
       <view wx:if="{{noteMessageId === item.id}}" class="note-editor"><view class="label">我的想法</view><textarea value="{{noteDraft}}" maxlength="10000" bindinput="onNoteDraft" placeholder="记录你的观察、判断或决定；不会自动发送给 AI"/><view class="actions"><button class="secondary" bindtap="cancelSaveNote">取消</button><button class="primary" bindtap="confirmSaveNote">保存想法</button></view></view>
     </view>
   </view>

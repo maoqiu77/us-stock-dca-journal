@@ -23,7 +23,7 @@ function boot(values = new Map()) {
       let page;
       context.require = path => { if (path === '../../utils/journal') return vm.runInContext(`(function(){const module={exports:{}};${readFileSync(new URL('utils/journal.js', root), 'utf8')};return module.exports;})()`, context); assert.equal(path, '../../lib/core'); return core; };
       context.Page = definition => { page = definition; page.setData = update => Object.assign(page.data, update); };
-      vm.runInContext(`(function(){${readFileSync(new URL(`pages/${name}/index.js`, root), 'utf8')}\n})()`, context);
+      vm.runInContext(`(function(){${readFileSync(new URL(`${['overview', 'research', 'market'].includes(name) ? 'pages' : 'features'}/${name}/index.js`, root), 'utf8')}\n})()`, context);
       return page;
     },
   };
@@ -69,7 +69,7 @@ test('every WXML event binding resolves to an implemented page handler', () => {
   const env = boot();
   for (const route of JSON.parse(readFileSync(new URL('app.json', root), 'utf8')).pages) {
     const name = route.split('/')[1];
-    const page = env.page(name); const template = readFileSync(new URL(`pages/${name}/index.wxml`, root), 'utf8');
+    const page = env.page(name); const template = readFileSync(new URL(`${['overview', 'research', 'market'].includes(name) ? 'pages' : 'features'}/${name}/index.wxml`, root), 'utf8');
     for (const match of template.matchAll(/(?:bind|catch)(?::)?\w+="([A-Za-z]\w*)"/g)) assert.equal(typeof page[match[1]], 'function', `${name}: missing ${match[1]}`);
   }
 });

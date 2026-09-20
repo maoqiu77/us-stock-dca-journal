@@ -30,6 +30,7 @@
     "check:weapp-production": "npm run check:production -w @portfolio/miniprogram",
     "check:market-data": "npm run typecheck -w @portfolio/market-data && npm run test -w @portfolio/market-data",
     "package:weapp": "npm run check:weapp && npm run package -w @portfolio/miniprogram",
-    "check:ai-gateway": "npm run typecheck -w @portfolio/ai-gateway && npm run test -w @portfolio/ai-gateway && npm run build -w @portfolio/ai-gateway"
+    "check:ai-gateway": "npm run typecheck -w @portfolio/ai-gateway && npm run test -w @portfolio/ai-gateway && npm run build -w @portfolio/ai-gateway",
+    "check:weapp-cloud-packages": "npm run check:weapp-production && node apps/miniprogram/scripts/check-cloud-packages.mjs"
   }
 }

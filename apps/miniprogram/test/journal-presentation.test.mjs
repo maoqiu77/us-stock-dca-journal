@@ -40,5 +40,25 @@ test('each reply keeps its own evidence and conditions, hides empty limitations 
   assert.equal(result.turns[0].evidence[0].statement, '依据一');
   assert.equal(result.turns[1].evidence[0].statement, '依据二');
   assert.equal(result.turns[1].generatedQuestion, false);
-  assert.deepEqual(plain(result.nextQuestions), ['何时复盘？']);
+  assert.equal(result.nextQuestions.length, 4);
+  assert.equal(result.nextQuestions[0], '何时复盘？');
+  assert.ok(!result.nextQuestions.includes('观察什么？'));
+});
+
+
+test('follow-up suggestions keep four unique editable prompts without changing the saved AI output', () => {
+  const display = questions => {
+    const view = { messages: [{ id: 'a', role: 'assistant', run_id: 'r', content: '分析' }], runs: [{ id: 'r', result: { next_questions: questions } }] };
+    const before = JSON.stringify(view);
+    const result = helper.conversationView(view);
+    assert.equal(JSON.stringify(view), before);
+    assert.equal(result.nextQuestions.length, 4);
+    assert.equal(new Set(result.nextQuestions).size, 4);
+    return plain(result.nextQuestions);
+  };
+  assert.deepEqual(display(['一？', '二？', '三？', '四？', '五？']), ['一？', '二？', '三？', '四？']);
+  assert.deepEqual(display([' 一？ ', '一？', '', null, '二？']).slice(0, 2), ['一？', '二？']);
+  display([]);
+  display(undefined);
+  assert.deepEqual(plain(helper.conversationView({}).nextQuestions), []);
 });

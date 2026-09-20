@@ -48,6 +48,10 @@ function marketDetails(sources) {
   }
   return { metrics, missing, details };
 }
+function followUpQuestions(questions) {
+  const defaults = ['哪些信号出现时需要重新评估当前判断？', '这只股票目前最需要关注哪些风险？', '接下来应重点观察哪些价格和成交量变化？', '如果补充持仓数量和成本，可以进一步分析什么？'];
+  return [...new Set([...(Array.isArray(questions) ? questions : []), ...defaults].filter(item => typeof item === 'string').map(item => item.trim()).filter(Boolean))].slice(0, 4);
+}
 function conversationView(view) {
   const sources = new Map((view.sources || []).map(source => [source.id, source]));
   const messages = view.messages || [], runs = new Map((view.runs || []).map(run => [run.id, run]));
@@ -60,7 +64,7 @@ function conversationView(view) {
     const personal = missing.filter(item => /成本|仓位|持仓|风险偏好|投资期限/.test(item));
     const required = missing.filter(item => !personal.includes(item));
     if (!personal.some(item => /成本|持仓数量/.test(item)) && /持有数量 未提供 股|成本价 未提供/.test(question)) personal.unshift('未填写持仓与成本，当前仅提供行情分析；个人盈亏与仓位情景需要补充信息。');
-    return { id: message.id, userId: user?.id || '', question, questionTitle: title, generatedQuestion: /^请分析 (US|CN|HK) 市场的 /.test(question), summary: message.content, time: localTime(message.created_at), savedDate: localTime(message.created_at).slice(0, 10), modelLabel: message.execution_kind === 'real' ? 'AI 分析' : '离线合成 · 非模型回答', evidence: result.evidence || [], counterarguments: result.counterarguments || [], conditions: (result.conditions || []).map(item => ({ ...item, label: item.basis === 'user_assumption' ? '条件假设' : '基于已观察数据' })), questions: (result.next_questions || []).slice(0, 2), missing: required, personal: [...new Set(personal)], metrics: market.metrics, sources: market.details, expanded: false, questionOpen: false };
+    return { id: message.id, userId: user?.id || '', question, questionTitle: title, generatedQuestion: /^请分析 (US|CN|HK) 市场的 /.test(question), summary: message.content, time: localTime(message.created_at), savedDate: localTime(message.created_at).slice(0, 10), modelLabel: message.execution_kind === 'real' ? 'AI 分析' : '离线合成 · 非模型回答', evidence: result.evidence || [], counterarguments: result.counterarguments || [], conditions: (result.conditions || []).map(item => ({ ...item, label: item.basis === 'user_assumption' ? '条件假设' : '基于已观察数据' })), questions: followUpQuestions(result.next_questions), missing: required, personal: [...new Set(personal)], metrics: market.metrics, sources: market.details, expanded: false, questionOpen: false };
   });
   return { turns, title: questionTitle(messages.find(message => message.role === 'user')?.content), nextQuestions: turns.length ? turns[turns.length - 1].questions : [] };
 }

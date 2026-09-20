@@ -86,5 +86,5 @@ Page({
   logoError(e) { const key = e.currentTarget.dataset.key; this.setData({ logoErrors: { ...this.data.logoErrors, [key]: true } }); this.load(); },
   move(e) { service.moveWatchlist(e.currentTarget.dataset.key, Number(e.currentTarget.dataset.offset)); this.load(); },
   remove(e) { const key = e.currentTarget.dataset.key; service.removeWatchlist(key); this.load(); },
-  open(e) { wx.navigateTo({ url: `/pages/market-detail/index?key=${encodeURIComponent(e.currentTarget.dataset.key)}` }); },
+  open(e) { wx.navigateTo({ url: `/features/market-detail/index?key=${encodeURIComponent(e.currentTarget.dataset.key)}` }); },
 });

@@ -17,6 +17,6 @@ Page({
   edit(e) { const item = this.data.timeline.find(candidate => candidate.id === e.currentTarget.dataset.id); if (item?.kind === 'personal_note') this.setData({ text: item.body, editingId: item.id, editingRevision: item.revisionId, dirty: false }); },
   save() { try { service.journal().savePersonalNote(this.data.date, this.data.text, this.data.editingId || undefined, this.data.editingRevision || undefined); this.setData({ dirty: false, text: '', editingId: '', editingRevision: '' }); this.refresh(); wx.showToast({ title: '记录已保存' }); } catch (e) { showError(e); } },
   askAi() { wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { workspaceId: service.journal().read().instance_id, type: 'journal_date', date: this.data.date, expiresAt: Date.now() + 5 * 60 * 1000 }); wx.switchTab({ url: '/pages/research/index', fail: () => wx.removeStorageSync('portfolio.wechat.navigation-intent.v1') }); },
-  continueConversation(e) { wx.navigateTo({ url: `/pages/conversation/index?id=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
-  openTrade(e) { wx.navigateTo({ url: `/pages/entry/index?recordId=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
+  continueConversation(e) { wx.navigateTo({ url: `/features/conversation/index?id=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
+  openTrade(e) { wx.navigateTo({ url: `/features/entry/index?recordId=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
 });

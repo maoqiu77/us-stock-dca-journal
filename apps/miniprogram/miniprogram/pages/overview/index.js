@@ -27,17 +27,17 @@ Page({
   startMarketRefresh() { if (typeof setInterval !== 'function' || this._marketTimer) return; this._marketTimer = setInterval(() => this.refreshMarket(), 60000); },
   stopMarketRefresh() { if (this._marketTimer && typeof clearInterval === 'function') clearInterval(this._marketTimer); this._marketTimer = null; service.invalidateMarketRequest(); },
   onHide() { this.stopMarketRefresh(); }, onUnload() { this.stopMarketRefresh(); },
-  addHolding() { wx.showActionSheet({ itemList: ['手动添加', '截图导入'], success: result => wx.navigateTo({ url: result.tapIndex === 1 ? '/pages/holding-import/index' : '/pages/holding-editor/index' }) }); },
-  addTrade() { wx.navigateTo({ url: '/pages/entry/index' }); },
-  showRecords() { wx.navigateTo({ url: '/pages/records/index' }); },
-  showSettings() { wx.navigateTo({ url: '/pages/settings/index' }); },
+  addHolding() { wx.showActionSheet({ itemList: ['手动添加', '截图导入'], success: result => wx.navigateTo({ url: result.tapIndex === 1 ? '/features/holding-import/index' : '/features/holding-editor/index' }) }); },
+  addTrade() { wx.navigateTo({ url: '/features/entry/index' }); },
+  showRecords() { wx.navigateTo({ url: '/features/records/index' }); },
+  showSettings() { wx.navigateTo({ url: '/features/settings/index' }); },
   onCurrency(event) { const index = Number(event.detail.value), currency = this.data.view?.currencies?.[index]; if (!currency) return; try { const view = displayHoldings(service.overview(undefined, currency)); this.setData({ view, currencyIndex: index }); } catch (e) { this.setData({ error: e.message }); } },
   analyzeHoldings() {
     wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { workspaceId: service.journal().read().instance_id, type: 'portfolio_review', question: '我的持仓有哪些需要注意？', expiresAt: Date.now() + 5 * 60 * 1000 });
     if (wx.switchTab) wx.switchTab({ url: '/pages/research/index', fail: () => wx.removeStorageSync('portfolio.wechat.navigation-intent.v1') });
   },
-  exploreMarket() { wx.navigateTo({ url: '/pages/market/index' }); },
-  startWithTrade() { wx.navigateTo({ url: '/pages/entry/index' }); },
+  exploreMarket() { wx.switchTab({ url: '/pages/market/index' }); },
+  startWithTrade() { wx.navigateTo({ url: '/features/entry/index' }); },
   startWithOpening() { this.addHolding(); },
-  showPosition(event) { wx.navigateTo({ url: `/pages/position-detail/index?symbol=${encodeURIComponent(event.currentTarget.dataset.symbol)}` }); },
+  showPosition(event) { wx.navigateTo({ url: `/features/position-detail/index?symbol=${encodeURIComponent(event.currentTarget.dataset.symbol)}` }); },
 });
