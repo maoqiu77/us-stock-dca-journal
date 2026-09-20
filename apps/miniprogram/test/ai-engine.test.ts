@@ -42,7 +42,7 @@ test('readonly context preview exposes deterministic ledger facts, selected orig
   assert.equal(preview.facts.some(item => item.value.includes('QQQ') && item.value.includes('2 股') && item.value.includes('21.00')), true);
   assert.equal(preview.excerpts.some(item => item.text === '可用的当日笔记'), true);
   assert.equal(preview.excerpts.some(item => item.text.includes('将被排除')), false);
-  assert.deepEqual(preview.missingInformation.sort(), ['实时报价', '现金余额', '确认的投资计划'].sort());
+  assert.deepEqual(preview.missingInformation.sort(), ['实时报价', '现金余额', '确认的投资计划', '其他账户与未来计划未知', '未接入财务筛选数据，不构成全市场筛选'].sort());
   assert.ok(preview.approximateCharacters > 0);
   assert.equal(f.service.exportBackup(), before);
 });
@@ -189,4 +189,24 @@ test('confirmation rejects a preview after its ledger or workspace context chang
   const after = f.service.journal().read();
   assert.equal(after.conversations.length, before.conversations.length);
   assert.equal(after.outbox.length, before.outbox.length);
+});
+
+
+test('free text plan survives storage and deselected holdings never enter the AI envelope', () => {
+ const f=fixture();const description='我想每周定投纳指 QQQ 500 美元，长期持有。';
+ f.service.journal().confirmPolicy({description,effective_from:'2026-09-10',horizon:null,max_single_weight:null});
+ const input={origin:'portfolio' as const,mode:'portfolio_review' as const,journalDate:'2026-09-10',question:'分析我的持仓',includePositions:false,includePolicy:true,includeJournal:false,includeTradeReasons:false,includeHistory:false};
+ const p=f.service.ai().prepare(input);
+ assert.equal(p.envelope.consent.include_positions,false);
+ assert.equal(p.envelope.source_snapshots.some(s=>s.type==='ledger'),false);
+ assert.ok(p.envelope.request.facts.some(f=>f.value===description));
+ assert.equal(p.envelope.request.excerpts.length,0);
+ assert.ok(f.service.exportFullBackup().includes(description));
+ const none=f.service.ai().previewContext({...input,includePolicy:false});assert.equal(none.sources.some(s=>s.type==='policy'),false);
+});
+test('research target confirms market identity without defaulting numeric codes to US',()=>{
+ const f=fixture();
+ assert.equal(f.service.ai().confirmResearchInstrument('00700','STOCK','HK').market,'HK');
+ assert.equal(f.service.ai().confirmResearchInstrument('588000','ETF','CN').asset_type,'ETF');
+ assert.throws(()=>f.service.ai().confirmResearchInstrument('00700','STOCK','US'));
 });

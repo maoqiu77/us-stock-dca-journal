@@ -13,3 +13,13 @@ test('market cloud transport preserves explicit server errors as known outcomes'
   const transport = createCloudMarketTransport(async () => ({ result: { ok: false, error: { code: 'ACCESS_DENIED', message: 'denied', outcome_unknown: false } } }), 'portfolioMarket');
   await assert.rejects(() => transport.capabilities(), (error: unknown) => error instanceof MarketTransportError && error.code === 'ACCESS_DENIED' && error.outcomeUnknown === false);
 });
+
+test('domestic board transport does not turn malformed or foreign-segment payloads into rows', async () => {
+ const transport = createCloudMarketTransport(async options => {
+  assert.deepEqual(options.data, { action: 'domesticBoard', segment: 'fund' });
+  return { result: { ok: true, data: { segment: 'fund', status: 'unavailable', reason: '授权未配置', rows: [] } } };
+ }, 'portfolioMarket');
+ assert.deepEqual((await transport.domesticBoard!('fund')).rows, []);
+ const bad = createCloudMarketTransport(async () => ({ result: { ok: true, data: { segment: 'fund', status: 'available', rows: [{ price: 0 }] } } }), 'portfolioMarket');
+ await assert.rejects(() => bad.domesticBoard!('fund'));
+});

@@ -45,3 +45,10 @@ textarea { height: 250rpx; line-height: 1.7; }
 .voided { opacity: .5; }
 .counter { text-align: right; margin-top: 8rpx; }
 .backup { height: 240rpx; font-family: monospace; font-size: 23rpx; }
+
+/* Keep narrow screens and system large text within the available width. */
+.container, .card { box-sizing: border-box; min-width: 0; }
+.row > view, .row > text { min-width: 0; overflow-wrap: anywhere; }
+.actions { flex-wrap: wrap; }
+.actions button { min-width: 0; white-space: normal; }
+.container { padding-bottom: calc(60rpx + env(safe-area-inset-bottom)); }

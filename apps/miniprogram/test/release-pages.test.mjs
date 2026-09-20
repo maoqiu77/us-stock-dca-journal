@@ -8,7 +8,7 @@ function page(name, service, wxOverrides = {}) {
   const calls = { routes: [], switched: [], notices: [], titles: [] };
   const storage = new Map();
   const wx = { navigateTo: value => calls.routes.push(value.url), switchTab: value => calls.switched.push(value.url), navigateBack: () => {}, setNavigationBarTitle: value => calls.titles.push(value.title), showToast: value => calls.notices.push(value), showModal: value => { calls.notices.push(value); value.success?.({ confirm: true }); }, showActionSheet: value => value.success?.({ tapIndex: 0 }), setStorageSync: (key, value) => storage.set(key, value), getStorageSync: key => storage.get(key), removeStorageSync: key => storage.delete(key), ...wxOverrides };
-  const context = vm.createContext({ module: { exports: {} }, console, wx, require: () => ({ service, today: () => '2026-09-10', showError: error => calls.notices.push({ content: error.message }) }), Page: definition => { context.result = definition; definition.setData = update => Object.assign(definition.data, update); } });
+  const context = vm.createContext({ module: { exports: {} }, console, wx, setInterval: (...args) => { const timer = setInterval(...args); timer.unref(); return timer; }, clearInterval, require: name => name === '../../utils/journal' ? vm.runInNewContext(`(function(){const module={exports:{}};${readFileSync(new URL('utils/journal.js', source), 'utf8')};return module.exports;})()`) : ({ service, today: () => '2026-09-10', showError: error => calls.notices.push({ content: error.message }) }), Page: definition => { context.result = definition; definition.setData = update => Object.assign(definition.data, update); } });
   vm.runInContext(`(function(){${readFileSync(new URL(`pages/${name}/index.js`, source), 'utf8')}\n})()`, context);
   return { controller: context.result, calls };
 }
@@ -132,14 +132,14 @@ test('research preview is readonly and editing invalidates the exact confirmed d
 test('research checkbox group applies the actual selected values and invalidates preview', () => {
   const service = { ai: () => ({ capabilities: () => ({ realProviderConfigured: true, label: '' }), pending: () => [], previewContext: () => ({ facts: [], excerpts: [], missingInformation: [], historyOmittedCount: 0, approximateCharacters: 1, omissions: [] }) }), journal: () => ({ read: () => ({ runs: [] }) }) };
   const { controller } = page('research', service); controller.onLoad(); controller.preview();
-  controller.toggleSelections({ detail: { value: ['includeJournal', 'includePolicy'] } });
-  assert.equal(controller.data.includeJournal, true); assert.equal(controller.data.includeTradeReasons, false); assert.equal(controller.data.includePolicy, true); assert.equal(controller.data.previewData, null);
+  controller.toggleSelections({ detail: { value: ['includePositions', 'includePolicy'] } });
+  assert.equal(controller.data.includePositions, true); assert.equal(controller.data.includeJournal, false); assert.equal(controller.data.includeTradeReasons, false); assert.equal(controller.data.includePolicy, true); assert.equal(controller.data.previewData, null);
 });
 
 test('holdings and market analysis links create one-time drafts without sending AI requests', async () => {
   const storage = new Map();
   const sharedWx = { setStorageSync: (key, value) => storage.set(key, value), getStorageSync: key => storage.get(key), removeStorageSync: key => storage.delete(key) };
-  const overviewService = { overview: () => ({ clockAnomaly: false, currencies: ['USD'], selectedCurrency: 'USD', positions: [], market: { total: 0, covered: 0 }, marketValue: null, unrealizedPnl: null }), firstUse: () => ({ isEmpty: true }), refreshMarket: async () => {}, invalidateMarketRequest: () => {} };
+  const overviewService = { journal: () => ({ read: () => ({ instance_id: 'i' }) }), overview: () => ({ clockAnomaly: false, currencies: ['USD'], selectedCurrency: 'USD', positions: [], market: { total: 0, covered: 0 }, marketValue: null, unrealizedPnl: null }), firstUse: () => ({ isEmpty: true }), refreshMarket: async () => {}, invalidateMarketRequest: () => {} };
   const overview = page('overview', overviewService, sharedWx);
   overview.controller.analyzeHoldings();
   assert.deepEqual(overview.calls.switched, ['/pages/research/index']);
@@ -153,14 +153,14 @@ test('holdings and market analysis links create one-time drafts without sending 
   assert.equal(previews, 0);
   assert.equal(storage.size, 0);
 
-  const position = page('position-detail', { positionDetail: () => ({ id: 'holding-1', symbol: 'QQQ', assetType: 'ETF', quantity: '2' }), refreshMarket: async () => {}, invalidateMarketRequest: () => {} }, sharedWx);
+  const position = page('position-detail', { journal: () => ({ read: () => ({ instance_id: 'i' }) }), positionDetail: () => ({ id: 'holding-1', symbol: 'QQQ', assetType: 'ETF', quantity: '2' }), refreshMarket: async () => {}, invalidateMarketRequest: () => {} }, sharedWx);
   position.controller.onLoad({ symbol: 'QQQ' }); position.controller.analyze();
   assert.deepEqual(position.calls.switched, ['/pages/research/index']);
   assert.equal(storage.get('portfolio.wechat.navigation-intent.v1').symbol, 'QQQ');
   storage.clear();
 
   const instrument = { instrument_key: 'US:XNAS:QQQ', symbol: 'QQQ', name: 'Invesco QQQ' };
-  const marketService = { marketDiscovery: () => ({ results: [instrument], watchlist: [] }), marketBars: async () => ({ status: 'unavailable' }) };
+  const marketService = { overview: () => ({ positions: [] }), journal: () => ({ read: () => ({ instance_id: 'i' }) }), boardQuote: () => ({}), marketDiscovery: () => ({ results: [instrument], watchlist: [] }), marketBars: async () => ({ status: 'unavailable' }) };
   const detail = page('market-detail', marketService, sharedWx);
   detail.controller.onLoad({ key: encodeURIComponent(instrument.instrument_key) }); detail.controller.analyze();
   assert.deepEqual(detail.calls.switched, ['/pages/research/index']);
@@ -172,7 +172,7 @@ test('AI journal keeps personal notes and dated history local until the user exp
   const journal = {
     read: () => ({ instance_id: 'instance-1', runs: [] }),
     calendarMonth: month => [{ day: `${month}-10`, count: 2 }],
-    history: date => [{ id: 'note-1', kind: 'personal_note', body: '本地记录', day: date }],
+    conversationHistory: date => date ? [{ id: 'note-1', kind: 'personal_note', body: '本地记录', day: date }] : [],
     savePersonalNote: (date, text) => saved.push([date, text]),
   };
   const ai = { capabilities: async () => ({ label: '服务关闭' }), pending: () => [] };
@@ -185,17 +185,18 @@ test('AI journal keeps personal notes and dated history local until the user exp
   assert.deepEqual(saved, [['2026-09-10', '今天不追高']]);
 });
 
-test('conversation deletion and saving an assistant message as a personal note are explicit', async () => {
+test('conversation deletion and writing a personal thought are explicit and preserve AI text', async () => {
   const deleted = []; const saved = [];
   const conversation = { id: 'conversation-1', origin: 'portfolio', anchor_id: null, workspace_instance_id: 'instance-1' };
   const messages = [{ id: 'assistant-1', role: 'assistant', content: '先控制仓位。' }];
-  const journal = { deleteConversation: id => deleted.push(id), saveAiMessageAsNote: (id, date, text) => saved.push([id, date, text]) };
+  const journal = { deleteConversation: id => deleted.push(id), savePersonalNote: (date, text) => saved.push([date, text]) };
   const ai = { capabilities: async () => ({ label: '服务关闭', enabled: false }), conversation: () => ({ conversation, messages, runs: [], sources: [] }) };
   const { controller, calls } = page('conversation', { ai: () => ai, journal: () => journal });
   await controller.onLoad({ id: conversation.id });
   controller.startSaveNote({ currentTarget: { dataset: { id: 'assistant-1' } } });
+  assert.equal(controller.data.noteDraft, '');
   controller.onNoteDraft({ detail: { value: '控制仓位，不追高。' } }); controller.confirmSaveNote();
-  assert.deepEqual(saved, [['assistant-1', '2026-09-10', '控制仓位，不追高。']]);
+  assert.deepEqual(saved, [['2026-09-10', '控制仓位，不追高。']]);
   controller.deleteConversation();
   assert.deepEqual(deleted, ['conversation-1']);
   assert.deepEqual(calls.switched, ['/pages/research/index']);
@@ -229,7 +230,7 @@ test('settings labels and restores the current v7 backup and owns its navigation
   controller.onShow();
   assert.deepEqual(calls.titles, ['数据与设置']);
   const template = readFileSync(new URL('pages/settings/index.wxml', source), 'utf8');
-  assert.match(template, /导出 v7 完整备份/);
+  assert.match(template, /JSON 文件（v7）/);
   controller.setData({ preview: service.previewCompleteBackup(), backupText: '{}' });
   controller.restoreBackup();
   assert.match(calls.notices.find(item => item.title === '用备份替换当前完整工作区？').content, /这是 v7 完整备份/);
@@ -316,4 +317,171 @@ test('delete holding requires confirmation, uses original identity and returns t
   confirm = true; await controller.deleteHolding(); await controller.deleteHolding();
   assert.equal(writes.length, 1); assert.equal(writes[0].contentToken, 'before-delete'); assert.equal(writes[0].expectedRevision, 3);
   assert.deepEqual(calls.switched, ['/pages/overview/index']);
+});
+
+test('navigation discards other-workspace and retired comparison intents', () => {
+ const storage = new Map();
+ const wx = { getStorageSync: key => storage.get(key), removeStorageSync: key => storage.delete(key) };
+ const candidates = ['QQQ', 'SPY'].map(symbol => ({ symbol, instrument_key: `US:XNAS:${symbol}`, name: symbol, market: 'US', currency: 'USD' }));
+ const service = { journal: () => ({ read: () => ({ instance_id: 'current' }) }), marketDiscovery: () => ({ watchlist: candidates }) };
+ const { controller } = page('research', service, wx);
+ storage.set('portfolio.wechat.navigation-intent.v1', { workspaceId: 'old', type: 'instrument_research', symbol: 'PRIVATE', expiresAt: Date.now() + 60000 });
+ controller.consumeIntent(); assert.equal(controller.data.symbol, ''); assert.equal(storage.size, 0);
+ storage.set('portfolio.wechat.navigation-intent.v1', { workspaceId: 'current', type: 'comparison', keys: candidates.map(item => item.instrument_key), expiresAt: Date.now() + 60000 });
+ const before = controller.data.question; controller.consumeIntent(); assert.equal(controller.data.question, before); assert.equal(controller.data.candidates, undefined); assert.equal(controller.data.previewData, null); assert.equal(storage.size, 0);
+});
+
+test('switching ETF to fund during a pending request renders only the newest segment', async () => {
+ const pending = {};
+ const { controller } = page('market', { domesticBoard: segment => new Promise(resolve => { pending[segment] = resolve; }) });
+ controller._visible = true;
+ const etf = controller.segment({ currentTarget: { dataset: { segment: 'etf' } } });
+ const fund = controller.segment({ currentTarget: { dataset: { segment: 'fund' } } });
+ pending.etf({ rows: [], benchmarks: [], reason: 'old ETF response' }); await etf;
+ assert.equal(controller.data.domesticLoading, true); assert.equal(controller.data.domesticReason, '');
+ pending.fund({ rows: [], reason: 'fund response' }); await fund;
+ assert.equal(controller.data.domesticLoading, false); assert.equal(controller.data.domesticReason, 'fund response');
+});
+test('removing a watchlist stock still works after retiring comparison', () => {
+ let removed;
+ const { controller } = page('market', { removeWatchlist: key => { removed = key; }, marketDiscovery: () => ({ results: [], watchlist: [] }) });
+ controller.remove({currentTarget:{dataset:{key:'US:XNAS:AMD'}}});
+ assert.equal(removed,'US:XNAS:AMD');
+});
+
+test('ETF refresh preserves sort direction and keeps missing values last in both layouts', async () => {
+ const row = (symbol, premium) => ({ instrument:{instrument_key:`CN:XSHG:${symbol}`,symbol,asset_type:'ETF'},price:'2',changePct:1,metrics:{quotedPremiumPct:premium,shares:10000,percentile60:null,sharesChange:null},fetchedAt:'2026-09-20T01:00:00Z' });
+ const rows=[row('513500',null),row('513100',2),row('513300',8)];
+ const {controller}=page('market',{domesticBoard:async()=>({rows,reason:'public source'})});
+ controller._visible=true;controller.data.segment='etf';await controller.loadDomestic();
+ controller.sortEtf({currentTarget:{dataset:{sort:'quotedPremiumPct'}}});
+ assert.deepEqual(Array.from(controller.data.domesticRows, r=>r.instrument.symbol),['513300','513100','513500']);
+ controller.changeEtfLayout({currentTarget:{dataset:{layout:'cards'}}});await controller.loadDomestic();
+ assert.equal(controller.data.etfLayout,'cards');assert.equal(controller.data.domesticRows[0].instrument.symbol,'513300');
+ controller.sortEtf({currentTarget:{dataset:{sort:'quotedPremiumPct'}}});await controller.loadDomestic();
+ assert.deepEqual(Array.from(controller.data.domesticRows,r=>r.instrument.symbol),['513100','513300','513500']);
+ assert.equal(controller.data.domesticUpdated,'2026-09-20T01:00:00Z');
+});
+
+
+test('stock drag inserts above or below distant rows and cancellation never saves', () => {
+  let instruments = ['A', 'B', 'C', 'D', 'E'].map(symbol => ({ instrument_key: symbol, symbol }));
+  const moves = [];
+  const service = {
+    marketDiscovery: () => ({ results: [], watchlist: instruments }), boardQuote: item => item,
+    moveWatchlist(key, offset) { moves.push([key, offset]); const index = instruments.findIndex(item => item.instrument_key === key); const [item] = instruments.splice(index, 1); instruments.splice(index + offset, 0, item); },
+  };
+  const { controller: c } = page('market', service); c.load();
+  c._drag = { key: 'B', index: 1, box: { top: 100, bottom: 540 }, height: 88 };
+  c.updateDrag(535); assert.equal(c.data.dropSlot, 5); c.endDrag();
+  assert.equal(instruments.map(item => item.symbol).join(''), 'ACDEB');
+  c._drag = { key: 'B', index: 4, box: { top: 100, bottom: 540 }, height: 88 };
+  c.updateDrag(110); c.endDrag(); assert.equal(instruments.map(item => item.symbol).join(''), 'BACDE');
+  c._drag = { key: 'A', index: 1, box: { top: 100, bottom: 540 }, height: 88 };
+  c._manageScroll = 88; c.updateDrag(190); assert.equal(c.data.dropSlot, 2);
+  c.cancelDrag(); c.endDrag(); assert.equal(moves.length, 2); assert.equal(c.data.dragKey, '');
+});
+
+test('ending a drag before geometry returns prevents late drag activation', () => {
+  let callback;
+  const query = { in() { return this; }, select() { return this; }, boundingClientRect() { return this; }, exec(fn) { callback = fn; } };
+  const { controller: c } = page('market', {}, { createSelectorQuery: () => query });
+  c.data.managing = true; c.data.watchlist = [{ instrument_key: 'A' }];
+  c.startDrag({ currentTarget: { dataset: { key: 'A' } }, touches: [{ clientY: 120 }] });
+  c.endDrag(); callback([{ top: 100, bottom: 500, height: 400 }, { height: 88 }]);
+  assert.equal(c._drag, null); assert.equal(c.data.dragKey, '');
+});
+
+
+test('drag neighbours yield one row at each crossing and reverse without persisting', () => {
+  const rows = ['A', 'B', 'C', 'D', 'E'].map(instrument_key => ({ instrument_key }));
+  let writes = 0;
+  const { controller: c } = page('market', { moveWatchlist() { writes++; } });
+  c.data.watchlist = rows;
+  c._drag = { key: 'D', index: 3, box: { top: 100, bottom: 540 }, height: 88 };
+  c.updateDrag(400); assert.equal(c.data.dragOffsets.join(','), '0,0,0,0,0');
+  c.updateDrag(310); assert.equal(c.data.dragOffsets.join(','), '0,0,88,0,0');
+  c.updateDrag(220); assert.equal(c.data.dragOffsets.join(','), '0,88,88,0,0');
+  c.updateDrag(135); assert.equal(c.data.dragOffsets.join(','), '88,88,88,0,0');
+  c.updateDrag(400); assert.equal(c.data.dragOffsets.join(','), '0,0,0,0,0');
+  c.updateDrag(520); assert.equal(c.data.dragOffsets.join(','), '0,0,0,0,-88');
+  assert.equal(writes, 0); assert.equal(c.data.watchlist.map(x => x.instrument_key).join(''), 'ABCDE');
+  c.cancelDrag(); assert.equal(c.data.dragOffsets.length, 0); assert.equal(writes, 0);
+});
+
+test('market detail retains held stocks and computes MA60 before slicing visible bars', async () => {
+ const instrument = {instrument_key:'US:XNAS:NVDA',market:'US',symbol:'NVDA',currency:'USD',asset_type:'STOCK'};
+ const bars = Array.from({length:100},(_,i)=>({trading_date:String(i),open:String(i+1),high:String(i+2),low:String(i+1),close:String(i+1)}));
+ const {controller:c,calls} = page('market-detail',{marketDiscovery:()=>({results:[instrument],watchlist:[]}),boardQuote:()=>({}),marketBars:async()=>({status:'available',bars}),overview:()=>({positions:[instrument]})});
+ c.onLoad({key:instrument.instrument_key});await c.loadChart();
+ assert.equal(calls.routes.length,0);c.changeRange({currentTarget:{dataset:{range:'1M'}}});
+ assert.equal(c.data.bars.length,22);assert.equal(c.data.bars[0].ma60,49.5);assert.equal(c.data.averages[2].value,'70.500');
+ c._bars=bars.slice(0,20);c.updateChart();assert.equal(c.data.averages[2].value,'--');
+});
+test('unloading a market detail ignores a late history response', async () => {
+ let resolve; const {controller:c}=page('market-detail',{marketBars:()=>new Promise(r=>{resolve=r;})});
+ c.data.instrument={market:'US'};const loading=c.loadChart();c.onUnload();resolve({status:'available',bars:[{close:'1'}]});await loading;assert.equal(c.data.bars.length,0);
+});
+
+test('research form validates holding bounds and removes primary period from auxiliaries', () => {
+ const {controller:c}=page('research',{ai:()=>({confirmResearchInstrument:(symbol,asset_type,market)=>({symbol,asset_type,market})})});
+ c.selectInstrument();c.setData({symbol:'00700',market:'HK',quantity:'10',costPrice:'400',maxQuantity:'9'});assert.throws(()=>c.input(),/最大持仓/);
+ c.setData({maxQuantity:'20',auxiliary:['60min','5min']});c.selectPeriod({currentTarget:{dataset:{period:'60min'}}});assert.equal(c.data.auxiliary.join(','),'5min');
+ const input=c.input();assert.equal(input.instrument.market,'HK');assert.equal(input.anchorId,'HK:00700');assert.equal(input.includePositions,false);assert.match(input.question,/成本价 400 HKD/);assert.equal(input.includeJournal,false);
+});
+test('late research preview never overwrites edited analysis settings',async()=>{
+ let resolve;const {controller:c}=page('research',{ai:()=>({confirmResearchInstrument:()=>({symbol:'NVDA'}),previewContext:()=>({facts:[],excerpts:[],missingInformation:[]})}),researchSnapshot:()=>new Promise(r=>{resolve=r;})});
+ c.selectInstrument();c.setData({symbol:'NVDA'});const pending=c.preview();c.onSymbol({detail:{value:'AAPL'}});resolve({series:[],quotes:[]});await pending;assert.equal(c.data.previewData,null);assert.equal(c._confirmedInput,null);
+});
+
+test('first AI consent uses valid WeChat labels and only explicit confirmation sends analysis', async () => {
+ for (const outcome of ['confirm','cancel','fail']) {
+  let consentCalls=0, submissions=0;
+  const ai={capabilities:async()=>({enabled:true,providerConfigured:true,enrolled:true,consented:false,authorized:false,consentVersion:1}),acceptConsent:async()=>{consentCalls++;return {authorized:true};},prepare:()=>({}),submitPrepared:async()=>{submissions++;return {conversation:{id:'test'}};}};
+  const {controller:c,calls}=page('research',{ai:()=>ai},{showModal:options=>{
+   assert.ok([...options.confirmText].length<=4);assert.ok([...options.cancelText].length<=4);
+   if(outcome==='fail')options.fail({errMsg:'showModal:fail'});else options.success({confirm:outcome==='confirm'});
+  }});
+  c._confirmedInput={};c._confirmedPreview={};c._previewRevision=0;
+  await c.runCloud();
+  assert.equal(consentCalls,outcome==='confirm'?1:0);assert.equal(submissions,outcome==='confirm'?1:0);
+  if(outcome==='cancel'){assert.equal(c.data.error,'');assert.equal(calls.notices.length,0);}
+  if(outcome==='fail'){assert.match(c.data.error,/弹窗未能打开/);assert.doesNotMatch(c.data.error,/取消/);}
+ }
+});
+
+test('calendar aligns weekdays, keeps seven columns and opens the selected conversation turn', () => {
+  const journal = { calendarMonth: () => ({ days: ['2026-09-20'] }), conversationHistory: date => [{ id: 'c1', kind: 'conversation', conversationId: 'c1', messageId: 'a2', question: '问题', text: '当天摘要', date, turnCount: 2, createdAt: '2026-09-20T12:00:00Z' }] };
+  const { controller, calls } = page('research', { journal: () => journal });
+  controller.loadCalendar('2026-09');
+  assert.equal(controller.data.calendarDays[0].day, '');
+  assert.equal(controller.data.calendarDays[1].day, '2026-09-01');
+  assert.equal(controller.data.calendarDays.length % 7, 0);
+  controller.loadHistory('2026-09-20');
+  controller.openHistoryItem({ currentTarget: { dataset: { id: 'c1' } } });
+  assert.equal(calls.routes[0], '/pages/conversation/index?id=c1&messageId=a2');
+});
+
+test('suggested follow-up only edits the draft and invalidates the previous preview', () => {
+  let scrolled = false;
+  const { controller } = page('conversation', {}, { pageScrollTo: () => { scrolled = true; } });
+  controller.data.previewData = { facts: [] };
+  controller._confirmedInput = { question: 'old' };
+  controller.chooseQuestion({ currentTarget: { dataset: { question: '什么情况会改变判断？' } } });
+  assert.equal(controller.data.question, '什么情况会改变判断？');
+  assert.equal(controller.data.previewData, null);
+  assert.equal(controller._confirmedInput, null);
+  assert.equal(scrolled, true);
+});
+
+
+test('returning to AI journal reconciles original pending requests without submitting new analysis', async () => {
+  let queried = 0;
+  const journal = { read: () => ({ instance_id: 'w', policies: [] }), conversationHistory: () => [] };
+  const ai = { pending: () => [{ requestId: 'old' }], recoverPending: async () => { queried++; }, capabilities: async () => ({ enabled: false }) };
+  const { controller } = page('research', { ai: () => ai, journal: () => journal });
+  await controller.onShow();
+  assert.equal(queried, 1);
+  assert.equal(controller.data.error, '');
+  assert.doesNotMatch(readFileSync(new URL('pages/research/index.wxml', source), 'utf8'), /待完成任务|查询原任务/);
 });

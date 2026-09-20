@@ -36,7 +36,7 @@ export const analysisResultV2Schema = z.strictObject({
   missing_information: z.array(z.string().min(1).max(500)).max(100), candidates: z.array(z.strictObject({ instrument_ref: idSchema, reason: z.string().min(1).max(2000), source_ids: z.array(idSchema).min(1).max(100) })).max(20),
   next_questions: z.array(z.string().min(1).max(500)).max(20),
 });
-export const instrumentCatalogEntrySchema = z.strictObject({ instrument_ref: idSchema, symbol: z.string().regex(/^[A-Z0-9][A-Z0-9.-]{0,14}$/), market: z.literal('US'), asset_type: z.enum(['STOCK', 'ETF']), confirmed_at: timestampSchema, source: z.enum(['ledger_confirmed', 'user_confirmed', 'provider_catalog']) });
+export const instrumentCatalogEntrySchema = z.strictObject({ instrument_ref: idSchema, symbol: z.string().regex(/^[A-Z0-9][A-Z0-9.-]{0,14}$/), market: z.enum(['US', 'CN', 'HK']), asset_type: z.enum(['STOCK', 'ETF']), confirmed_at: timestampSchema, source: z.enum(['ledger_confirmed', 'user_confirmed', 'provider_catalog']) });
 
 export type AnalysisRequestV2 = z.infer<typeof analysisRequestV2Schema>;
 export type FinalManifestV2 = z.infer<typeof finalManifestV2Schema>;

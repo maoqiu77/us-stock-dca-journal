@@ -33,8 +33,8 @@ Page({
   showSettings() { wx.navigateTo({ url: '/pages/settings/index' }); },
   onCurrency(event) { const index = Number(event.detail.value), currency = this.data.view?.currencies?.[index]; if (!currency) return; try { const view = displayHoldings(service.overview(undefined, currency)); this.setData({ view, currencyIndex: index }); } catch (e) { this.setData({ error: e.message }); } },
   analyzeHoldings() {
-    wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { type: 'portfolio_review', question: '我的持仓有哪些需要注意？', expiresAt: Date.now() + 5 * 60 * 1000 });
-    if (wx.switchTab) wx.switchTab({ url: '/pages/research/index' });
+    wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { workspaceId: service.journal().read().instance_id, type: 'portfolio_review', question: '我的持仓有哪些需要注意？', expiresAt: Date.now() + 5 * 60 * 1000 });
+    if (wx.switchTab) wx.switchTab({ url: '/pages/research/index', fail: () => wx.removeStorageSync('portfolio.wechat.navigation-intent.v1') });
   },
   exploreMarket() { wx.navigateTo({ url: '/pages/market/index' }); },
   startWithTrade() { wx.navigateTo({ url: '/pages/entry/index' }); },

@@ -1,4 +1,6 @@
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
+import { componentGraph } from './component-graph.mjs';
+import { runInNewContext } from 'node:vm';
 import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, writeFile, readdir, stat, rm } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
@@ -28,23 +30,40 @@ if (transport === 'cloud' && !local.aiFunctionName) throw Error('AI cloud 构建
 await rm(join(out, 'miniprogram'), { recursive: true, force: true });
 await mkdir(join(out, 'miniprogram/lib'), { recursive: true });
 const sourceApp = JSON.parse(await readFile(join(root, 'miniprogram/app.json'), 'utf8'));
-const components = ['components/quote-card/index', 'components/market-chart/index'];
-const staticFiles = ['app.js', 'app.json', 'app.wxss', 'config.js', 'sitemap.json', ...sourceApp.pages.flatMap(page => ['js', 'json', 'wxml', 'wxss'].map(ext => `${page}.${ext}`)), ...components.flatMap(component => ['js', 'json', 'wxml', 'wxss'].map(ext => `${component}.${ext}`))];
+const components = await componentGraph(join(root, 'miniprogram'));
+const staticFiles = ['utils/journal.js', 'app.js', 'app.json', 'app.wxss', 'config.js', 'sitemap.json', ...sourceApp.pages.flatMap(page => ['js', 'json', 'wxml', 'wxss'].map(ext => `${page}.${ext}`)), ...components.flatMap(component => ['js', 'json', 'wxml', 'wxss'].map(ext => `${component}.${ext}`))];
 for (const file of staticFiles) {
   if (file.includes('..') || file.startsWith('/')) throw Error('invalid_source_path');
   await mkdir(dirname(join(out, 'miniprogram', file)), { recursive: true });
-  await cp(join(root, 'miniprogram', file), join(out, 'miniprogram', file));
+  if (file.endsWith('.js')) {
+    const source = await readFile(join(root, 'miniprogram', file), 'utf8');
+    const result = await transform(source, { minify: true, target: 'es2018', legalComments: 'eof' });
+    await writeFile(join(out, 'miniprogram', file), result.code);
+  } else await cp(join(root, 'miniprogram', file), join(out, 'miniprogram', file));
 }
+await cp(join(root, 'miniprogram/assets'), join(out, 'miniprogram/assets'), { recursive: true });
 const baseProject = JSON.parse(await readFile(join(root, 'project.config.json'), 'utf8'));
 const project = { ...baseProject, description: `交易日记 · ${packageJson.version}`, appid: local.appid ?? baseProject.appid, cloudfunctionRoot: 'cloudfunctions/' };
 await writeFile(join(out, 'project.config.json'), JSON.stringify(project, null, 2));
 const publicConfig = { cloudEnvId: transport === 'cloud' || local.marketFunctionName ? local.cloudEnvId : '', aiFunctionName: transport === 'cloud' ? local.aiFunctionName : '', marketFunctionName: local.marketFunctionName || '', aiTransport: transport, profile, version: packageJson.version };
 await writeFile(join(out, 'miniprogram/config.js'), `module.exports = ${JSON.stringify(publicConfig)};\n`);
 const entry = profile === 'development' ? join(root, 'src/runtime-dev.ts') : join(root, 'src/runtime.ts');
-const result = await build({ entryPoints: [entry], outfile: join(out, 'miniprogram/lib/core.js'), bundle: true, format: 'cjs', platform: 'browser', target: 'es2018', minify: true, legalComments: 'eof', metafile: true, banner: { js: 'if(typeof globalThis.Intl === "undefined") globalThis.Intl = {};' } });
+// Mobile ledgers only admit Asia/Shanghai; US market timestamps use New York.
+// Keep the upstream transition tables (including DST), omit unrelated zones.
+const mobileTimezones = { name: 'mobile-timezones', setup(builder) {
+  builder.onLoad({ filter: /intl-datetimeformat[\/]add-golden-tz\.js$/ }, async ({ path }) => {
+    let data;
+    runInNewContext(await readFile(path, 'utf8'), { Intl: { DateTimeFormat: { __addTZData(value) { data = value; } } } });
+    data.zones = data.zones.filter(zone => /^(Asia\/Shanghai|America\/New_York|Etc\/UTC|UTC)\|/.test(zone));
+    if (data.zones.length < 2) throw Error('missing_mobile_timezone_data');
+    return { contents: `Intl.DateTimeFormat.__addTZData(${JSON.stringify(data)});`, loader: 'js' };
+  });
+} };
+const result = await build({ plugins: [mobileTimezones], entryPoints: [entry], outfile: join(out, 'miniprogram/lib/core.js'), bundle: true, format: 'cjs', platform: 'browser', target: 'es2018', minify: true, legalComments: 'eof', metafile: true, banner: { js: 'if(typeof globalThis.Intl === "undefined") globalThis.Intl = {};' } });
 for (const output of Object.values(result.metafile.outputs)) if (output.imports.length) throw Error(`unbundled_runtime_dependency: ${JSON.stringify(output.imports)}`);
 const app = JSON.parse(await readFile(join(out, 'miniprogram/app.json'), 'utf8'));
 for (const page of app.pages) for (const extension of ['js', 'json', 'wxml', 'wxss']) await stat(join(out, 'miniprogram', `${page}.${extension}`));
+await componentGraph(join(out, 'miniprogram'));
 for (const tab of app.tabBar.list) if (!app.pages.includes(tab.pagePath)) throw Error(`missing_tab_page: ${tab.pagePath}`);
 async function size(path) { let bytes = 0; for (const item of await readdir(path, { withFileTypes: true })) bytes += item.isDirectory() ? await size(join(path, item.name)) : (await stat(join(path, item.name))).size; return bytes; }
 async function treeDigest(path) {

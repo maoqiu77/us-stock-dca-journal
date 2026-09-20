@@ -105,3 +105,48 @@ test('CloudBase repeated ACK validates retained digest and does not require dele
   await assert.rejects(() => f.store.ack(f.owner, f.requestId, 'input-digest', 'wrong-digest', '2026-09-13T00:01:00.000Z'), /DIGEST_CONFLICT/);
   await assert.rejects(() => f.store.ack('foreign-owner', f.requestId, 'input-digest', 'output-digest', '2026-09-13T00:01:00.000Z'), /NOT_FOUND/);
 });
+
+test('existing beta consent updates fields without writing immutable SDK document id', async () => {
+ const owner='synthetic-beta';let row:any={_id:sha256(owner),enabled:true,owner,consentVersion:1};
+ const db={collection:()=>({doc:()=>({get:async()=>({data:[row]}),set:async()=>{throw Error('existing document must update');},update:async({data}:any)=>{assert.equal('_id' in data,false);row={...row,...data};}})})};
+ const access=createCloudbaseAccess(db as never);
+ assert.equal((await access.status(owner,'closed_beta',1)).enrolled,true);
+ await access.accept(owner,'closed_beta',1,'2026-09-20T15:00:00.000Z');
+ assert.equal((await access.status(owner,'closed_beta',1)).allowed,true);assert.equal(row.owner,owner);
+ await assert.rejects(()=>access.accept('different-owner','closed_beta',1,'2026-09-20T15:00:00.000Z'),/ACCESS_DENIED/);
+});
+
+test('durable lifetime quota seeds historical audit rows and atomically enforces the last credit', async () => {
+  const owner = 'synthetic-quota-owner', rows = new Map<string, any>();
+  let queue = Promise.resolve();
+  const db: any = {
+    collection(name: string) { return {
+      where(query: any) { return { count: async () => ({ total: [...rows].filter(([key, value]) => key.startsWith(name + '/') && value.owner === query.owner).length }) }; },
+      doc(id: string) { const key = `${name}/${id}`; return {
+        get: async () => ({ data: rows.has(key) ? [structuredClone(rows.get(key))] : [] }),
+        set: async ({ data }: any) => { rows.set(key, structuredClone(data)); },
+        update: async ({ data }: any) => { rows.set(key, { ...rows.get(key), ...data }); },
+      }; },
+    }; },
+    async runTransaction(fn: any) { const previous = queue; let release!: () => void; queue = new Promise<void>(resolve => { release = resolve; }); await previous; try { return await fn(db); } finally { release(); } },
+  };
+  for (let n = 0; n < 19; n++) rows.set(`ai_requests/old-${n}`, { owner, state: 'acked' });
+  const store = createCloudbaseRequestStore(db);
+  assert.equal((await store.usage(owner, '2026-09-21T00:00:00Z', true)).totalUsed, 19);
+  const input = (n: number) => ({ owner, envelope: { payload_digest: `digest-${n}`, request: { request_id: `request-${n}`, workspace_instance_id: `workspace-${n}`, client_turn_id: `turn-${n}` }, expires_at: '2026-09-22T00:00:00Z' } as any, now: '2026-09-21T00:00:00Z', dailyLimit: 10, lifetimeLimit: 20, maxInflight: 5, executionToken: `token-${n}` });
+  const results = await Promise.all([store.claim(input(1)), store.claim(input(2))]);
+  assert.equal(results.filter(item => item.kind === 'claimed').length, 1);
+  assert.equal(results.filter(item => item.kind === 'quota').length, 1);
+  assert.equal((await store.claim(input(1))).kind, 'existing');
+  assert.equal((await store.usage(owner, '2026-10-01T00:00:00Z', true)).totalUsed, 20);
+  // Payload / local data removal cannot recreate free credits.
+  rows.delete('ai_payloads/' + sha256(`${owner}:request-1`));
+  assert.equal((await store.claim({ ...input(3), now: '2026-10-01T00:00:00Z' })).kind, 'quota');
+  assert.equal((await store.claim({ ...input(4), lifetimeLimit: null })).kind, 'claimed');
+  assert.equal((await store.usage(owner, '2026-10-01T00:00:00Z', true)).totalUsed, 21);
+});
+
+test('unreadable lifetime counter fails closed instead of resetting credits', async () => {
+  const db: any = { collection: () => ({ doc: () => ({ get: async () => { throw Error('NETWORK_FAILURE'); } }) }) };
+  await assert.rejects(createCloudbaseRequestStore(db).usage('owner', '2026-09-21', true), /NETWORK_FAILURE/);
+});

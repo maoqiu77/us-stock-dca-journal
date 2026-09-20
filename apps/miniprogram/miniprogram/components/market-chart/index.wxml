@@ -1,1 +1,1 @@
-<canvas canvas-id="marketChart" class="chart"></canvas>
+<view class="chart-frame"><canvas type="2d" id="marketChart" class="chart" style="width:100%;height:460rpx;"></canvas></view>

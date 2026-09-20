@@ -1,0 +1,87 @@
+[
+  {
+    "path": "apps/miniprogram/src/service.ts",
+    "sha256": "1380d94e4fa31b3b753eda220e67ac4fcbe7908d00d752d757eb01155ac1c319",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/src/workspace/restore-transaction.ts",
+    "sha256": "2136a629fc6917cb95aa8aa0417e79f2cbf5258fda0284b44a29679d8637f147",
+    "existedBefore": false
+  },
+  {
+    "path": "apps/miniprogram/src/workspace/backup.ts",
+    "sha256": "0e6880ef993fa496fdf61c6f89f037458df1e81389c7362900bf16fa63506c46",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/src/market/discovery.ts",
+    "sha256": "af0327d79bf450e478db53bffad8a9377168d411414803a7501d277343359153",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/miniprogram/app.wxss",
+    "sha256": "8071f6a0c814a19f4fb4dc5a7a6fe66f70f5d7783628857b55eca2e138727313",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/miniprogram/pages/settings/index.wxml",
+    "sha256": "195b562e32194d1091c79d915a15cad0f22db2c55846867a411a18bae8c39d87",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/miniprogram/pages/settings/index.js",
+    "sha256": "e100f1abc445d1cfd6bd7a6e0760122d654bbcdf79e14398c0c34f00319f1367",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/scripts/check-weapp-production.mjs",
+    "sha256": "0c165afbed796eeb9f12501ccca94793b495ea36c95a49e63364bf050e7a24c8",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/test/service.test.ts",
+    "sha256": "6a94684550a72348cd7338ecc1207ac0ef8ca48c83e753efc484ac50d14b9df9",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/test/phase67-recovery.test.ts",
+    "sha256": "8614bb591145fda3cb08331ec0cab9c6f6ad8057e18a130bd31d61639539a5a0",
+    "existedBefore": false
+  },
+  {
+    "path": "apps/miniprogram/test/full-backup.test.ts",
+    "sha256": "709194f908c9cd6eaaa21d1f7ade83b89c25521d9d56f3c9d2a7ea70fb2b0940",
+    "existedBefore": true
+  },
+  {
+    "path": "apps/miniprogram/test/pending-save.test.ts",
+    "sha256": "2bbe910ab33db433c40f2dee1df4f163ada821548041c8306915423384fa15cc",
+    "existedBefore": true
+  },
+  {
+    "path": "docs/implementation/chicang-slim/ACCEPTANCE.md",
+    "sha256": "ef17c3c3b4c6f560b27c77b874203d68241b5b7ebb27d02a0739df196f004266",
+    "existedBefore": true
+  },
+  {
+    "path": "docs/implementation/chicang-slim/PROGRESS.md",
+    "sha256": "26890e4b729e83722ffadc03cb711bf66ceb8edd88119390b467da28b047414f",
+    "existedBefore": true
+  },
+  {
+    "path": "docs/implementation/chicang-slim/BLOCKERS.md",
+    "sha256": "0bbeac4c0c35d10b818b6af4cf66253c58b84d10ae559b48cb343210c39535fc",
+    "existedBefore": true
+  },
+  {
+    "path": "docs/implementation/chicang-slim/PHASE67_HANDOFF.md",
+    "sha256": "046b191e566df1ead89a9e8e3c659ef2ca78c29355a37b59a15d15987c575862",
+    "existedBefore": false
+  },
+  {
+    "path": "docs/miniprogram/README.md",
+    "sha256": "df7ba01a52bfca8457fec5876e463d702eab5c4322c4c62956adf768e30f41f4",
+    "existedBefore": true
+  }
+]

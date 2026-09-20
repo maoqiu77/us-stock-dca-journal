@@ -95,12 +95,13 @@ test('a nearly full snapshot is rejected if its backup envelope would exceed the
   assert.throws(() => createRepository(f.storage, f.runtime).write(data), /过大/);
   assert.equal(f.values.size, 0);
 });
-test('failed restore leaves the current ledger intact even after creating a recovery point', () => {
+test('interrupted restore retains old primary and finishes approved replacement after storage recovers', () => {
   const f = fixture(); f.service.saveTrade(buy); const backup = f.service.exportBackup(); f.service.saveReview('2026-09-10', '恢复前');
   const previous = f.service.exportBackup();
   const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('full'); f.storage.set(key, value); } };
-  assert.throws(() => createService(storage, f.runtime).restoreBackup(backup), { code: 'SAVE_NOT_WRITTEN' });
-  assert.equal(f.service.exportBackup(), previous);
+  assert.throws(() => createService(storage, f.runtime).restoreBackup(backup), /完整恢复/);
+  assert.equal(f.values.get(STORAGE_KEY), JSON.stringify(JSON.parse(previous).data));
+  assert.equal(f.service.exportBackup(), backup);
 });
 test('recovery failure preserves a valid recovery point when current bytes are corrupted', async () => {
   const { STORAGE_KEY } = await import('../src/repository.ts'); const f = fixture();
@@ -109,7 +110,8 @@ test('recovery failure preserves a valid recovery point when current bytes are c
   const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('quota'); f.storage.set(key, value); } };
   assert.throws(() => createService(storage, f.runtime).recoverPrevious());
   assert.equal(f.values.get(`${STORAGE_KEY}.previous`), previous);
-  assert.equal(f.service.verifyPending(), 'retryable'); f.service.retryPending(); assert.equal(f.service.snapshot().reviews[0].text, '唯一恢复笔记');
+  assert.equal(f.service.snapshot().reviews[0].text, '唯一恢复笔记');
+  assert.equal(f.service.verifyPending(), 'none');
 });
 test('import refuses dangling instrument references even on voided historical revisions', () => {
   const f = fixture(); f.service.saveTrade(buy); f.service.voidTrade(f.service.records()[0].id);

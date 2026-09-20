@@ -16,7 +16,7 @@ export function createCloudTransport(callFunction: CloudCall, functionName: stri
     }
   }
   return {
-    capabilities: async () => aiCapabilitiesSchema.parse(await call({ action: 'capabilities' })),
+    capabilities: async () => aiCapabilitiesSchema.parse(await call({ action: 'capabilities', capabilities_version: 2 })),
     acceptConsent: async version => { await call({ action: 'consent', accepted: true, consent_version: version }); },
     analyze: async envelope => await call({ action: 'analyze', envelope }) as any,
     status: async (requestId, payloadDigest) => await call({ action: 'status', request_id: requestId, payload_digest: payloadDigest }) as any,

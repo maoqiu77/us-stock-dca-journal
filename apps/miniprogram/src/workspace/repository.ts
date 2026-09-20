@@ -386,11 +386,28 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     return [...notes, ...messages].sort((a, b) => String(b.createdAt ?? b.legacyDayKey).localeCompare(String(a.createdAt ?? a.legacyDayKey)) || b.id.localeCompare(a.id));
   }
   function history(date: string) { return historyFrom(read(), date); }
+  // Completed turns own their calendar date, including requests that cross midnight.
+  // The raw history API remains available for callers that need individual messages.
+  function conversationHistory(date?: string) {
+    const state = read();
+    const messageById = new Map(state.messages.map(message => [message.id, message]));
+    const groups = new Map<string, { kind: 'conversation'; id: string; conversationId: string; messageId: string; text: string; question: string; createdAt: string; date: string; turnCount: number; executionKind: string | null }>();
+    for (const message of state.messages.filter(item => item.role === 'assistant').sort((a, b) => a.created_at.localeCompare(b.created_at))) {
+      const day = shanghaiDayKey(message.created_at);
+      if (date && day !== date) continue;
+      const key = message.conversation_id;
+      const previous = groups.get(key);
+      const question = messageById.get(message.parent_message_id ?? '')?.content ?? '';
+      groups.set(key, { kind: 'conversation', id: key, conversationId: key, messageId: message.id, text: message.content, question: previous?.question ?? question, createdAt: message.created_at, date: day, turnCount: (previous?.turnCount ?? 0) + 1, executionKind: message.execution_kind });
+    }
+    const notes = date ? historyFrom(state, date).filter(item => item.kind === 'personal_note').map(item => ({ ...item, date, messageId: '', question: '', turnCount: 0, executionKind: null })) : [];
+    return [...groups.values(), ...notes].sort((a, b) => String(b.createdAt ?? b.date).localeCompare(String(a.createdAt ?? a.date)) || b.id.localeCompare(a.id));
+  }
   function calendarMonth(month: string) {
     if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)) throw Error('请选择有效月份。');
     const state = read(), days = new Set<string>();
     for (const item of heads(state.journal)) if ((item.type === 'personal_note' || item.type === 'user_decision') && item.journal_date.startsWith(`${month}-`)) days.add(item.journal_date);
-    for (const item of state.messages) { const day = shanghaiDayKey(item.created_at); if (day.startsWith(`${month}-`)) days.add(day); }
+    for (const item of state.messages.filter(message => message.role === 'assistant')) { const day = shanghaiDayKey(item.created_at); if (day.startsWith(`${month}-`)) days.add(day); }
     return { month, days: [...days].sort() };
   }
   function saveAiMessageAsNote(messageId: string, date: string, text: string) {
@@ -448,11 +465,11 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     if (!root.success) throw Error('工作区恢复点损坏或不兼容。');
     return readAt(root.data);
   }
-  function confirmPolicy(input: { effective_from: string; horizon: string | null; max_single_weight: string | null; targets?: Array<{ instrument_id: string; weight: string }> }) {
+  function confirmPolicy(input: { description?: string; effective_from: string; horizon: string | null; max_single_weight: string | null; targets?: Array<{ instrument_id: string; weight: string }> }) {
     let policy!: Policy;
     mutate(state => {
       const previous = state.policies.at(-1);
-      policy = policySchema.parse({ portfolio_id: state.portfolio_id, status: 'confirmed', id: previous?.status === 'confirmed' ? previous.id : runtime.id(), revision_id: runtime.id(), confirmed_at: runtime.now(), effective_from: input.effective_from, max_single_weight: input.max_single_weight, horizon: input.horizon, targets: input.targets ?? [] });
+      policy = policySchema.parse({ portfolio_id: state.portfolio_id, status: 'confirmed', id: previous?.status === 'confirmed' ? previous.id : runtime.id(), revision_id: runtime.id(), confirmed_at: runtime.now(), ...(input.description !== undefined ? { description: input.description } : {}), effective_from: input.effective_from, max_single_weight: input.max_single_weight, horizon: input.horizon, targets: input.targets ?? [] });
       return { ...state, root_generation: state.root_generation + 1, policies: [...state.policies, policy] };
     });
     return policy;
@@ -464,7 +481,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     for (const key of [WORKSPACE_PENDING_KEY, WORKSPACE_PENDING_BEFORE_KEY, WORKSPACE_PENDING_NEXT_KEY, `${LEGACY_WORKSPACE_PREFIX}.root`]) try { storage.set(key, ''); } catch { throw Error('删除工作区待处理数据失败。'); }
     cleanupCommittedRoot(current); cleanupCommittedRoot(previous); generation++;
   }
-  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, saveAiMessageAsNote, deletePersonalNote, createConversation, deleteConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, history, calendarMonth, conversation, confirmPolicy, purge };
+  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, saveAiMessageAsNote, deletePersonalNote, createConversation, deleteConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, history, conversationHistory, calendarMonth, conversation, confirmPolicy, purge };
 }
 
 export function validateWorkspaceReferences(state: WorkspaceState) {

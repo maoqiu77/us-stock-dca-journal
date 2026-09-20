@@ -19,7 +19,7 @@
 | P3-05 | VERIFIED | 删除会话/手记物理移除原文并按来源失效派生 run/source/outbox，递增 privacy epoch；迟到响应不能归档；金融流水不变。 |
 | P3-06 | CODE_COMPLETE | 旧 review 路由写一次性日期 intent 后切至 AI 手记；旧 ID/来源/日期数据继续严格读取；完整备份升级 v7 且保留 v1–v6 导入。 |
 
-Phase 2 的代码与自动化边界完成，真实视觉联调为 `BLOCKED_EXTERNAL`。Phase 3 自动化范围为 `VERIFIED`，页面/迁移为 `CODE_COMPLETE`；微信开发者工具与真机视觉验收仍未运行。Phase 4 未开始。
+Phase 2 的代码与自动化边界完成，真实视觉联调为 `BLOCKED_EXTERNAL`。Phase 3 自动化范围为 `VERIFIED`，页面/迁移为 `CODE_COMPLETE`；微信开发者工具与真机视觉验收仍未运行。Phase 4/5 进展见下方本轮记录。
 
 2026-09-20 微信开发者工具 UI 验收已启动：430px 首页/最大字体和普通 390px 表单安全区可用，但 320px 手动添加出现严重横向双页溢出，375px 也出现页面切换残留切片，故 U01 为 FAIL；预览包已上传并生成二维码，真机扫码后的键盘/安全区/前后台仍待用户设备确认。
 
@@ -32,3 +32,47 @@ Android 真机已扫码并提供首页截图：底部 Tab、持仓列表和底�
 Android 真机继续反馈：标的详情页右侧“校准”按钮也被裁切。已将持仓页和标的详情页的标题、操作区改为上下布局，详情页按钮等宽且不超出容器，长标题可换行。小程序 181/181、production 14 页构建通过；微信开发者工具 320/375/430px、26 号字体下观察到两页页头按钮完整可见。仍需生成新预览包并由 Android 真机复验，旧预览包保留原问题。
 
 本轮已对非生产 `cloud1` 部署并执行必要的付费视觉模型调用；没有生产部署、没有推送或提交 Git，也没有生成假行情或伪造交易。
+
+
+## 2026-09-20 第三轮：Phase 4 + Phase 5
+
+本轮实际基线：`codex/mobile-phase-0-1` / `6588ccf5f5f3035d0414e88313b4196f491263ea`，开始时工作树干净。没有进入 Phase 6/7，没有部署或调用付费模型，没有 Git commit/push。
+
+| Task | 状态 | 本轮结果 |
+|---|---|---|
+| P4-01 | CODE_COMPLETE | 自选按 workspace instance 隔离；旧 v1 单次认领，原始字节留存供回退；完整备份仍复用现有 v7 自选字段。目录沿用真实 Provider canonical key，不添加未经核实的默认产品。 |
+| P4-02 | CODE_COMPLETE / BLOCKED_EXTERNAL | 复用 US 行情服务及权限、来源、日期、时段和延迟契约；补通用净值/IOPV 事实及确定性折溢价校验。国内行情/净值 Provider 未接入。 |
+| P4-03 | CODE_COMPLETE | 三分段看板；美股关注报价/日期/延迟，国内场内 ETF 和场外基金显示明确缺数据状态。 |
+| P4-04 | CODE_COMPLETE | 复用服务端公开缓存/请求合并；客户端刷新合并与 60 秒防重复、最后成功行情缓存；NAV 必须明示非实时、IOPV 错时拒绝。折溢价契约未接真实 Provider。 |
+| P4-05 | CODE_COMPLETE | 市场详情改为轻量事实卡，复用持仓表单与 AI 手记；目录 key 预填并匹配已有持仓，避免重复添加。持仓专属流水仍由已有持仓详情呈现。 |
+| P4-06 | CODE_COMPLETE | 失败保留有原时间的缓存，缺失不变 0；隐藏页取消搜索计时器，无后台周期刷新。 |
+| P5-01 | CODE_COMPLETE | 所有旧入口的 intent 增加工作区校验、到期消费；仅生成草稿。国内持仓以持仓 ID 准备上下文，不误识别成美股。 |
+| P5-02 | CODE_COMPLETE | 相关跨日原文最多 8 条、会话历史沿用既有 12 条上限、持仓最多 20 项并提示覆盖范围；现金/其他账户/财务资料缺失明确进入请求。 |
+| P5-03 | CODE_COMPLETE | 本次来源白名单再校验；会话可展开原始来源与行情时间，点击时重新从当前仓储解析。 |
+| P5-04 | CODE_COMPLETE | 同一目录/自选选择 2–3 候选，发送到同一会话引擎，行情使用同一服务端凭据；无全市场筛选或生成的行情表。 |
+| P5-05 | CODE_COMPLETE | 保留默认服务、既有服务端配置和额度错误处理，无新增客户端 Key 字段。 |
+| P5-06 | CODE_COMPLETE | 复用 privacy epoch、删除派生信息和落库屏障；工作区变化清空草稿，候选只外发相关原文。 |
+
+真实行情与候选比较的云端端到端验收仍为 `BLOCKED_EXTERNAL`，不能把本轮称为全部 VERIFIED。开发者工具 iPhone X / 26 号字体下实际检查了看板空态与 AI 比较入口；完整三尺寸/真机矩阵未执行。构建移除已不用的 market-chart 全局注册和打包项，页面脚本经 esbuild 压缩，2 MiB 校验保持有效。
+
+
+## 2026-09-20 后续补齐：用户确定公开使用
+
+状态：国内可配置接入为 CODE_COMPLETE，真实授权/云端验收仍 BLOCKED_EXTERNAL。详见 PUBLIC_DATA_SOURCES.md 与 DEVICE_ACCEPTANCE.md。
+
+- 已在线检索 AKShare、efinance、Tushare GitHub 与 Tushare 官方基金接口文档。未把开源代码许可证视作行情数据再分发许可。
+- 新增 Tushare HTTPS 国内目录/ETF 日线/正式 NAV adapter、人民币份额白名单、公開展示/缓存到期门禁、云 action 与两个国内页面真实响应链路。国内行情没有模拟 fallback。
+- 国内详情可进入已有持仓表单和身份级 AI 草稿；国内实时 IOPV、国内行情 AI 凭据与国内多标的比较仍未接通。
+- 修复本机私有配置缺失 marketFunctionName，绑定 portfolioMarket；未取得真实行情成功回执，未部署新云函数。
+- 本轮最终：小程序 typecheck / 201 tests / production build PASS；网关 typecheck / 57 tests / build PASS；行情 typecheck / 6 tests PASS；production 与 public-safety PASS。主包 2094135 bytes（2045.1 KiB），仅余约 3 KiB，后续功能需要独立优化体积。
+- 无凭证 HTTPS 探测返回 Tushare 缺 token 业务错误；不计为真实数据验收。开发者工具最终看板仍是不可用状态；没有把模拟器异常当作供应商未配置的证明。
+- 没有模型付费调用、生产部署、Git commit/push 或用户账本修改。生成了 12 项真机验收清单。
+
+
+## Phase 6/7 当前覆盖（2026-09-21）
+
+本条覆盖上方“Phase 6/7 NOT_STARTED”。P6-01/02/03/05 本轮项目回归通过；P6-04 本地隔离与服务端合成权限回归通过，真实双账号/云 ACL 仍未验收。P7-01/03/05/06 本地实现和交接完成；P7-02 开发者工具部分完成，真机按用户回复由用户自行预览验收；P7-04 外部发布条件未完成。详细证据、逐项 H/V/J/M/D/U 状态、回滚见 [PHASE67_HANDOFF.md](PHASE67_HANDOFF.md) 与 [ACCEPTANCE.md](ACCEPTANCE.md)。
+
+继续阻塞：Android/iOS 完整矩阵、系统键盘与前后台/断网、真机文件分享恢复；真实双账号权限、完整图片解码及专项视觉样本、云端 cron 删除；行情同日源逐项对照、展示/缓存/AI 归档许可；小程序后台域名/隐私/类目/备案、最低基础库。不得把可达公开接口或历史成功样本当成本轮全验收。进行中的恢复事务不可降级；更旧软件兼容未验证。没有可上线结论。
+
+本轮未生产发布、未部署云函数、未调用模型、未上传图片、未提交或推送 Git。按用户要求交付后停止。

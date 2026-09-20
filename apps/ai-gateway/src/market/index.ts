@@ -4,3 +4,8 @@ export * from './cloudbase-store.ts';
 export * from './twelve-data-provider.ts';
 export * from './cached-provider.ts';
 export * from './receipt-store.ts';
+export * from './tushare-provider.ts';
+export * from './domestic-board.ts';
+export * from './eastmoney-provider.ts';
+export * from './eastmoney-us.ts';
+export * from './research-provider.ts';

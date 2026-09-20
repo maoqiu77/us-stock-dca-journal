@@ -21,7 +21,7 @@ function boot(values = new Map()) {
   return { manifestFault: () => { failManifestOnWrite = true; }, cleanupFault: () => { cleanupFault = true; }, failPrimaryBefore: () => { failPrimaryBefore = true; }, readbackFault: () => { failReadback = true; }, restoreReads: () => { failReadback = false; unreadable = false; failPrimaryBefore = false; manifestFault = false; failManifestOnWrite = false; }, core, values, notices, routes, context, evalAttempts: () => evalAttempts, failWrites: () => { fail = true; }, navigated: () => navigated,
     page(name) {
       let page;
-      context.require = path => { assert.equal(path, '../../lib/core'); return core; };
+      context.require = path => { if (path === '../../utils/journal') return vm.runInContext(`(function(){const module={exports:{}};${readFileSync(new URL('utils/journal.js', root), 'utf8')};return module.exports;})()`, context); assert.equal(path, '../../lib/core'); return core; };
       context.Page = definition => { page = definition; page.setData = update => Object.assign(page.data, update); };
       vm.runInContext(`(function(){${readFileSync(new URL(`pages/${name}/index.js`, root), 'utf8')}\n})()`, context);
       return page;
@@ -188,4 +188,12 @@ test('entry retains its own in-memory identity when manifest reads fail and anot
   env.readbackFault(); assert.throws(() => env.core.service.saveTrade({ kind: 'buy', symbol: 'AAPL', assetType: 'STOCK', date: env.core.today(), quantity: '1', price: '12' })); env.restoreReads();
   page.onShow(); page.verifySave(); page.retrySave();
   assert.equal(page.data.saving, true); assert.equal(env.core.service.pendingSave(), true); assert.equal(env.core.service.records().length, 2);
+});
+
+test('mobile timezone subset preserves New York DST and Shanghai date rollover', () => {
+ const env = boot();
+ const times = vm.runInContext(`['2026-03-08T06:30:00Z','2026-03-08T07:30:00Z'].map(date=>new Intl.DateTimeFormat('en-US',{timeZone:'America/New_York',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(date)))`,env.context);
+ assert.deepEqual(Array.from(times), ['01:30','03:30']);
+ const date = vm.runInContext(`new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date('2026-09-18T20:00:00Z'))`,env.context);
+ assert.equal(date,'09/19/2026');
 });

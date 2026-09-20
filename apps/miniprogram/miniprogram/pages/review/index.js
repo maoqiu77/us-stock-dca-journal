@@ -3,8 +3,8 @@ Page({
   data: { error: '', date: '', today: '', text: '', timeline: [], visible: [], filter: 'all', mode: '', dirty: false, workspaceToken: '', editingId: '', editingRevision: '' },
   onLoad(options = {}) {
     const date = options.date || today();
-    wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { type: 'journal_date', date, expiresAt: Date.now() + 5 * 60 * 1000 });
-    wx.switchTab({ url: '/pages/research/index' });
+    wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { workspaceId: service.journal().read().instance_id, type: 'journal_date', date, expiresAt: Date.now() + 5 * 60 * 1000 });
+    wx.switchTab({ url: '/pages/research/index', fail: () => wx.removeStorageSync('portfolio.wechat.navigation-intent.v1') });
   },
   onShow() { this.setData({ today: today() }); if (!this.data.date) this.setData({ date: today() }); this.refresh(); },
   refresh() { try { const state = service.journal().read(), token = `${state.instance_id}:${state.root_generation}`; if (this.data.workspaceToken && token !== this.data.workspaceToken) this.setData({ dirty: false, text: '', editingId: '', editingRevision: '' }); const timeline = service.journalTimeline(this.data.date); this.setData({ timeline, visible: this.filtered(timeline, this.data.filter), mode: service.snapshot().mode, workspaceToken: token, error: '' }); } catch (e) { this.setData({ error: e.message, timeline: [], visible: [] }); } },
@@ -16,7 +16,7 @@ Page({
   newNote() { this.setData({ text: '', editingId: '', editingRevision: '', dirty: false }); },
   edit(e) { const item = this.data.timeline.find(candidate => candidate.id === e.currentTarget.dataset.id); if (item?.kind === 'personal_note') this.setData({ text: item.body, editingId: item.id, editingRevision: item.revisionId, dirty: false }); },
   save() { try { service.journal().savePersonalNote(this.data.date, this.data.text, this.data.editingId || undefined, this.data.editingRevision || undefined); this.setData({ dirty: false, text: '', editingId: '', editingRevision: '' }); this.refresh(); wx.showToast({ title: '记录已保存' }); } catch (e) { showError(e); } },
-  askAi() { wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { type: 'journal_date', date: this.data.date, expiresAt: Date.now() + 5 * 60 * 1000 }); wx.switchTab({ url: '/pages/research/index' }); },
+  askAi() { wx.setStorageSync('portfolio.wechat.navigation-intent.v1', { workspaceId: service.journal().read().instance_id, type: 'journal_date', date: this.data.date, expiresAt: Date.now() + 5 * 60 * 1000 }); wx.switchTab({ url: '/pages/research/index', fail: () => wx.removeStorageSync('portfolio.wechat.navigation-intent.v1') }); },
   continueConversation(e) { wx.navigateTo({ url: `/pages/conversation/index?id=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
   openTrade(e) { wx.navigateTo({ url: `/pages/entry/index?recordId=${encodeURIComponent(e.currentTarget.dataset.id)}` }); },
 });

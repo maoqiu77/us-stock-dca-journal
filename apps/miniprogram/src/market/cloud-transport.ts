@@ -1,3 +1,5 @@
+import { researchSnapshotSchema } from '@portfolio/market-data/research';
+import { domesticBoardSchema } from '@portfolio/market-data/domestic';
 import { barsV1Schema, canonicalInstrumentSchema, marketCapabilitiesSchema, quoteV1Schema } from '@portfolio/market-data';
 import { MarketTransportError, type MarketTransport } from './transport.ts';
 export { MarketTransportError } from './transport.ts';
@@ -17,6 +19,8 @@ export function createCloudMarketTransport(callFunction: CloudCall, functionName
     }
   }
   return {
+    researchSnapshot: async selection => researchSnapshotSchema.parse(await call({ action: 'researchSnapshot', selection })),
+    domesticBoard: async segment => { const result = domesticBoardSchema.parse(await call({ action: 'domesticBoard', segment })); if (result.segment !== segment) throw Error('国内行情分类不匹配'); return result; },
     capabilities: async () => marketCapabilitiesSchema.parse(await call({ action: 'capabilities' })),
     search: async (query, limit) => {
       const data = await call({ action: 'search', query, limit }) as any;

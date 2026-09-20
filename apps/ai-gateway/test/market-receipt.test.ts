@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createPortfolioMarketHandler } from '../src/market/handler.ts';
-import { createMemoryMarketReceiptStore } from '../src/market/receipt-store.ts';
+import { createMemoryMarketReceiptStore, createCloudbaseMarketReceiptStore } from '../src/market/receipt-store.ts';
 
 const at = '2026-09-13T10:00:00.000Z';
 const id = (n: number) => `84000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -29,4 +29,22 @@ test('receipt resolution rejects expiry and cannot silently refresh frozen conte
   assert.equal((await receipts.resolve('owner-a', id(2), '2026-09-13T10:10:00.000Z'))?.acceptedRequestId, id(3));
   await receipts.create({ owner: 'owner-a', id: id(5), purpose: 'portfolio_review', instrumentKeys: ['US:XNAS:AAPL'], quotes: [quote], provider: 'Twelve Data', feed: 'licensed', entitlementVersion: 'market-v1', createdAt: at, expiresAt: '2026-09-13T10:10:00.000Z' });
   await assert.rejects(() => receipts.resolve('owner-a', id(5), '2026-09-13T10:10:00.000Z'), /RECEIPT_EXPIRED/);
+});
+
+test('research snapshot accepts only validated server data and isolates receipt ownership',async()=>{
+ const receipts=createMemoryMarketReceiptStore();
+ const selection={market:'HK' as const,symbol:'00700',period:'1day' as const,auxiliary:[]};
+ const series={market:'HK' as const,symbol:'00700',name:'腾讯',currency:'HKD' as const,period:'1day' as const,provider:'test',adjustment:'unadjusted' as const,timezone:'Asia/Hong_Kong',fetchedAt:at,status:'available' as const,reason:'',bars:[{time:'2026-09-11T00:00:00.000Z',open:10,high:11,low:9,close:10,volume:1}]};
+ const handler=createPortfolioMarketHandler({config,access:{allowed:async()=>true},receipts,now:()=>at,id:()=>id(99),research:{load:async()=>[series]}});
+ const r=await handler({action:'researchSnapshot',selection,series:[{close:99999}]},context('owner-a'));assert.equal(r.ok,true);if(!r.ok)return;
+ const value=r.data as any;assert.equal(value.series[0].bars[0].close,10);assert.equal((await receipts.get('owner-a',value.receipt_id))?.research?.selection.market,'HK');assert.equal(await receipts.get('owner-b',value.receipt_id),undefined);
+});
+
+
+test('CloudBase receipt binding excludes immutable database id from writes',async()=>{
+ let row:any;
+ const db={collection:()=>({doc:(key:string)=>({get:async()=>({data:[{...row,_id:key}]}),set:async({data}:any)=>{assert.equal('_id' in data,false);row=data;},remove:async()=>{}})})};
+ const store=createCloudbaseMarketReceiptStore(db);
+ const r=await store.create({owner:'test-owner',id:id(80),purpose:'instrument_research',instrumentKeys:[],quotes:[],provider:'test',feed:'test',entitlementVersion:'test',createdAt:at,expiresAt:'2026-09-13T10:10:00.000Z'});
+ const bound=await store.bind('test-owner',r.id,r.digest,id(81),'2026-09-14T10:00:00.000Z');assert.equal(bound.acceptedRequestId,id(81));assert.equal('_id' in bound,false);
 });

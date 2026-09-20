@@ -1,0 +1,535 @@
+--- a/apps/miniprogram/src/service.ts
++++ b/apps/miniprogram/src/service.ts
+@@ -1,6 +1,5 @@
+ import { researchSelectionSchema, researchSnapshotSchema, type ResearchSelection } from '@portfolio/market-data/research';
+ import { decimal, decimalText, dateSchema, ledgerEventSchema, projectLedger, valuePortfolio, type LedgerEvent } from '@portfolio/domain';
+-import { createRestoreStorage } from './workspace/restore-transaction.ts';
+ import { createRepository, type StoragePort } from './repository.ts';
+ import { screenshotMetricsSchema, activeEvents, clockState, emptySnapshot, projection, validateSnapshot, type Runtime, type Snapshot } from './model.ts';
+ import { createWorkspaceRepository } from './workspace/repository.ts';
+@@ -81,8 +80,6 @@
+
+ export type ServiceOptions = { aiTransport?: AiTransport; fakeProvider?: FakeAiProvider; demoFactory?: (runtime: Runtime) => Snapshot; marketTransport?: MarketTransport; seedPopularStocks?: boolean; visionTransport?: VisionTransport };
+ export function createService(storage: StoragePort, runtime: Runtime, options: ServiceOptions = {}) {
+-  const restore = createRestoreStorage(storage);
+-  storage = restore.storage;
+   const repo = createRepository(storage, runtime);
+   const workspace = createWorkspaceRepository(storage, runtime, { readFinancial: repo.ensurePersisted, ledgerPending: repo.pendingSave });
+   let aiEngine: ReturnType<typeof createAiEngine> | undefined;
+@@ -494,15 +491,15 @@
+     previewBackup(text: string) { const data = repo.parseBackup(text); return { openings: active(data).filter(item => !item.voided && item.kind === 'opening_position').length, trades: active(data).filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, reviews: data.reviews.length, mode: data.mode }; },
+     exportFullBackup() { return encodeFullBackup(repo.read(), workspace.read(), runtime, marketDiscovery.exportWatchlist()); },
+     previewCompleteBackup(text: string) { return backupPreview(parseCompleteBackup(text, runtime), runtime); },
+-    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); restore.atomic(() => { const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); marketDiscovery.replaceWatchlist(parsed.watchlist); marketClient.clear(); }); },
+-    restoreBackup(text: string) { repo.parseBackup(text); service.restoreCompleteBackup(text); },
+-    recoverPrevious() { restore.atomic(() => { const financial = repo.readPrevious(), previousWorkspace = workspace.readPreviousOptional(), watchlist = previousWorkspace ? marketDiscovery.readWatchlist(previousWorkspace.instance_id) : [], prepared = workspace.prepareReplacement(previousWorkspace, financial); repo.recoverPrevious(); prepared.commit(); marketDiscovery.replaceWatchlist(watchlist); marketClient.clear(); }); },
++    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); marketDiscovery.replaceWatchlist(parsed.watchlist); marketClient.clear(); },
++    restoreBackup(text: string) { const financial = repo.parseBackup(text); const prepared = workspace.prepareReplacement(undefined, financial); repo.replace(financial); prepared.commit(); },
++    recoverPrevious() { const financial = repo.readPrevious(), previousWorkspace = workspace.readPreviousOptional(), prepared = workspace.prepareReplacement(previousWorkspace, financial); repo.recoverPrevious(); prepared.commit(); },
+     loadDemo() {
+       if (!options.demoFactory) throw Error('当前构建不提供示例数据。');
+       const data = repo.read(); if (data.events.length || data.reviews.length || data.mode === 'demo') fail('NOT_EMPTY', '只有空账本可以载入示例。');
+       const next = options.demoFactory(runtime); const prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit();
+     },
+-    startEmpty() { restore.atomic(() => { const next = emptySnapshot(runtime), prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit(); }); },
++    startEmpty() { const next = emptySnapshot(runtime), prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit(); },
+     deleteAllLocalData() { workspace.purge(); repo.purge(); marketClient.clear(); marketDiscovery.replaceWatchlist([]); },
+   };
+   return service;
+--- a/apps/miniprogram/src/workspace/restore-transaction.ts
++++ /dev/null
+@@ -1,70 +0,0 @@
+-import { sha256 } from '@portfolio/ai-context';
+-import { utf8Size } from '../model.ts';
+-import type { StoragePort } from '../repository.ts';
+-
+-export const RESTORE_TRANSACTION_KEY = 'portfolio.wechat.restore.v1';
+-const prefix = `${RESTORE_TRANSACTION_KEY}.stage.`;
+-type Entry = { key: string; stage: string; digest: string };
+-
+-/** The marker is the durable commit decision. Before it: old data. After it:
+- * finish the approved local replacement before exposing any repository reads.
+- * Staging uses separate values so it does not halve the ledger's size limit.
+- * No network operation or AI request is part of recovery. */
+-export function createRestoreStorage(base: StoragePort) {
+-  let draft: Map<string, string> | undefined;
+-  function verified(key: string, text: string) {
+-    try { base.set(key, text); } catch { /* A host may throw after writing. */ }
+-    if (base.get(key) !== text) throw Error('完整恢复写入未完成，请恢复本地存储后重新打开；不要重复导入。');
+-  }
+-  function recover() {
+-    const raw = base.get(RESTORE_TRANSACTION_KEY);
+-    if (!raw) return;
+-    let entries: Entry[];
+-    try {
+-      const marker = JSON.parse(raw);
+-      if (marker.version !== 1 || !Array.isArray(marker.entries) || !marker.entries.length || marker.entries.length > 200) throw Error();
+-      entries = marker.entries;
+-      const keys = new Set<string>();
+-      for (const [index, item] of entries.entries()) {
+-        if (typeof item.key !== 'string' || !item.key.startsWith('portfolio.wechat.') || item.key.startsWith(RESTORE_TRANSACTION_KEY) || item.stage !== `${prefix}${index}` || !/^[a-f0-9]{64}$/.test(item.digest) || keys.has(item.key)) throw Error();
+-        keys.add(item.key);
+-      }
+-    } catch { throw Error('完整恢复事务损坏或版本不兼容，已停止读写，请保留本地数据。'); }
+-    // Validate every staged value before touching any primary value.
+-    const values = entries.map(item => {
+-      const text = base.get(item.stage);
+-      if (sha256(text) !== item.digest) throw Error('完整恢复暂存数据损坏，已停止读写，请保留本地数据。');
+-      return text;
+-    });
+-    entries.forEach((item, index) => verified(item.key, values[index]));
+-    verified(RESTORE_TRANSACTION_KEY, '');
+-    // Stale staging is inert once the marker is gone.
+-    for (const item of entries) try { base.set(item.stage, ''); } catch { /* best effort */ }
+-  }
+-  const storage: StoragePort = {
+-    get(key) { if (draft) return draft.has(key) ? draft.get(key)! : base.get(key); recover(); return base.get(key); },
+-    set(key, value) { if (draft) { draft.set(key, value); return; } recover(); base.set(key, value); },
+-    ...(base.keys ? { keys: () => { if (!draft) recover(); return [...new Set([...base.keys!(), ...(draft?.keys() ?? [])])]; } } : {}),
+-    ...(base.info ? { info: () => base.info!() } : {}),
+-  };
+-  function atomic<T>(operation: () => T): T {
+-    recover();
+-    if (draft) throw Error('完整恢复不能嵌套执行。');
+-    draft = new Map();
+-    let result: T, writes: Map<string, string>;
+-    try { result = operation(); writes = draft; } finally { draft = undefined; }
+-    const entries: Entry[] = [...writes].map(([key, value], index) => ({ key, stage: `${prefix}${index}`, digest: sha256(value) }));
+-    const marker = JSON.stringify({ version: 1, entries });
+-    if (base.info) {
+-      const info = base.info();
+-      // Conservatively reserve staging + final values, while retaining recovery points.
+-      const bytes = [...writes.values()].reduce((n, text) => n + utf8Size(text) * 2, utf8Size(marker) + 4096);
+-      if (info.currentSize * 1024 + bytes > info.limitSize * 1024) throw Error('完整恢复本地空间不足，当前数据未替换；请先保存外部备份。');
+-    }
+-    entries.forEach(item => verified(item.stage, writes.get(item.key)!));
+-    verified(RESTORE_TRANSACTION_KEY, marker);
+-    recover();
+-    return result;
+-  }
+-  return { storage, atomic };
+-}
+--- a/apps/miniprogram/src/workspace/backup.ts
++++ b/apps/miniprogram/src/workspace/backup.ts
+@@ -40,5 +40,5 @@
+ }
+ export function backupPreview(backup: CompleteBackup, runtime: Runtime) {
+   const financial = backup.financial, active = activeEvents(financial, runtime); const heads = backup.workspace ? (() => { const parents = new Set(backup.workspace!.journal.map(item => item.parent_revision).filter(Boolean)); return backup.workspace!.journal.filter(item => !parents.has(item.revision_id)); })() : financial.reviews;
+-  return { version: backup.version, checkpoints: financial.holding_checkpoints.length, importReceipts: financial.import_receipts.length, openings: active.filter(item => !item.voided && item.kind === 'opening_position').length, trades: active.filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, personalNotes: backup.workspace ? heads.filter(item => 'type' in item && item.type === 'personal_note').length : financial.reviews.length, conversations: backup.workspace?.conversations.length ?? 0, runs: backup.workspace?.runs.length ?? 0, sources: backup.workspace?.sources.length ?? 0, watchlist: backup.watchlist.length, mode: financial.mode, complete: backup.version >= 3 };
++  return { version: backup.version, openings: active.filter(item => !item.voided && item.kind === 'opening_position').length, trades: active.filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, personalNotes: backup.workspace ? heads.filter(item => 'type' in item && item.type === 'personal_note').length : financial.reviews.length, conversations: backup.workspace?.conversations.length ?? 0, runs: backup.workspace?.runs.length ?? 0, sources: backup.workspace?.sources.length ?? 0, watchlist: backup.watchlist.length, mode: financial.mode, complete: backup.version >= 3 };
+ }
+--- a/apps/miniprogram/src/market/discovery.ts
++++ b/apps/miniprogram/src/market/discovery.ts
+@@ -125,7 +125,6 @@
+     remove(instrumentKey: string) { sync(); save({ version: 1, instruments: state.instruments.filter(item => item.instrument_key !== instrumentKey), updated_at: options.now() }); },
+     loadBars,
+     exportWatchlist() { sync(); return state.instruments.slice(); },
+-    readWatchlist(instance: string) { return decode(storage.get(`${WATCHLIST_STORAGE_KEY}:${instance}`)).instruments; },
+     replaceWatchlist(instruments: CanonicalInstrument[]) { sync(); save({ version: 1, instruments: instruments.map(item => canonicalInstrumentSchema.parse(item)), updated_at: options.now() }); },
+     view() { sync(); return { query, results, error, watchlist: state.instruments, updatedAt: state.updated_at }; },
+   };
+--- a/apps/miniprogram/miniprogram/app.wxss
++++ b/apps/miniprogram/miniprogram/app.wxss
+@@ -45,10 +45,3 @@
+ .voided { opacity: .5; }
+ .counter { text-align: right; margin-top: 8rpx; }
+ .backup { height: 240rpx; font-family: monospace; font-size: 23rpx; }
+-
+-/* Keep narrow screens and system large text within the available width. */
+-.container, .card { box-sizing: border-box; min-width: 0; }
+-.row > view, .row > text { min-width: 0; overflow-wrap: anywhere; }
+-.actions { flex-wrap: wrap; }
+-.actions button { min-width: 0; white-space: normal; }
+-.container { padding-bottom: calc(60rpx + env(safe-area-inset-bottom)); }
+--- a/apps/miniprogram/miniprogram/pages/settings/index.wxml
++++ b/apps/miniprogram/miniprogram/pages/settings/index.wxml
+@@ -16,13 +16,14 @@
+   <view class="card"><view class="label">数据保存在哪里？</view><view class="muted">持仓、交易、个人手记、AI 会话与日历保存在当前微信用户、当前设备的小程序本地。暂不支持账号云同步，换手机不会自动带过来。</view><view class="note">正常更新通常保留本地数据，无需每次更新都恢复备份。换机、清理微信存储或删除数据前，建议先导出备份并保存到小程序之外。</view><view class="muted">云端 AI 仅处理你确认发送的信息；云端任务记录不是个人数据备份。</view></view>
+   <view class="card"><view>行情缓存</view><view class="muted">报价和标的映射与金融账本分开保存，不进入完整备份；清理后不影响交易记录。</view><button class="secondary" bindtap="clearMarketCache">清理行情缓存</button></view>
+   <view class="card"><view class="label">导出备份</view><view class="subtitle">保存持仓、交易、手记、AI 会话、投资计划和自选，供换机或误删后恢复。不含原始截图、临时识别任务和行情缓存。</view><view class="muted">备份为未加密的 JSON 文件（v7），请保存到自己的可信位置。仅生成文件不等于已完成外部备份。</view><view class="actions"><button class="primary" bindtap="exportFile" disabled="{{canExportRaw}}">导出完整文件</button><button class="secondary" bindtap="copyBackup" disabled="{{canExportRaw}}">复制完整备份</button></view></view>
+-  <view class="card"><view class="label">恢复已有备份</view><view class="muted">选择本小程序导出的 JSON，或粘贴备份内容。先检查格式与记录数量；确认恢复后替换当前数据，不会合并。旧备份可能带回此前删除的内容，建议恢复前先导出当前备份。</view><view class="actions"><button class="secondary" bindtap="chooseBackup">选择 JSON 文件</button></view>
++  <view class="card"><view class="label">恢复已有备份</view><view class="muted">选择本小程序导出的 JSON，或粘贴备份内容。先检查格式与记录数量；确认恢复后替换当前数据，不会合并。建议恢复前先导出当前备份。</view><view class="actions"><button class="secondary" bindtap="chooseBackup">选择 JSON 文件</button></view>
+     <textarea class="backup" style="margin-top: 24rpx" value="{{backupText}}" maxlength="819200" bindinput="onBackupText" placeholder="也可以在这里粘贴备份内容"/>
+     <view wx:if="{{backupFileName}}" class="note">已选文件：{{backupFileName}}</view>
+     <view class="actions"><button class="secondary" bindtap="previewBackup">检查备份</button></view>
+-    <view wx:if="{{preview}}"><view class="note">检查通过：v{{preview.version}}，{{preview.checkpoints}} 条持仓校准、{{preview.importReceipts}} 条导入回执，{{preview.openings}} 条期初持仓，{{preview.trades}} 笔交易，{{preview.personalNotes}} 条个人记录，{{preview.runs}} 份分析、{{preview.conversations}} 个会话、{{preview.sources}} 个来源、{{preview.watchlist}} 个自选。{{preview.complete ? '范围为完整工作区。' : '旧备份将迁移为新工作区。'}}</view><view class="actions"><button class="primary" bindtap="restoreBackup" loading="{{importing}}">确认恢复…</button></view></view>
+-    <button class="link" bindtap="recoverPrevious">恢复上一次替换前的完整工作区</button>
++    <view wx:if="{{preview}}"><view class="note">检查通过：v{{preview.version}}，{{preview.openings}} 条期初持仓，{{preview.trades}} 笔交易，{{preview.personalNotes}} 条个人记录，{{preview.runs}} 份分析。{{preview.complete ? '范围为完整工作区。' : '旧备份将迁移为新工作区。'}}</view><view class="actions"><button class="primary" bindtap="restoreBackup" loading="{{importing}}">确认恢复…</button></view></view>
++    <button class="link" bindtap="recoverPrevious">恢复上一次替换前的账本</button>
+   </view>
++  <view class="section">关于</view><view class="card"><view class="muted">账本、个人记录和会话默认保存在当前设备的小程序本地，不代表已自动多设备同步。使用云端 AI 时，只会发送你在本轮确认的信息。行情是否可用、延迟多久及来源以持仓页实际状态为准。<view/><view/>完整备份是明文 JSON，请只保存到你信任的位置。</view></view>
+   <button class="secondary" bindtap="startEmpty">开始新的空账本…</button>
+   <view class="section">删除数据</view><view class="card"><view class="muted">“开始新的空账本”会保留恢复点。下方删除会清除当前设备中的活动数据、恢复点与待处理请求；外部备份需由你在保存位置自行删除。本机删除不能撤回已发送的云请求，任务结束后云端正文按保存确认或服务端保留期清理。</view><button class="secondary delete-local" bindtap="deleteAllLocalData" loading="{{deleting}}">删除本机全部数据</button></view>
+ </view>
+--- a/apps/miniprogram/miniprogram/pages/settings/index.js
++++ b/apps/miniprogram/miniprogram/pages/settings/index.js
+@@ -47,7 +47,7 @@
+   restoreBackup() {
+     if (!this.data.preview || this.data.importing) return;
+     const text = this._backupFileText || this.data.backupText;
+-    wx.showModal({ title: '用备份替换当前完整工作区？', content: `恢复会替换当前数据，不会合并。旧备份可能带回此前删除的内容。建议先导出当前备份。将恢复 ${this.data.preview.checkpoints || 0} 条持仓校准、${this.data.preview.importReceipts || 0} 条导入回执、${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.personalNotes} 条个人记录、${this.data.preview.runs} 份分析、${this.data.preview.conversations} 个会话、${this.data.preview.sources} 个来源、${this.data.preview.watchlist} 个自选。${this.data.preview.version === 7 ? '这是 v7 完整备份。' : this.data.preview.complete ? '这是旧版完整备份，将迁移到 v7。' : '这是旧备份，将创建新工作区。'}`, confirmText: '确认恢复', success: result => {
++    wx.showModal({ title: '用备份替换当前完整工作区？', content: `恢复会替换当前数据，不会合并。建议先导出当前备份。将恢复 ${this.data.preview.openings} 条期初持仓、${this.data.preview.trades} 笔交易、${this.data.preview.personalNotes} 条个人记录、${this.data.preview.runs} 份分析。${this.data.preview.version === 7 ? '这是 v7 完整备份。' : this.data.preview.complete ? '这是旧版完整备份，将迁移到 v7。' : '这是旧备份，将创建新工作区。'}`, confirmText: '确认恢复', success: result => {
+       if (!result.confirm || this.data.importing) return;
+       this.setData({ importing: true });
+       try { service.restoreCompleteBackup(text); this._backupFileText = ''; this.setData({ backupText: '', backupFileName: '', preview: null }); this.onShow(); wx.showToast({ title: '恢复成功' }); }
+--- a/apps/miniprogram/scripts/check-weapp-production.mjs
++++ b/apps/miniprogram/scripts/check-weapp-production.mjs
+@@ -55,7 +55,6 @@
+ for (const route of app.pages) {
+   const base = join(dist, 'miniprogram', route); for (const extension of ['js', 'json', 'wxml', 'wxss']) await stat(`${base}.${extension}`);
+   const source = await readFile(`${base}.js`, 'utf8'), template = await readFile(`${base}.wxml`, 'utf8');
+-  if (/(?:bind|catch)(?::)?\w+="(?:loadDemo|runFake|runDemo)"|体验示例|运行离线演示/.test(template)) throw Error(`production_demo_entry_found:${route}`);
+   const handlers = new Set();
+   const tree = ts.createSourceFile(`${route}.js`, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+   function visit(node) {
+--- a/apps/miniprogram/test/service.test.ts
++++ b/apps/miniprogram/test/service.test.ts
+@@ -95,13 +95,12 @@
+   assert.throws(() => createRepository(f.storage, f.runtime).write(data), /过大/);
+   assert.equal(f.values.size, 0);
+ });
+-test('interrupted restore retains old primary and finishes approved replacement after storage recovers', () => {
++test('failed restore leaves the current ledger intact even after creating a recovery point', () => {
+   const f = fixture(); f.service.saveTrade(buy); const backup = f.service.exportBackup(); f.service.saveReview('2026-09-10', '恢复前');
+   const previous = f.service.exportBackup();
+   const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('full'); f.storage.set(key, value); } };
+-  assert.throws(() => createService(storage, f.runtime).restoreBackup(backup), /完整恢复/);
+-  assert.equal(f.values.get(STORAGE_KEY), JSON.stringify(JSON.parse(previous).data));
+-  assert.equal(f.service.exportBackup(), backup);
++  assert.throws(() => createService(storage, f.runtime).restoreBackup(backup), { code: 'SAVE_NOT_WRITTEN' });
++  assert.equal(f.service.exportBackup(), previous);
+ });
+ test('recovery failure preserves a valid recovery point when current bytes are corrupted', async () => {
+   const { STORAGE_KEY } = await import('../src/repository.ts'); const f = fixture();
+@@ -110,8 +109,7 @@
+   const storage = { get: f.storage.get, set(key: string, value: string) { if (key === STORAGE_KEY) throw Error('quota'); f.storage.set(key, value); } };
+   assert.throws(() => createService(storage, f.runtime).recoverPrevious());
+   assert.equal(f.values.get(`${STORAGE_KEY}.previous`), previous);
+-  assert.equal(f.service.snapshot().reviews[0].text, '唯一恢复笔记');
+-  assert.equal(f.service.verifyPending(), 'none');
++  assert.equal(f.service.verifyPending(), 'retryable'); f.service.retryPending(); assert.equal(f.service.snapshot().reviews[0].text, '唯一恢复笔记');
+ });
+ test('import refuses dangling instrument references even on voided historical revisions', () => {
+   const f = fixture(); f.service.saveTrade(buy); f.service.voidTrade(f.service.records()[0].id);
+--- a/apps/miniprogram/test/phase67-recovery.test.ts
++++ /dev/null
+@@ -1,121 +0,0 @@
+-import assert from 'node:assert/strict';
+-import test from 'node:test';
+-import { createService } from '../src/service.ts';
+-import { fakeAiProvider } from '../src/ai/fake-provider.ts';
+-import { RESTORE_TRANSACTION_KEY } from '../src/workspace/restore-transaction.ts';
+-import { STORAGE_KEY } from '../src/repository.ts';
+-
+-function fixture(seed = 0, initial = new Map<string, string>()) {
+-  let id = seed, writes = 0, failure = Infinity, after = false, broken = false;
+-  const values = new Map(initial);
+-  const runtime = { today: () => '2026-09-21', now: () => '2026-09-21T04:00:00.000Z', id: () => `96000000-0000-4000-8000-${String(++id).padStart(12, '0')}` };
+-  const storage = { get: (key: string) => values.get(key) ?? '', set(key: string, value: string) {
+-    writes++;
+-    if (writes >= failure) { broken = true; if (after) values.set(key, value); throw Error('simulated power loss / quota'); }
+-    values.set(key, value);
+-  }, keys: () => [...values.keys()], info: () => ({ currentSize: 0, limitSize: 10240 }) };
+-  return { values, runtime, storage, service: createService(storage, runtime, { fakeProvider: fakeAiProvider }),
+-    failAt(n: number, late = false) { writes = 0; failure = n; after = late; },
+-    resume() { failure = Infinity; }, count: () => writes, broken: () => broken };
+-}
+-function populate(f: ReturnType<typeof fixture>, text: string) {
+-  f.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: '2026-09-21', quantity: '2', price: '10', fee: '1' });
+-  f.service.journal().savePersonalNote('2026-09-21', text);
+-  f.service.addWatchlist({ schema_version: 1, instrument_key: 'US:XNAS:QQQ', symbol: 'QQQ', name: 'Invesco QQQ Trust', mic: 'XNAS', exchange: 'NASDAQ', market: 'US', currency: 'USD', asset_type: 'ETF', provider_symbol: 'QQQ', provider_catalog_version: 'v1', status: 'active' });
+-}
+-function facts(service: ReturnType<typeof createService>) {
+-  const backup = JSON.parse(service.exportFullBackup());
+-  return { financial: backup.data.financial, journal: backup.data.workspace.journal, watchlist: backup.data.watchlist };
+-}
+-
+-test('P6 D02 every full-restore write interruption restarts as a complete old or complete new workspace', () => {
+-  const source = fixture(10000); populate(source, 'new synthetic note'); const backup = source.service.exportFullBackup(), expected = facts(source.service);
+-  const original = fixture(); populate(original, 'old synthetic note'); const previous = facts(original.service);
+-  const probe = fixture(20000, original.values); probe.failAt(Infinity); probe.service.restoreCompleteBackup(backup); const total = probe.count();
+-  assert.ok(total > 20);
+-  for (const late of [false, true]) for (let point = 1; point <= total; point++) {
+-    const f = fixture(20000, original.values); f.failAt(point, late);
+-    try { f.service.restoreCompleteBackup(backup); } catch { /* restart after simulated power loss */ }
+-    f.resume();
+-    const reopened = createService(f.storage, f.runtime);
+-    const actual = facts(reopened);
+-    assert.ok(JSON.stringify(actual) === JSON.stringify(previous) || JSON.stringify(actual) === JSON.stringify(expected), `mixed state at ${point}, late=${late}`);
+-    assert.equal(f.values.get(RESTORE_TRANSACTION_KEY) || '', '');
+-  }
+-});
+-
+-test('P6 D03 corrupted staged restore fails closed without overwriting the original ledger', () => {
+-  const source = fixture(10000); populate(source, 'source'); const target = fixture(); populate(target, 'target');
+-  const before = target.values.get(STORAGE_KEY);
+-  // Find the durable marker write, then lose power before the first primary write.
+-  const baseSet = target.storage.set;
+-  let committed = false;
+-  target.storage.set = (key, value) => { if (committed) throw Error('power loss'); baseSet(key, value); if (key === RESTORE_TRANSACTION_KEY && value) committed = true; };
+-  assert.throws(() => target.service.restoreCompleteBackup(source.service.exportFullBackup()));
+-  const marker = JSON.parse(target.values.get(RESTORE_TRANSACTION_KEY)!);
+-  target.values.set(marker.entries[0].stage, 'tampered');
+-  target.storage.set = baseSet;
+-  assert.throws(() => createService(target.storage, target.runtime).snapshot(), /损坏/);
+-  assert.equal(target.values.get(STORAGE_KEY), before);
+-});
+-
+-test('P6 integrated reviewed screenshot → analysis → edited note → calendar → deletion → restore preview', () => {
+-  const f = fixture();
+-  const input = { batchId: 'phase6_synthetic_import', expectedRevision: 0, observedAt: f.runtime.now(), rows: [{ rowId: 'row_1', instrument: { symbol: 'QQQ', name: 'Synthetic QQQ', market: 'US', currency: 'USD', assetType: 'ETF' as const, status: 'unverified' as const }, quantity: '20', unitCost: '10' }] };
+-  f.service.saveHoldingImport({ ...input, contentToken: f.service.previewHoldingImport(input).contentToken });
+-  const financial = f.service.exportBackup();
+-  const run = f.service.ai().analyze({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-21', question: 'phase6 private synthetic question' });
+-  const assistant = f.service.journal().conversation(run.conversation.id).messages.find(m => m.role === 'assistant')!;
+-  f.service.journal().saveAiMessageAsNote(assistant.id, '2026-09-21', 'Edited personal conclusion');
+-  assert.deepEqual(f.service.journal().calendarMonth('2026-09').days, ['2026-09-21']);
+-  const oldBackup = f.service.exportFullBackup();
+-  const pending = f.service.ai().prepare({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-21', question: 'late question', conversationId: run.conversation.id });
+-  f.service.journal().deleteConversation(run.conversation.id);
+-  assert.throws(() => f.service.ai().runPreparedFake(pending), /删除|迟到|隐私/);
+-  assert.equal(f.service.exportBackup(), financial);
+-  const clean = f.service.exportFullBackup();
+-  assert.ok(!clean.includes('phase6 private synthetic question'));
+-  assert.equal(f.service.previewCompleteBackup(clean).conversations, 0);
+-  assert.equal(f.service.previewCompleteBackup(clean).checkpoints, 1);
+-  assert.equal(f.service.previewCompleteBackup(clean).importReceipts, 1);
+-  assert.equal(f.service.previewCompleteBackup(oldBackup).conversations, 1);
+-  const beforePreview = f.service.exportFullBackup(); f.service.previewCompleteBackup(oldBackup); assert.equal(f.service.exportFullBackup(), beforePreview);
+-  const target = fixture(20000); target.service.restoreCompleteBackup(clean);
+-  const reopened = createService(target.storage, target.runtime);
+-  assert.equal(reopened.exportBackup(), financial);
+-  assert.equal(reopened.journal().history('2026-09-21')[0].text, 'Edited personal conclusion');
+-  assert.equal(reopened.saveHoldingImport(input).kind, 'already_applied');
+-  const first = facts(reopened); reopened.restoreCompleteBackup(clean); assert.deepEqual(facts(reopened), first);
+-});
+-
+-test('P6 recovery point restores personal notes and exact watchlist, including deliberately empty lists', () => {
+-  for (const empty of [false, true]) {
+-    const f = fixture(); populate(f, 'retained note'); if (empty) f.service.removeWatchlist('US:XNAS:QQQ');
+-    const before = facts(f.service); f.service.startEmpty(); f.service.recoverPrevious();
+-    assert.deepEqual(facts(f.service), before);
+-  }
+-});
+-
+-test('P6 D01 v4 and v5 complete backup migration preserves financial facts, originals and watchlist through v7', () => {
+-  for (const version of [4, 5]) {
+-    const f = fixture(); populate(f, `legacy v${version} 原文`);
+-    const backup = JSON.parse(f.service.exportFullBackup());
+-    backup.version = version;
+-    delete backup.scope.holding_checkpoints; delete backup.scope.import_receipts; delete backup.scope.privacy_deletions;
+-    delete backup.excludes.original_images; delete backup.excludes.vision_tasks;
+-    const financial = backup.data.financial;
+-    financial.version = 2; delete financial.revision; delete financial.holding_assets; delete financial.holding_checkpoints; delete financial.import_receipts;
+-    if (version === 4) {
+-      delete backup.scope.watchlist; delete backup.data.watchlist; delete backup.excludes.market_cache; delete backup.excludes.live_receipts;
+-      backup.data.workspace.version = 2; delete backup.data.workspace.privacy_epoch; delete backup.data.workspace.deletions;
+-    }
+-    const target = fixture(20000); const text = JSON.stringify(backup);
+-    assert.equal(target.service.previewCompleteBackup(text).version, version);
+-    target.service.restoreCompleteBackup(text);
+-    assert.equal(target.service.overview().totalCost, '21.00');
+-    assert.equal(target.service.journal().history('2026-09-21')[0].text, `legacy v${version} 原文`);
+-    const expected = facts(target.service), v7 = target.service.exportFullBackup();
+-    target.service.restoreCompleteBackup(v7); assert.deepEqual(facts(target.service), expected);
+-    assert.equal(target.service.marketDiscovery().watchlist.length, version === 5 ? 1 : 0);
+-  }
+-});
+--- a/apps/miniprogram/test/full-backup.test.ts
++++ b/apps/miniprogram/test/full-backup.test.ts
+@@ -32,7 +32,7 @@
+   source.service.journal().savePersonalNote('2026-09-10', '人工决定：观察');
+   const text = source.service.exportFullBackup(), oldInstance = JSON.parse(text).data.workspace.instance_id;
+   const target = fixture(); const preview = target.service.previewCompleteBackup(text);
+-  assert.deepEqual(preview, { version: 7, checkpoints: 0, importReceipts: 0, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
++  assert.deepEqual(preview, { version: 7, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
+   target.service.restoreCompleteBackup(text);
+   assert.equal(target.service.overview().totalCost, '21.00');
+   assert.equal(target.service.journal().timeline('2026-09-10')[0].body, '人工决定：观察');
+--- a/apps/miniprogram/test/pending-save.test.ts
++++ b/apps/miniprogram/test/pending-save.test.ts
+@@ -53,15 +53,14 @@
+   f.fault(''); assert.equal(f.service.verifyPending(), 'confirmed');
+   assert.equal(f.service.records().length, 2); assert.equal(f.service.revisionHistory(row.id).length, 2);
+ });
+-test('replacement unknown restarts the approved complete transaction and preserves original recovery', () => {
++test('replacement unknown invalidates previews immediately and preserves original recovery on restart', () => {
+   const f = fixture(); f.service.saveTrade(input); const original = f.values.get(STORAGE_KEY), generation = f.service.generation();
+-  f.fault('read'); assert.throws(() => f.service.startEmpty());
++  f.fault('read'); assert.throws(() => f.service.startEmpty(), { code: 'SAVE_UNKNOWN' });
+   assert.ok(f.service.generation() > generation); f.fault('');
+   const reopened = createService(f.storage, f.runtime);
+-  assert.equal(reopened.records().length, 0);
+-  assert.equal(f.values.get(RECOVERY_KEY), original);
+-  assert.equal(reopened.verifyPending(), 'none');
+-  reopened.recoverPrevious(); assert.equal(reopened.records().length, 1);
++  assert.throws(() => reopened.startEmpty(), { code: 'SAVE_PENDING' });
++  assert.equal(reopened.verifyPending(), 'confirmed');
++  assert.equal(f.values.get(RECOVERY_KEY), original); assert.equal(reopened.records().length, 0);
+ });
+
+ test('durable journal does not halve the existing 800 KiB ledger capacity', async () => {
+--- a/docs/implementation/chicang-slim/ACCEPTANCE.md
++++ b/docs/implementation/chicang-slim/ACCEPTANCE.md
+@@ -95,75 +95,3 @@
+ 新增验收包括：官方协议字段转换、未来公告剔除、零涨幅、前导零、NAV 错误不猜溢价、白名单未配置不请求、公开授权/缓存到期关闭、请求合并、国内云协议校验、目录到持仓和完整备份往返、国内 AI 只发送身份与原文而不发送未授权行情。
+
+ 尚无真实 Provider 价格样本、已部署的国内 action 或模型比较成功回执。官方无 token 探测仅证明 HTTPS 可达。设备检查按 DEVICE_ACCEPTANCE.md 执行，既有本机状态不得升级为真机 PASS。
+-
+-
+-## Phase 6 + Phase 7 最终核验（2026-09-21）
+-
+-本节是当前结论；上方历史运行与云部署记录保留作历史，不能当作本轮实测。未发布、未推送。`PASS_LOCAL` 仅项目自动化通过，不代表真机/云权限/数据许可。所有 H/V/J/M/D/U 共 62 项逐项列出。测试路径默认 `apps/miniprogram/test/`；gateway 为 `apps/ai-gateway/test/`。
+-
+-自动化：小程序 **232/232**，网关 **90/90**，行情 **6/6**，领域 **35/35**，AI 上下文 **28/28**，API **174/174**，Web **74/74**；相关 typecheck/build、production、public-safety 通过。主包 **1,623,251 bytes / 14页**。[原始日志与构建身份](evidence/phase67)、[操作/回滚/阻塞交接](PHASE67_HANDOFF.md)。
+-
+-| ID | 本轮结果 | 项目证据 | 限定说明 |
+-|---|---|---|---|
+-| H01 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H02 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H03 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H04 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H05 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H06 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H07 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H08 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H09 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H10 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H11 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H12 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H13 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H14 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H15 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H16 | PASS_LOCAL | holdings-phase2.test.ts / release-pages.test.mjs | 批次revision、部分替换、审核歧义、成本确认、失败不半写 |
+-| H17 | PASS_LOCAL | holdings-phase1.test.ts | checkpoint、缺成本/报价、多币种、格式、幂等、交易校准冲突 |
+-| H18 | PASS_LOCAL | holdings-phase1.test.ts / journal-phase3.test.ts | 移除持仓保留历史；删除会话不改交易 |
+-| V01 | PASS_LOCAL | release-pages.test.mjs | 取消/拒绝不调用识别；项目页面控制器 |
+-| V02 | PASS_LOCAL | release-pages.test.mjs | 取消/拒绝不调用识别；项目页面控制器 |
+-| V03 | PARTIAL | vision-handler.test.ts / vision-cloud-store.test.ts (gateway) | owner/task绑定；真实双账号云 ACL 未测 |
+-| V04 | PARTIAL | vision-handler.test.ts (gateway) | 字节签名/MIME/尺寸合成测试；完整真实解码/恶意图片矩阵未测 |
+-| V05 | PASS_LOCAL | vision-handler.test.ts / deepseek-vision.test.ts (gateway) | 严格输出、数值代码、截断、请求幂等；不代表真实识别精度 |
+-| V06 | PASS_LOCAL | vision-handler.test.ts / deepseek-vision.test.ts (gateway) | 严格输出、数值代码、截断、请求幂等；不代表真实识别精度 |
+-| V07 | PASS_LOCAL | vision-handler.test.ts / deepseek-vision.test.ts (gateway) | 严格输出、数值代码、截断、请求幂等；不代表真实识别精度 |
+-| V08 | PASS_LOCAL | vision-handler.test.ts / deepseek-vision.test.ts (gateway) | 严格输出、数值代码、截断、请求幂等；不代表真实识别精度 |
+-| V09 | PARTIAL | vision-handler.test.ts / cleanup-cloud.test.ts (gateway) | 成功/取消/失败清理模拟通过；本轮真实定时器未测 |
+-| V10 | PASS_LOCAL | vision-handler.test.ts / deepseek-vision.test.ts (gateway) | 严格输出、数值代码、截断、请求幂等；不代表真实识别精度 |
+-| V11 | PASS_LOCAL | vision-handler.test.ts / deepseek-vision.test.ts (gateway) | 严格输出、数值代码、截断、请求幂等；不代表真实识别精度 |
+-| V12 | NOT_RUN_CURRENT | 历史 P2-06 记录 | 本轮未调用真实视觉模型；历史两样本证据不升级为本轮通过 |
+-| J01 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J02 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J03 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J04 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J05 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J06 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J07 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J08 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J09 | PASS_LOCAL | ai-engine.test.ts / packages/ai-context/test | 来源校验、未知事实、上下文范围；隔离 fake/合成测试 |
+-| J10 | PASS_LOCAL | ai-engine.test.ts / packages/ai-context/test | 来源校验、未知事实、上下文范围；隔离 fake/合成测试 |
+-| J11 | PASS_LOCAL | release-pages.test.mjs | intent仅草稿，不发送模型 |
+-| J12 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J13 | PASS_LOCAL | journal-phase3.test.ts / phase67-recovery.test.ts | 上海日界线、原文/派生删除、迟到拒绝、日历与备份集成 |
+-| J14 | PASS_LOCAL | ai-engine.test.ts / packages/ai-context/test | 来源校验、未知事实、上下文范围；隔离 fake/合成测试 |
+-| M01 | PASS_LOCAL | packages/market-data/test/reference.test.ts | 约5%/零分母/币种身份/NAV/IOPV边界；源数据非实测 |
+-| M02 | PASS_LOCAL | packages/market-data/test/reference.test.ts | 约5%/零分母/币种身份/NAV/IOPV边界；源数据非实测 |
+-| M03 | PASS_LOCAL | packages/market-data/test/reference.test.ts | 约5%/零分母/币种身份/NAV/IOPV边界；源数据非实测 |
+-| M04 | PASS_LOCAL | packages/market-data/test/reference.test.ts | 约5%/零分母/币种身份/NAV/IOPV边界；源数据非实测 |
+-| M05 | PARTIAL | market-transport.test.ts / gateway eastmoney-provider.test.ts | 基金净值与场内字段区分；现场全标的核对未测 |
+-| M06 | PARTIAL | market-discovery.test.ts / market-client.test.ts / packages/market-data/test | 真实零/缺失、时段与缓存故障合成回归；真机断网未测 |
+-| M07 | PARTIAL | market-discovery.test.ts / market-client.test.ts / packages/market-data/test | 真实零/缺失、时段与缓存故障合成回归；真机断网未测 |
+-| M08 | PARTIAL | market-discovery.test.ts / market-client.test.ts / packages/market-data/test | 真实零/缺失、时段与缓存故障合成回归；真机断网未测 |
+-| D01 | PASS_LOCAL | full-backup.test.ts / persistence.test.ts / acceptance.test.ts / phase67-recovery.test.ts | v1–v7、来源、自选、回执、原文；恢复后重复批次不重放 |
+-| D02 | PASS_LOCAL | phase67-recovery.test.ts / pending-save.test.ts / full-backup.test.ts | 逐写点中断、根切换前后重启、容量不足、暂存损坏拒绝 |
+-| D03 | PASS_LOCAL | phase67-recovery.test.ts / pending-save.test.ts / full-backup.test.ts | 逐写点中断、根切换前后重启、容量不足、暂存损坏拒绝 |
+-| D04 | PARTIAL | evidence/phase67/rollback.log | 开始时旧service读取已完成事务数据相等；进行中不得降级，更旧版本未测 |
+-| D05 | PASS_LOCAL | ai-engine.test.ts / service.test.ts / runtime.test.mjs | 保留已有demo与用户记录，生产禁载入；没有按内容猜测清除 |
+-| U01 | PARTIAL | 本轮开发者工具操作记录 / PHASE67_HANDOFF.md | 320/375/430字体26部分页面；键盘/全页面/真机尚未完成 |
+-| U02 | PARTIAL | 本轮开发者工具操作记录 / PHASE67_HANDOFF.md | 320/375/430字体26部分页面；键盘/全页面/真机尚未完成 |
+-| U03 | PASS_LOCAL | release-pages.test.mjs / runtime.test.mjs / check-weapp-production.mjs | 三Tab、旧路由、无Key本地可用、首次无持仓/生产无演示入口；新设备首次启动待测 |
+-| U04 | PASS_LOCAL | release-pages.test.mjs / runtime.test.mjs / check-weapp-production.mjs | 三Tab、旧路由、无Key本地可用、首次无持仓/生产无演示入口；新设备首次启动待测 |
+-| U05 | PASS_LOCAL | release-pages.test.mjs / runtime.test.mjs / check-weapp-production.mjs | 三Tab、旧路由、无Key本地可用、首次无持仓/生产无演示入口；新设备首次启动待测 |
+--- a/docs/implementation/chicang-slim/PROGRESS.md
++++ b/docs/implementation/chicang-slim/PROGRESS.md
+@@ -67,12 +67,3 @@
+ - 本轮最终：小程序 typecheck / 201 tests / production build PASS；网关 typecheck / 57 tests / build PASS；行情 typecheck / 6 tests PASS；production 与 public-safety PASS。主包 2094135 bytes（2045.1 KiB），仅余约 3 KiB，后续功能需要独立优化体积。
+ - 无凭证 HTTPS 探测返回 Tushare 缺 token 业务错误；不计为真实数据验收。开发者工具最终看板仍是不可用状态；没有把模拟器异常当作供应商未配置的证明。
+ - 没有模型付费调用、生产部署、Git commit/push 或用户账本修改。生成了 12 项真机验收清单。
+-
+-
+-## Phase 6/7 当前覆盖（2026-09-21）
+-
+-本条覆盖上方“Phase 6/7 NOT_STARTED”。P6-01/02/03/05 本轮项目回归通过；P6-04 本地隔离与服务端合成权限回归通过，真实双账号/云 ACL 仍未验收。P7-01/03/05/06 本地实现和交接完成；P7-02 开发者工具部分完成，真机按用户回复由用户自行预览验收；P7-04 外部发布条件未完成。详细证据、逐项 H/V/J/M/D/U 状态、回滚见 [PHASE67_HANDOFF.md](PHASE67_HANDOFF.md) 与 [ACCEPTANCE.md](ACCEPTANCE.md)。
+-
+-继续阻塞：Android/iOS 完整矩阵、系统键盘与前后台/断网、真机文件分享恢复；真实双账号权限、完整图片解码及专项视觉样本、云端 cron 删除；行情同日源逐项对照、展示/缓存/AI 归档许可；小程序后台域名/隐私/类目/备案、最低基础库。不得把可达公开接口或历史成功样本当成本轮全验收。进行中的恢复事务不可降级；更旧软件兼容未验证。没有可上线结论。
+-
+-本轮未生产发布、未部署云函数、未调用模型、未上传图片、未提交或推送 Git。按用户要求交付后停止。
+--- a/docs/implementation/chicang-slim/BLOCKERS.md
++++ b/docs/implementation/chicang-slim/BLOCKERS.md
+@@ -54,12 +54,3 @@
+ 仍缺：Tushare 服务端 token/API 权限、公开展示/缓存许可及有效期、核实的 CNY 产品代码白名单、新 portfolioMarket 测试部署；Twelve Data 真实权限/配置和行情成功回执；实时 IOPV；国内行情 AI 归档许可及对应凭据代码；真实 AI 比较端到端；清理定时器及专项截图；完整真机矩阵。不能说只填 token 就全部完成。
+
+ 当前私有客户端 marketFunctionName 已补齐。供应商配置是否存在于云端尚未核实；本机环境未发现可用 TWELVE_DATA_API_KEY/TUSHARE_TOKEN，不读取/打印云端秘密。
+-
+-
+-## Phase 6/7 当前覆盖（2026-09-21）
+-
+-本条覆盖上方“Phase 6/7 NOT_STARTED”。P6-01/02/03/05 本轮项目回归通过；P6-04 本地隔离与服务端合成权限回归通过，真实双账号/云 ACL 仍未验收。P7-01/03/05/06 本地实现和交接完成；P7-02 开发者工具部分完成，真机按用户回复由用户自行预览验收；P7-04 外部发布条件未完成。详细证据、逐项 H/V/J/M/D/U 状态、回滚见 [PHASE67_HANDOFF.md](PHASE67_HANDOFF.md) 与 [ACCEPTANCE.md](ACCEPTANCE.md)。
+-
+-继续阻塞：Android/iOS 完整矩阵、系统键盘与前后台/断网、真机文件分享恢复；真实双账号权限、完整图片解码及专项视觉样本、云端 cron 删除；行情同日源逐项对照、展示/缓存/AI 归档许可；小程序后台域名/隐私/类目/备案、最低基础库。不得把可达公开接口或历史成功样本当成本轮全验收。进行中的恢复事务不可降级；更旧软件兼容未验证。没有可上线结论。
+-
+-本轮未生产发布、未部署云函数、未调用模型、未上传图片、未提交或推送 Git。按用户要求交付后停止。
+--- a/docs/implementation/chicang-slim/PHASE67_HANDOFF.md
++++ /dev/null
+@@ -1,43 +0,0 @@
+-# Phase 6 / 7 交接（2026-09-21）
+-
+-结论：本地实现与项目自动化已完成本轮修复，开发者工具部分实测通过；真机和服务发布条件未完成，不具备上线结论。没有生产发布、云函数部署、Git commit/push、模型生成或图片上传。用户明确选择自行预览、进行真机验收。
+-
+-## 改动与边界
+-
+-- 完整恢复原先顺序提交金融账本、手记根指针和自选，中断会混合新旧数据。新增 `restore-transaction.ts`，先在内存形成完整写集合，再逐值暂存和 SHA-256 校验，最后持久化提交决定。决定前故障保留旧完整数据；决定后读写必须先续完已确认的本地替换；没有联网重放。篡改/未知事务版本停止读写。
+-- 同一机制覆盖 v1–v7 完整恢复、新建空账本和恢复点回退；恢复点恢复对应自选，保留有意清空的列表。仍使用金融 v3、完整备份 v7，没有新金融迁移。
+-- 恢复预览补齐持仓校准数、导入回执、会话、来源和自选数；确认提示旧备份可能恢复已删除内容。移除设置页重复“关于”卡片；补齐通用窄屏换行和底部安全区。
+-- 生产页面原已无载入演示入口，本轮将检查扩展到全部页面的绑定事件；fixture/fake provider 仅隔离测试/开发注入。已有 demo 标识记录不删除、不改成真实记录。默认 30 个公开标的目录不是持仓或示例报价。
+-- 保留开始时全部未提交改动；本轮没有重置 Git、删除用户账本或动旧 Streamlit 项目。实际 UI 测试仅输入未保存的合成表单和非法备份；没有点击恢复、保存或删除真实数据。
+-
+-## 验证
+-
+-最终命令与日志见 [evidence/phase67](evidence/phase67)，逐用例见 [ACCEPTANCE.md](ACCEPTANCE.md)。小程序 232/232、网关 90/90、行情 6/6、领域 35/35、AI 上下文 28/28、API 174/174、Web 74/74；相关 TypeScript 检查、生产构建/包边界、public-safety 通过。主包 1,623,251 bytes，14 页。核心 hash 和云包 hash 见 build-identity.json；云包仅本地构建，不能据此推定云端版本一致。
+-
+-新增集成测试直接调用项目 service/repository，逐写点注入写前/写后错误、重启、损坏暂存、恢复点、自选、重复恢复、截图审核字段→分析→编辑手记→日历→删会话→恢复预览。AI 使用明确隔离的 fake provider；不代表真实识别或模型精度。v4/v5 补齐迁移 roundtrip；v1/v2/v3/v6/v7 沿用实际项目回归。MP0/MP1 手算基线成本 951.00、已实现 89.00 保持一致。
+-
+-## 开发者工具操作记录
+-
+-- 工程 `apps/miniprogram/dist`；Stable 2.02.2608070；实际基础库 3.17.2（源码最低配置 3.7.6 未实测）。编译后控制台 0 errors，存在 App.onLaunch 性能、资源 preload、自动热重载警告。
+-- 320px / iPhone 5 / 字体 26：持仓页标题、按钮和已有长名称可见；添加→手动表单可打开；输入合成长名称、滚动到底部，“检查”按钮完整可达。未保存。见 devtools-320-form.png、devtools-320-bottom.png。
+-- 375px / iPhone X / 字体 26：持仓页和底部安全区可见；设置页粘贴 version=99 合成备份→“检查备份”明确拒绝，不出现恢复预览。清除输入。见 devtools-375-invalid-backup.png。
+-- 430px / iPhone 14 Pro Max / 字体 26：持仓首页标题、按钮和长名称没有观察到横向裁切；切到美股看板成功显示报价，切到 ETF 出现加载态。曾在 UI 读取到 ETF 行情日与缺失 60 日分位；没有逐标的对照外部源，不等于价格真实性全验收。
+-- 工具数次报告用户同时改变界面，重新读取状态后继续；未以失败点击作为成功证据。三尺寸不是所有页面的完整矩阵，U01/U02 仍 PARTIAL。系统键盘、前后台/断网、Android/iOS 尚未验证。
+-- 截图只保存不含真实持仓内容的合成表单/错误态；真实账本页面截图没有保存到仓库。
+-
+-## 用户操作与管理员操作
+-
+-用户：在现有开发者工具对 dist 点“预览”，用 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 的 1–12 项记录设备/微信版本/构建 hash。先在可信位置导出当前完整备份；破坏性/恢复测试只用隔离测试工作区。真机结果目前全部待本轮确认。
+-
+-管理员：不把页面声明代替后台核验。核验合法域名、隐私保护指引、选图/文件接口、云存储和数据库 ACL、timer 实际清理、服务端身份和权限、公开行情展示/缓存/AI归档许可、平台类目/备案、最低基础库。部署和模型调用需要另行授权，本轮不执行。
+-
+-当前服务端环境变量名称从现有适配器复核：`EXPECTED_WEAPP_APPID`、`AI_ENABLED`、`DEEPSEEK_API_KEY`、`AI_VISION_ENABLED`、`AI_VISION_MODEL`；行情含 `MARKET_PROVIDER`、`MARKET_ENABLED`、`MARKET_ACCESS_MODE`、`MARKET_CONSENT_VERSION`、`RESEARCH_MARKET_ENABLED`、`CN_MARKET_PROVIDER`、`CN_MARKET_ENABLED`；选择 Twelve Data/Tushare 时分别使用 `TWELVE_DATA_API_KEY` / `TUSHARE_TOKEN` 及现有授权配置。实际完整名称以 cloud/*/index.js 为准，不复制凭证，不在客户端设置 Key。公开接口可达不等于拥有公开再分发许可。
+-
+-## 回滚
+-
+-1. 先在本版完成任何待恢复事务，导出并验证完整 v7 备份。若 `portfolio.wechat.restore.v1` 非空/损坏或设备仍空间不足，禁止降级：旧程序不识别新恢复屏障。不得手删 marker 或暂存键。
+-2. 本轮开始时源文件副本在 `/tmp/chicang-phase67-before-20260921`；本轮逆向差异保存在 evidence/phase67/rollback.patch。使用前 `git apply --check`，确认没有后续修改冲突后才应用，禁止 `git reset --hard`。它不撤销用户此前未提交改动，也不替换用户数据。
+-3. 恢复源文件后执行 `npm run check:weapp && npm run check:weapp-production`，重新在开发者工具编译；若失败继续留在本版和保留备份，不回退数据库。
+-4. 已把开始时旧 service 打包并读取本版完成恢复后的合成数据，完整导出 data 相等、成本 21.00、原文相等（rollback.log）。仅证明完成事务后回到本轮开始代码兼容；更老版本、进行中的事务和真机降级未验证。
+-
+-容量检查保守预留暂存及最终数据双份空间，接近微信配额时宁可拒绝恢复。旧备份可能包含已删内容；恢复是用户显式替换，不是自动合并。此次范围不包含清除所有历史孤立分区的取证级擦除。
+--- a/docs/miniprogram/README.md
++++ b/docs/miniprogram/README.md
+@@ -1,7 +1,3 @@
+-# 当前验收入口（2026-09-21）
+-
+-Phase 6/7 本轮状态、运行说明、回滚及阻塞见 [交接](../implementation/chicang-slim/PHASE67_HANDOFF.md)。下文历史游客/fake 验收不代表当前云端或真机状态；当前本地构建使用私有配置，未完成上线验收。
+-
+ # 微信小程序测试版
+
+ 项目主方向已于 2026-09-10 从独立 App 调整为微信小程序。当前 `0.2.0` 交付在 **W0 离线测试版** 基础上完成 MP0 / MP1 / J0，并完成 AI 新规划的 A0 / A1 本地能力（状态见 [ai-implementation-status.md](ai-implementation-status.md)）。它不依赖服务器、AppID、行情或真实模型。

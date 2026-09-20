@@ -1,6 +1,12 @@
+import type { ResearchSelection } from '@portfolio/market-data/research';
+import { researchSnapshotSchema } from '@portfolio/market-data/research';
+import type { z } from 'zod';
+import type { DomesticBoard } from '@portfolio/market-data/domestic';
 import type { BarsV1, CanonicalInstrument, MarketCapabilities, QuoteV1 } from '@portfolio/market-data';
 
 export interface MarketTransport {
+  researchSnapshot?(selection: ResearchSelection): Promise<z.infer<typeof researchSnapshotSchema>>;
+  domesticBoard?(segment: 'etf' | 'fund'): Promise<DomesticBoard>;
   capabilities(): Promise<MarketCapabilities>;
   search(query: string, limit: number): Promise<CanonicalInstrument[]>;
   quotes(instrumentKeys: string[]): Promise<QuoteV1[]>;

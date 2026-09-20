@@ -15,7 +15,7 @@ export const canonicalInstrumentSchema = z.strictObject({
 
 export const quoteV1Schema = z.strictObject({
   schema_version: z.literal(1), instrument_key: instrumentKeySchema, symbol: z.string().min(1).max(16), currency: z.literal('USD'),
-  price: positiveDecimal.nullable(), price_kind: z.enum(['last_trade', 'official_close', 'indicative']), previous_close: positiveDecimal.nullable(),
+  market_cap: positiveDecimal.nullable().optional(), price: positiveDecimal.nullable(), price_kind: z.enum(['last_trade', 'official_close', 'indicative']), previous_close: positiveDecimal.nullable(),
   previous_close_date: date.nullable(), change: decimal.nullable(), change_percent: decimal.nullable(), volume: z.string().regex(/^\d+$/).nullable(),
   volume_scope: z.enum(['consolidated', 'feed_only', 'unknown']), session: z.enum(['regular', 'pre', 'post', 'closed', 'unknown']),
   market_status: z.enum(['open', 'closed', 'halted', 'unknown']), trading_date: date.nullable(), exchange_timezone: z.literal('America/New_York'),
@@ -38,7 +38,7 @@ export const barV1Schema = z.strictObject({ trading_date: date, starts_at: times
 });
 export const barsV1Schema = z.strictObject({
   schema_version: z.literal(1), instrument_key: instrumentKeySchema, currency: z.literal('USD'), interval: z.literal('1day'), range: z.enum(['1M', '3M', '1Y']),
-  adjustment: z.literal('unadjusted'), provider: z.string().min(1).max(80), feed: z.string().min(1).max(80), coverage: z.enum(['consolidated', 'venue_subset', 'indicative', 'unknown']),
+  adjustment: z.enum(['unadjusted', 'split_adjusted', 'forward_adjusted']), provider: z.string().min(1).max(80), feed: z.string().min(1).max(80), coverage: z.enum(['consolidated', 'venue_subset', 'indicative', 'unknown']),
   timezone: z.literal('America/New_York'), as_of: timestamp.nullable(), received_at: timestamp, served_at: timestamp, status: z.enum(['available', 'unavailable']), reason: z.string().min(1).max(160).nullable(), bars: z.array(barV1Schema).max(400),
 }).superRefine((value, context) => {
   if (Date.parse(value.received_at) > Date.parse(value.served_at)) context.addIssue({ code: 'custom', path: ['served_at'], message: 'served_before_received' });

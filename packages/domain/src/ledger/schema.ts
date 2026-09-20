@@ -57,6 +57,7 @@ export const policySchema = z.discriminatedUnion("status", [
   z.strictObject({ portfolio_id: idSchema, status: z.literal("unknown") }),
   z.strictObject({ portfolio_id: idSchema, status: z.literal("confirmed"),
     id: idSchema, revision_id: idSchema, confirmed_at: timestampSchema, effective_from: dateSchema,
+    description: z.string().trim().min(1).max(2000).optional(),
     max_single_weight: weightSchema.nullable(), horizon: z.string().max(200).nullable(),
     targets: z.array(z.strictObject({ instrument_id: idSchema, weight: weightSchema })).max(100),
   }),

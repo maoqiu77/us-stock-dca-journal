@@ -80,3 +80,38 @@ test('deleting a note invalidates AI output derived from it and late responses c
   assert.throws(() => f.service.ai().runPreparedFake(prepared), /删除|迟到|隐私/);
   assert.equal(f.service.journal().read().messages.some(item => item.content === '正在生成'), false);
 });
+
+
+test('calendar cards merge turns by conversation and selected day without losing original messages', () => {
+  const f = fixture();
+  const first = f.service.ai().analyze({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-20', question: '第一轮问题' });
+  f.service.ai().followUp({ conversationId: first.conversation.id, journalDate: '2026-09-20', question: '当天追问' });
+  const second = f.service.ai().analyze({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-20', question: '另一段会话' });
+  f.service.journal().savePersonalNote('2026-09-20', '我的独立想法');
+  const oldCards = f.service.journal().conversationHistory('2026-09-20');
+  assert.equal(oldCards.length, 3);
+  const card = oldCards.find(item => item.conversationId === first.conversation.id)!;
+  assert.equal(card.turnCount, 2);
+  assert.equal(card.question, '第一轮问题');
+  assert.ok(card.messageId);
+  f.setTime('2026-09-20T16:00:01.000Z');
+  f.service.ai().followUp({ conversationId: first.conversation.id, journalDate: '2026-09-21', question: '次日追问' });
+  assert.deepEqual(f.service.journal().conversationHistory('2026-09-20'), oldCards);
+  const next = f.service.journal().conversationHistory('2026-09-21');
+  assert.equal(next.length, 1);
+  assert.equal(next[0].turnCount, 1);
+  assert.equal(f.service.journal().conversationHistory().length, 2);
+  assert.equal(f.service.ai().conversation(first.conversation.id).messages.length, 6);
+  f.service.journal().deleteConversation(second.conversation.id);
+  assert.equal(f.service.journal().conversationHistory('2026-09-20').length, 2);
+});
+
+test('a turn crossing midnight has one calendar entry on its completion date', () => {
+  const f = fixture();
+  const prepared = f.service.ai().prepare({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-20', question: '跨午夜分析' });
+  f.setTime('2026-09-20T16:00:02.000Z');
+  f.service.ai().runPreparedFake(prepared);
+  assert.deepEqual(f.service.journal().calendarMonth('2026-09').days, ['2026-09-21']);
+  assert.equal(f.service.journal().conversationHistory('2026-09-20').length, 0);
+  assert.equal(f.service.journal().conversationHistory('2026-09-21').length, 1);
+});

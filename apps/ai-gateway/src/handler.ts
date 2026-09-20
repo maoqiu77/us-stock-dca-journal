@@ -4,7 +4,7 @@ import type { RequestStore } from './request-store.ts';
 import type { MarketReceipt, MarketReceiptStore } from './market/receipt-store.ts';
 
 export type TrustedContext = { appId: string; openId: string; source: 'wechat-miniprogram' };
-export type GatewayConfig = { expectedAppId: string; enabled: boolean; consentVersion: 1; accessMode?: 'closed_beta' | 'public'; dailyLimit: number; globalDailyLimit?: number; maxInflight: number; maxInputBytes: number; maxOutputTokens: number; maxExpiryMs: number; providerConfigured: boolean };
+export type GatewayConfig = { expectedAppId: string; enabled: boolean; consentVersion: 1; accessMode?: 'closed_beta' | 'public'; dailyLimit: number; lifetimeLimit?: number; unlimitedPrincipalHashes?: string[]; globalDailyLimit?: number; maxInflight: number; maxInputBytes: number; maxOutputTokens: number; maxExpiryMs: number; providerConfigured: boolean };
 export type AccessPort = { allowed(owner: string): Promise<boolean>; status?(owner: string, mode: 'closed_beta' | 'public', version: number): Promise<{ enrolled: boolean; consented: boolean; allowed: boolean }>; accept?(owner: string, mode: 'closed_beta' | 'public', version: number, now: string): Promise<void> };
 type Deps = { config: GatewayConfig; store: RequestStore; providerResolver: ProviderResolver; access: AccessPort; receipts?: MarketReceiptStore; now(): string; id(): string };
 
@@ -18,11 +18,14 @@ export function createPortfolioAiHandler(deps: Deps) {
     const owner = context.openId, action = event?.action, accessMode = deps.config.accessMode ?? 'closed_beta';
     const access = deps.access.status ? await deps.access.status(owner, accessMode, deps.config.consentVersion) : { enrolled: await deps.access.allowed(owner), consented: await deps.access.allowed(owner), allowed: await deps.access.allowed(owner) };
     const authorized = access.allowed;
-    if (action === 'capabilities') { const usage = await deps.store.usage(owner, deps.now()); return ok({ schemaVersion: 1, enabled: deps.config.enabled, authorized, enrolled: access.enrolled, consented: access.consented, accessMode, principalHash: sha256(owner), providerConfigured: deps.providerResolver.configured(), credentialMode: 'sponsored', byokEnabled: deps.providerResolver.byokEnabled(), consentVersion: deps.config.consentVersion, usage: { date: usage.date, used: usage.used, inflight: usage.inflight, timezone: 'UTC' }, limits: { dailyRequests: deps.config.dailyLimit, globalDailyRequests: deps.config.globalDailyLimit ?? deps.config.dailyLimit, maxInflight: deps.config.maxInflight, maxInputBytes: deps.config.maxInputBytes, maxOutputTokens: deps.config.maxOutputTokens } }); }
+    const cumulative = deps.config.lifetimeLimit !== undefined;
+    const unlimited = (deps.config.unlimitedPrincipalHashes ?? []).includes(sha256(owner));
+    const lifetimeLimit = cumulative ? unlimited ? null : deps.config.lifetimeLimit : undefined;
+    if (action === 'capabilities') { const usage = await deps.store.usage(owner, deps.now(), cumulative); return ok({ schemaVersion: 1, enabled: deps.config.enabled, authorized, enrolled: access.enrolled, consented: access.consented, accessMode, principalHash: sha256(owner), providerConfigured: deps.providerResolver.configured(), credentialMode: 'sponsored', byokEnabled: deps.providerResolver.byokEnabled(), consentVersion: deps.config.consentVersion, usage: { date: usage.date, used: usage.used, inflight: usage.inflight, timezone: 'UTC', ...(cumulative && event?.capabilities_version === 2 ? { totalUsed: usage.totalUsed } : {}) }, limits: { dailyRequests: deps.config.dailyLimit, ...(event?.capabilities_version === 2 ? { unlimited } : {}), ...(cumulative && event?.capabilities_version === 2 ? { lifetimeRequests: lifetimeLimit } : {}), globalDailyRequests: deps.config.globalDailyLimit ?? deps.config.dailyLimit, maxInflight: deps.config.maxInflight, maxInputBytes: deps.config.maxInputBytes, maxOutputTokens: deps.config.maxOutputTokens } }); }
     if (action === 'consent') {
       if (event?.accepted !== true || event?.consent_version !== deps.config.consentVersion) return failure('CONSENT_REQUIRED', '需要确认当前云处理说明。');
       if (!deps.access.accept) return failure('CONSENT_UNAVAILABLE', '服务端尚未配置同意记录。');
-      try { await deps.access.accept(owner, accessMode, deps.config.consentVersion, deps.now()); return ok({ accepted: true, consentVersion: deps.config.consentVersion }); } catch { return failure('ACCESS_DENIED', accessMode === 'closed_beta' ? '当前账号尚未加入体验范围。' : '无法保存云处理同意。'); }
+      try { await deps.access.accept(owner, accessMode, deps.config.consentVersion, deps.now()); return ok({ accepted: true, consentVersion: deps.config.consentVersion }); } catch (error) { return error instanceof Error && error.message === 'ACCESS_DENIED' ? failure('ACCESS_DENIED', '当前账号尚未加入体验范围。') : failure('CONSENT_SAVE_FAILED', '云处理同意保存失败，请稍后重试。'); }
     }
     if (!authorized) return failure('ACCESS_DENIED', '当前用户未在开发许可名单中。');
     if (action === 'analyze') {
@@ -44,9 +47,10 @@ export function createPortfolioAiHandler(deps: Deps) {
         catch (error) { return failure(error instanceof Error && error.message === 'RECEIPT_EXPIRED' ? 'RECEIPT_EXPIRED' : 'RECEIPT_INVALID', '行情快照已过期，请重新预览。'); }
         if (!receipt || receipt.digest !== envelope.market.receipt_digest || receipt.purpose !== envelope.request.mode || receipt.acceptedRequestId && receipt.acceptedRequestId !== envelope.request.request_id) return failure('RECEIPT_INVALID', '行情凭据不匹配、已被其他请求使用，或不属于当前用户。');
       }
-      const token = deps.id(), claim = await deps.store.claim({ owner, envelope, now, dailyLimit: deps.config.dailyLimit, globalDailyLimit: deps.config.globalDailyLimit, maxInflight: deps.config.maxInflight, executionToken: token });
+      if (receipt?.research && (envelope.target.kind !== 'instrument' || receipt.research.selection.symbol !== envelope.target.instrument.symbol || receipt.research.selection.market !== envelope.target.instrument.market)) return failure('RECEIPT_INVALID', '行情快照与研究标的不匹配。');
+      const token = deps.id(), claim = await deps.store.claim({ owner, envelope, now, dailyLimit: deps.config.dailyLimit, unlimited, ...(cumulative ? { lifetimeLimit } : {}), globalDailyLimit: deps.config.globalDailyLimit, maxInflight: deps.config.maxInflight, executionToken: token });
       if (claim.kind === 'conflict') return failure('IDEMPOTENCY_CONFLICT', '同一请求身份对应了不同内容。');
-      if (claim.kind === 'quota') return failure('DAILY_LIMIT', '已达当日真实生成上限。');
+      if (claim.kind === 'quota') return failure(cumulative ? 'FREE_QUOTA_EXHAUSTED' : 'DAILY_LIMIT', cumulative ? '累计免费 AI 对话额度已用完。' : '已达当日真实生成上限。');
       if (claim.kind === 'global_quota') return failure('SERVICE_BUDGET_EXHAUSTED', '今日平台 AI 预算已用完，请稍后再试。');
       if (claim.kind === 'inflight') return failure('INFLIGHT_LIMIT', '已有一个生成任务在进行。');
       if (claim.kind === 'existing') return ok({ requestId: claim.record.requestId, status: claim.record.state === 'acked' ? 'succeeded' : claim.record.state, responseDigest: claim.record.responseDigest ?? claim.record.response?.response_digest, errorCode: claim.record.errorCode });
@@ -56,6 +60,12 @@ export function createPortfolioAiHandler(deps: Deps) {
           const content = JSON.stringify(quote);
           return { id: deps.id(), origin_entity_id: receipt!.id, origin_revision: receipt!.id, type: 'quote' as const, as_of: quote.as_of!, available_at: quote.received_at, content_digest: sha256(content), content };
         }) : [];
+        if (receipt?.research) for (const series of receipt.research.series) {
+          for (let offset=0; offset<Math.max(1,series.bars.length); offset+=60) {
+          const content = JSON.stringify({...series,bars:series.bars.slice(offset,offset+60)});
+          externalSources.push({ id:deps.id(),origin_entity_id:receipt.id,origin_revision:receipt.id,type:'quote',as_of:series.bars.at(-1)?.time??series.fetchedAt,available_at:series.fetchedAt,content_digest:sha256(content),content });
+          }
+        }
         const providerEnvelope = externalSources.length ? { ...envelope, source_snapshots: [...envelope.source_snapshots, ...externalSources] } : envelope;
         const resolved = await deps.providerResolver.resolve(owner, event.credential_mode === 'byok' ? 'byok' : 'sponsored');
         const value = await resolved.provider.invoke(providerEnvelope, token);

@@ -1,0 +1,24 @@
+{
+  "commit": "6588ccf5f5f3035d0414e88313b4196f491263ea",
+  "workingTreeDirty": true,
+  "profile": "production",
+  "mainPackageBytes": 1623251,
+  "coreSha256": "c8b402dd7f4751107e233af8b90e2727a397751f7666ea67b632ae75011de30e",
+  "cloudFunctions": {
+    "portfolioAi": {
+      "sha256": "889e25d7d4f1537b5ffbf43c0b58a9d1da63e2c04f9c0a74bc4ec48b8ca2eaff",
+      "bytes": 494572,
+      "files": 4
+    },
+    "portfolioAiCleanup": {
+      "sha256": "1782fb7562b1b241b9e5bd3a07cffc613e5116b8514424021eda3e1a8281de7c",
+      "bytes": 495618,
+      "files": 4
+    },
+    "portfolioMarket": {
+      "sha256": "85436a243ae1b619326bbf147ac7def4eff3f6bc06cdfe3b267a867c6ec248e8",
+      "bytes": 455952,
+      "files": 4
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import { researchSelectionSchema, researchSeriesSchema, type ResearchSelection, type ResearchSeries } from '@portfolio/market-data/research';
 import { createHash } from 'node:crypto';
 import { payloadDigest } from '@portfolio/ai-context';
 import { quoteV1Schema, type QuoteV1 } from '@portfolio/market-data';
@@ -5,6 +6,7 @@ import { quoteV1Schema, type QuoteV1 } from '@portfolio/market-data';
 export type MarketReceipt = {
   owner: string; id: string; digest: string; purpose: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up';
   instrumentKeys: string[]; quotes: QuoteV1[]; provider: string; feed: string; entitlementVersion: string; createdAt: string; expiresAt: string;
+  research?: { selection: ResearchSelection; series: ResearchSeries[] };
   acceptedRequestId?: string; requestDocumentId?: string; retainedUntil?: string;
 };
 export type CreateMarketReceipt = Omit<MarketReceipt, 'digest' | 'acceptedRequestId' | 'retainedUntil'>;
@@ -16,8 +18,9 @@ export interface MarketReceiptStore {
   remove(owner: string, id: string): Promise<void>;
 }
 function seal(input: CreateMarketReceipt) {
-  const body = { id: input.id, purpose: input.purpose, instrument_keys: [...input.instrumentKeys].sort(), quotes: input.quotes.map(item => quoteV1Schema.parse(item)), provider: input.provider, feed: input.feed, entitlement_version: input.entitlementVersion, created_at: input.createdAt, expires_at: input.expiresAt };
-  return { ...input, instrumentKeys: body.instrument_keys, quotes: body.quotes, digest: payloadDigest(body) } satisfies MarketReceipt;
+  const research = input.research ? { selection: researchSelectionSchema.parse(input.research.selection), series: input.research.series.map(item => researchSeriesSchema.parse(item)) } : undefined;
+  const body = { ...(research ? { research } : {}), id: input.id, purpose: input.purpose, instrument_keys: [...input.instrumentKeys].sort(), quotes: input.quotes.map(item => quoteV1Schema.parse(item)), provider: input.provider, feed: input.feed, entitlement_version: input.entitlementVersion, created_at: input.createdAt, expires_at: input.expiresAt };
+  return { ...input, ...(research ? { research } : {}), instrumentKeys: body.instrument_keys, quotes: body.quotes, digest: payloadDigest(body) } satisfies MarketReceipt;
 }
 export function createMemoryMarketReceiptStore(): MarketReceiptStore {
   const rows = new Map<string, MarketReceipt>(), key = (owner: string, id: string) => `${owner}:${id}`;
@@ -38,7 +41,7 @@ export function createCloudbaseMarketReceiptStore(db: Db): MarketReceiptStore {
   const document = (owner: string, id: string) => db.collection('market_receipts_private').doc(docId(owner, id));
   return {
     async create(input) { const value = seal(input); await document(input.owner, input.id).set({ data: value }); return value; },
-    async get(owner, id) { const value = await one(document(owner, id)); return value?.owner === owner ? value as MarketReceipt : undefined; },
+    async get(owner, id) { const value = await one(document(owner, id)); if(value?.owner !== owner)return undefined; const { _id, ...receipt } = value; return receipt as MarketReceipt; },
     async resolve(owner, id, now) { const value = await this.get(owner, id); if (!value) return undefined; if (Date.parse(now) >= Date.parse(value.expiresAt) && !value.acceptedRequestId) throw Error('RECEIPT_EXPIRED'); return value; },
     async bind(owner, id, digest, requestId, retainedUntil) { const value = await this.get(owner, id); if (!value || value.digest !== digest) throw Error('RECEIPT_NOT_FOUND'); if (value.acceptedRequestId && value.acceptedRequestId !== requestId) throw Error('RECEIPT_ALREADY_USED'); const next = { ...value, acceptedRequestId: requestId, requestDocumentId: createHash('sha256').update(`${owner}:${requestId}`).digest('hex'), retainedUntil }; await document(owner, id).set({ data: next }); return next; },
     async remove(owner, id) { await document(owner, id).remove(); },

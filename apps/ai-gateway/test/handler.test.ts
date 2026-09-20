@@ -11,7 +11,7 @@ function envelope(requestId = id(1), turnId = id(5), question = '分析') {
   return sealResearchTurnV1({ transport_version: 1, request: { schema_version: 2, request_id: requestId, workspace_instance_id: id(2), portfolio_id: id(3), conversation_id: id(4), client_turn_id: turnId, mode: 'portfolio_review', journal_date: '2026-09-12', personal_snapshot_at: '2026-09-12T10:00:00.000Z', question, facts: [{ id: id(6), name: '持仓', value: '无', source_ids: [source.id], freshness: 'current', completeness: 'partial' }], excerpts: [], excluded_source_ids: [] }, target: { kind: 'portfolio', portfolio_id: id(3) }, history: [], history_omitted_count: 0, source_snapshots: [source], consent: { scope_version: 1, confirmed_at: '2026-09-12T10:00:00.000Z', include_positions: true, include_journal: false, include_trade_reasons: false, include_policy: false, include_history: false }, prepared_at: '2026-09-12T10:00:00.000Z', expires_at: '2026-09-12T10:10:00.000Z' });
 }
 function provider(counter: { value: number }, fail = false): ModelProvider { return { async invoke(e) { counter.value++; if (fail) throw Error('UPSTREAM_TIMEOUT'); const source = e.source_snapshots[0].id; return { providerId: 'test-provider', protocol: 'injected-test-v1', model: 'synthetic-model', credentialMode: 'sponsored', inputUnits: 10, outputUnits: 5, result: { schema_version: 2, request_id: e.request.request_id, classification: 'ai_generated', mode: e.request.mode, summary: '合成结果', stance: 'insufficient_data', evidence: [{ statement: '仅有账本', source_ids: [source] }], counterarguments: [], conditions: [], missing_information: ['报价'], candidates: [], next_questions: [] } }; } }; }
-function fixture(options: { limit?: number; fail?: boolean } = {}) { const calls = { value: 0 }; let ids = 100; const store = createMemoryRequestStore(), model = provider(calls, options.fail); const providerResolver = { configured: () => true, byokEnabled: () => false, resolve: async () => ({ provider: model, credentialMode: 'sponsored' as const, selection: { provider: 'deepseek' as const, protocol: 'openai-compatible-chat-completions' as const, baseUrl: 'https://api.deepseek.com' as const, model: 'deepseek-flash' as const } }) }; const handler = createPortfolioAiHandler({ config: { expectedAppId: 'wx-test', enabled: true, consentVersion: 1, dailyLimit: options.limit ?? 10, maxInflight: 1, maxInputBytes: 200000, maxOutputTokens: 1500, maxExpiryMs: 600000, providerConfigured: true }, store, providerResolver, access: { allowed: async owner => owner === 'owner-a' }, now: () => '2026-09-12T10:01:00.000Z', id: () => id(++ids) }); return { handler, calls, store }; }
+function fixture(options: { limit?: number; fail?: boolean; lifetimeLimit?: number; unlimited?: string[] } = {}) { const calls = { value: 0 }; let ids = 100; const store = createMemoryRequestStore(), model = provider(calls, options.fail); const providerResolver = { configured: () => true, byokEnabled: () => false, resolve: async () => ({ provider: model, credentialMode: 'sponsored' as const, selection: { provider: 'deepseek' as const, protocol: 'openai-compatible-chat-completions' as const, baseUrl: 'https://api.deepseek.com' as const, model: 'deepseek-flash' as const } }) }; const handler = createPortfolioAiHandler({ config: { expectedAppId: 'wx-test', enabled: true, consentVersion: 1, dailyLimit: options.limit ?? 10, lifetimeLimit: options.lifetimeLimit, unlimitedPrincipalHashes: options.unlimited, maxInflight: 1, maxInputBytes: 200000, maxOutputTokens: 1500, maxExpiryMs: 600000, providerConfigured: true }, store, providerResolver, access: { allowed: async owner => owner === 'owner-a' }, now: () => '2026-09-12T10:01:00.000Z', id: () => id(++ids) }); return { handler, calls, store }; }
 const context = { appId: 'wx-test', openId: 'owner-a', source: 'wechat-miniprogram' as const };
 
 test('capabilities exposes only a hashed trusted principal for allow-list setup', async () => {
@@ -93,4 +93,47 @@ test('ACK makes result unavailable and retains the digest for safe repeat acknow
   assert.equal((status as any).data.responseDigest, responseDigest);
   assert.equal((await f.handler({ action: 'ack', ...identity }, context)).ok, true);
   assert.equal(f.calls.value, 1);
+});
+
+
+test('20 cumulative turns, idempotent retries and trusted owner exemption', async () => {
+  const f = fixture({ lifetimeLimit: 20 });
+  for (let n = 0; n < 20; n++) assert.equal((await f.handler({ action: 'analyze', envelope: envelope(id(1000+n), id(2000+n)) }, context)).ok, true);
+  const retry = await f.handler({ action: 'analyze', envelope: envelope(id(1000), id(2000)) }, context);
+  assert.equal(retry.ok, true);
+  const denied = await f.handler({ action: 'analyze', unlimited: true, principalHash: 'fake', envelope: envelope(id(3000), id(4000)) }, context);
+  assert.equal(denied.ok, false);
+  if (!denied.ok) assert.equal(denied.error.code, 'FREE_QUOTA_EXHAUSTED');
+  assert.equal(f.calls.value, 20);
+  const caps = await f.handler({ action: 'capabilities', capabilities_version: 2 }, context);
+  assert.equal((caps as any).data.usage.totalUsed, 20);
+  assert.equal((caps as any).data.limits.lifetimeRequests, 20);
+  const legacy = await f.handler({ action: 'capabilities' }, context);
+  assert.equal('lifetimeRequests' in (legacy as any).data.limits, false);
+  const owner = fixture({ lifetimeLimit: 1, unlimited: [sha256(context.openId)] });
+  for (let n = 0; n < 3; n++) assert.equal((await owner.handler({ action: 'analyze', envelope: envelope(id(5000+n), id(6000+n)) }, context)).ok, true);
+  assert.equal((await owner.handler({ action: 'capabilities', capabilities_version: 2 }, context) as any).data.limits.lifetimeRequests, null);
+});
+
+test('cumulative quota survives a UTC date change and separate workspace identity', async () => {
+  const store = createMemoryRequestStore();
+  const first = await store.claim({ owner: 'a', envelope: envelope(), now: '2026-09-20T23:59:00Z', dailyLimit: 10, lifetimeLimit: 1, maxInflight: 10, executionToken: 'one' });
+  assert.equal(first.kind, 'claimed');
+  const second = await store.claim({ owner: 'a', envelope: envelope(id(41), id(42)), now: '2026-09-21T00:01:00Z', dailyLimit: 10, lifetimeLimit: 1, maxInflight: 10, executionToken: 'two' });
+  assert.equal(second.kind, 'quota');
+  assert.equal((await store.usage('a', '2026-09-21T00:01:00Z', true)).totalUsed, 1);
+});
+
+test('daily ten request limit supports a trusted unlimited account without lifetime counters', async () => {
+  const regular = fixture({ limit: 10 });
+  for (let n = 0; n < 10; n++) assert.equal((await regular.handler({ action: 'analyze', envelope: envelope(id(7100+n), id(7200+n)) }, context)).ok, true);
+  const denied = await regular.handler({ action: 'analyze', unlimited: true, envelope: envelope(id(7300), id(7400)) }, context);
+  assert.equal(denied.ok, false);
+  if (!denied.ok) assert.equal(denied.error.code, 'DAILY_LIMIT');
+  const own = fixture({ limit: 1, unlimited: [sha256(context.openId)] });
+  for (let n = 0; n < 3; n++) assert.equal((await own.handler({ action: 'analyze', envelope: envelope(id(7500+n), id(7600+n)) }, context)).ok, true);
+  const caps = (await own.handler({ action: 'capabilities', capabilities_version: 2 }, context) as any).data;
+  assert.equal(caps.limits.unlimited, true);
+  assert.equal(caps.limits.lifetimeRequests, undefined);
+  assert.equal((await own.store.usage(context.openId, '2026-09-13T10:00:00Z')).used, 0);
 });

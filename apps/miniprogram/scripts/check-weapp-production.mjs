@@ -1,9 +1,12 @@
+import ts from 'typescript';
+import { componentGraph } from './component-graph.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { join, relative, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const dist = join(root, 'dist');
+await componentGraph(join(dist, 'miniprogram'));
 const manifest = JSON.parse(await readFile(join(dist, 'release-manifest.json'), 'utf8'));
 if (manifest.schemaVersion !== 2) throw Error('release_manifest_v2_required');
 if (manifest.profile !== 'production') throw Error('production_profile_required');
@@ -52,7 +55,19 @@ if (JSON.stringify(manifest.subpackages.map(item => item.root)) !== JSON.stringi
 for (const route of app.pages) {
   const base = join(dist, 'miniprogram', route); for (const extension of ['js', 'json', 'wxml', 'wxss']) await stat(`${base}.${extension}`);
   const source = await readFile(`${base}.js`, 'utf8'), template = await readFile(`${base}.wxml`, 'utf8');
-  const handlers = new Set([...source.matchAll(/^\s{2}(?:async\s+)?([A-Za-z]\w*)\s*\(/gm)].map(match => match[1]));
+  if (/(?:bind|catch)(?::)?\w+="(?:loadDemo|runFake|runDemo)"|体验示例|运行离线演示/.test(template)) throw Error(`production_demo_entry_found:${route}`);
+  const handlers = new Set();
+  const tree = ts.createSourceFile(`${route}.js`, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'Page') {
+      const definition = node.arguments[0];
+      if (definition && ts.isObjectLiteralExpression(definition)) for (const member of definition.properties) {
+        if (ts.isMethodDeclaration(member) || ts.isPropertyAssignment(member) && (ts.isFunctionExpression(member.initializer) || ts.isArrowFunction(member.initializer))) handlers.add(member.name.getText(tree).replace(/^["']|["']$/g, ''));
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(tree);
   for (const match of template.matchAll(/(?:bind|catch)(?::)?\w+="([A-Za-z]\w*)"/g)) if (!handlers.has(match[1])) throw Error(`missing_page_handler: ${route}:${match[1]}`);
 }
 const overview = await readFile(join(dist, 'miniprogram/pages/overview/index.wxml'), 'utf8');

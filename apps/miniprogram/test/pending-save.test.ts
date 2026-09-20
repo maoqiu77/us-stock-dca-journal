@@ -53,14 +53,15 @@ test('opening and correction unknown writes reconcile without duplicate revision
   f.fault(''); assert.equal(f.service.verifyPending(), 'confirmed');
   assert.equal(f.service.records().length, 2); assert.equal(f.service.revisionHistory(row.id).length, 2);
 });
-test('replacement unknown invalidates previews immediately and preserves original recovery on restart', () => {
+test('replacement unknown restarts the approved complete transaction and preserves original recovery', () => {
   const f = fixture(); f.service.saveTrade(input); const original = f.values.get(STORAGE_KEY), generation = f.service.generation();
-  f.fault('read'); assert.throws(() => f.service.startEmpty(), { code: 'SAVE_UNKNOWN' });
+  f.fault('read'); assert.throws(() => f.service.startEmpty());
   assert.ok(f.service.generation() > generation); f.fault('');
   const reopened = createService(f.storage, f.runtime);
-  assert.throws(() => reopened.startEmpty(), { code: 'SAVE_PENDING' });
-  assert.equal(reopened.verifyPending(), 'confirmed');
-  assert.equal(f.values.get(RECOVERY_KEY), original); assert.equal(reopened.records().length, 0);
+  assert.equal(reopened.records().length, 0);
+  assert.equal(f.values.get(RECOVERY_KEY), original);
+  assert.equal(reopened.verifyPending(), 'none');
+  reopened.recoverPrevious(); assert.equal(reopened.records().length, 1);
 });
 
 test('durable journal does not halve the existing 800 KiB ledger capacity', async () => {

@@ -1,1 +1,5 @@
 /* Shared visual tokens are defined in app.wxss. */
+
+.plan-input{box-sizing:border-box;width:100%;min-height:240rpx;padding:24rpx;background:#f4f6f2;border:1rpx solid #dce5df;border-radius:12rpx;margin-bottom:20rpx;line-height:1.7}
+
+button.delete-local { width: 100%; padding: 0 16rpx; white-space: nowrap; font-size: 28rpx; color: #a14939; margin-top: 24rpx; }

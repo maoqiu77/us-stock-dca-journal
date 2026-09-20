@@ -15,3 +15,6 @@
 .holding-values > view { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .holding-values .muted { font-size: 23rpx; margin-bottom: 6rpx; }
 .snapshot-tag { font-size: 21rpx; }
+
+.page-header-actions button.settings-entry { border: 2rpx solid #7b9987; background: #f4f6f2; color: #28533e; min-width: 128rpx; }
+.page-header-actions.compact button { width: auto; box-sizing: border-box; white-space: nowrap; }

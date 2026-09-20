@@ -1,9 +1,32 @@
-.task-grid { display: grid; gap: 16rpx; margin-bottom: 24rpx; }
+.task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16rpx; margin-bottom: 24rpx; }
 .quick-actions { display: flex; gap: 16rpx; margin-bottom: 24rpx; }
 .quick-actions button { flex: 1; }
-.calendar { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 24rpx 0; }
-button.day { width: 72rpx; min-width: 72rpx; padding: 0; line-height: 64rpx; background: #edf3ec; color: #32634a; }
+.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10rpx; margin: 18rpx 0; }
+button.day { width: 100%; min-width: 0; padding: 0; line-height: 64rpx; background: #edf3ec; color: #32634a; }
 button.day.marked { box-shadow: 0 -6rpx 0 #d6a655 inset; }
 button.day.selected { background: #216b50; color: white; }
 .history-item { border-top: 1rpx solid #edf0ea; padding: 22rpx 0; }
 button.danger { color: #a14939; }
+
+.market-tabs,.periods,.instrument-picks,.analysis-selections{display:flex;flex-wrap:wrap;gap:14rpx;margin:22rpx 0}.market-tabs button{flex:1;margin:0;font-size:28rpx}.periods button{font-size:25rpx;padding:0 22rpx;margin:0}.research-search{background:#f4f6f2;padding:22rpx;border-radius:12rpx;margin:20rpx 0}.instrument-picks .pick{padding:16rpx 20rpx;text-align:left;font-size:25rpx;line-height:1.5;margin:0;background:white;border:1rpx solid #e1e7e2}.instrument-picks .chosen{background:#e7f1e9;border-color:#17674d}.parameter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20rpx}.parameter-grid input{min-width:0}.analysis-actions{display:flex;flex-direction:column;gap:16rpx;margin:24rpx 0}.analysis-actions button{width:100%;margin:0}.plan-preview,.series-row{padding:18rpx 0;overflow-wrap:anywhere}.plan-preview .note{white-space:pre-wrap}.analysis-selections label{display:flex;align-items:center}
+
+.instrument-picks{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.instrument-picks .pick{width:100%;min-width:0;box-sizing:border-box}
+
+.period-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24rpx;margin:20rpx 0}.period-columns>view{min-width:0}.period-columns>view+view{border-left:1rpx solid #e1e7e2;padding-left:24rpx}.period-columns .periods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12rpx}.period-columns .periods button{min-width:0;width:100%;padding:0;font-size:24rpx}
+
+.view-tabs { display: flex; gap: 12rpx; margin: 24rpx 0; }
+.view-tabs button { flex: 1; }
+.record-actions { margin-bottom: 20rpx; }
+.weekdays { text-align: center; color: #77847b; font-size: 24rpx; }
+button.day.today { outline: 2rpx solid #216b50; outline-offset: -2rpx; }
+.summary-clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
+.history-title { font-weight: 600; font-size: 29rpx; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.history-footer { margin-top: 20rpx; }
+.link-label { color: #216b50; font-size: 24rpx; }
+
+.calendar-nav button { width: 90rpx; flex: none; padding: 0; }
+.month-title { white-space: nowrap; font-size: 30rpx; }
+.calendar-selection .section { font-size: 25rpx; white-space: nowrap; margin: 24rpx 0; }
+.calendar-selection button { flex: none; width: auto; }
+
+.task-grid button { width: 100%; min-width: 0; padding: 0 8rpx; white-space: nowrap; font-size: 27rpx; }

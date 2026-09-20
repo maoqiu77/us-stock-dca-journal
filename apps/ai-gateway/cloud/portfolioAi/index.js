@@ -1,3 +1,5 @@
+// Support existing CloudBase Node 16 runtimes.
+if (typeof globalThis.fetch !== 'function') globalThis.fetch = require('undici').fetch;
 const cloud = require('wx-server-sdk');
 const crypto = require('node:crypto');
 const gateway = require('./gateway.cjs');
@@ -16,7 +18,7 @@ const providerResolver = gateway.createProviderResolver({
   byokEnabled: process.env.AI_BYOK_ENABLED === 'true',
 });
 const handler = gateway.createPortfolioAiHandler({
-  config: { expectedAppId: process.env.EXPECTED_WEAPP_APPID || '', enabled: process.env.AI_ENABLED === 'true', consentVersion: 1, accessMode, dailyLimit: number('AI_DAILY_REQUEST_LIMIT', 10), globalDailyLimit: number('AI_GLOBAL_DAILY_REQUEST_LIMIT', 1000), maxInflight: number('AI_MAX_INFLIGHT_PER_USER', 1), maxInputBytes: number('AI_MAX_INPUT_BYTES', 200000), maxOutputTokens: number('AI_MAX_OUTPUT_TOKENS', 1500), maxExpiryMs: number('AI_MAX_PREPARE_WINDOW_MS', 600000), providerConfigured: providerResolver.configured() },
+  config: { expectedAppId: process.env.EXPECTED_WEAPP_APPID || '', enabled: process.env.AI_ENABLED === 'true', consentVersion: 1, accessMode, unlimitedPrincipalHashes: (process.env.AI_UNLIMITED_PRINCIPAL_HASHES || '').split(',').map(value => value.trim()).filter(value => /^[a-f0-9]{64}$/.test(value)), dailyLimit: number('AI_DAILY_REQUEST_LIMIT', 10), globalDailyLimit: number('AI_GLOBAL_DAILY_REQUEST_LIMIT', 1000), maxInflight: number('AI_MAX_INFLIGHT_PER_USER', 1), maxInputBytes: number('AI_MAX_INPUT_BYTES', 200000), maxOutputTokens: number('AI_MAX_OUTPUT_TOKENS', 1500), maxExpiryMs: number('AI_MAX_PREPARE_WINDOW_MS', 600000), providerConfigured: providerResolver.configured() },
   store: gateway.createCloudbaseRequestStore(db), receipts: gateway.createCloudbaseMarketReceiptStore(db), providerResolver, access: gateway.createCloudbaseAccess(db), now: () => new Date().toISOString(), id: () => crypto.randomUUID(),
 });
 const visionEnabled = process.env.AI_VISION_ENABLED === 'true';

@@ -1,3 +1,4 @@
+import { domesticInstrumentSchema, type DomesticInstrument } from '@portfolio/market-data/domestic';
 import {
   analysisRequestV2Schema, finalManifestV2Schema, instrumentCatalogEntrySchema, sealResearchTurnV1, sealResearchTurnV2, sha256,
   validateAnalysisResultV2, type AnalysisRequestV2, type ResearchTurnEnvelopeV1, type ResearchTurnEnvelopeV2, type ResearchTurnResponseV1, type ResearchTurnResponseV2,
@@ -9,8 +10,8 @@ import type { FakeAiProvider, FakeScenario } from './fake-provider.ts';
 
 type Origin = 'portfolio' | 'instrument' | 'daily_review';
 type Mode = AnalysisRequestV2['mode'];
-type Selection = { includeJournal?: boolean; includeTradeReasons?: boolean; includePolicy?: boolean; includeHistory?: boolean; excludedJournalIds?: string[] };
-type PreviewInput = Selection & { mode: Mode; journalDate: string; question: string; anchorId?: string | null; instrument?: ReturnType<typeof instrumentCatalogEntrySchema.parse> };
+type Selection = { includePositions?: boolean; includeJournal?: boolean; includeTradeReasons?: boolean; includePolicy?: boolean; includeHistory?: boolean; excludedJournalIds?: string[] };
+type PreviewInput = Selection & { mode: Mode; journalDate: string; question: string; anchorId?: string | null; holdingId?: string; domesticInstrument?: DomesticInstrument; instrument?: ReturnType<typeof instrumentCatalogEntrySchema.parse> };
 type MarketPreview = { receipt_id: string; receipt_digest: string; expires_at: string; quotes: Array<{ instrument_key: string; symbol: string; price: string | null; as_of: string | null; timeliness: string; delay_seconds: number | null; status: string; reason: string | null; attribution: string }> };
 type AnalyzeInput = PreviewInput & { origin: Origin; scenario?: FakeScenario; conversationId?: string };
 type WorkspacePort = {
@@ -41,25 +42,43 @@ export function createAiEngine(workspace: WorkspacePort, financial: FinancialPor
     const facts: Array<{ id: string; name: string; value: string; source_ids: string[]; freshness: 'current'; completeness: 'partial' | 'complete' }> = [];
     const symbol = selectedTarget.kind === 'instrument' ? selectedTarget.instrument.symbol : null;
     const instrumentRef = selectedTarget.kind === 'instrument' ? selectedTarget.instrument.instrument_ref : null;
-    const positions = symbol ? portfolioPositions.filter((item: any) => item.symbol === symbol || item.id === instrumentRef) : portfolioPositions;
+    const domesticInstrument = input.domesticInstrument ? domesticInstrumentSchema.parse(input.domesticInstrument) : null;
+    const holding = input.holdingId ? portfolioPositions.find((item: any) => item.id === input.holdingId) : null;
+    if (input.holdingId && !holding) throw Error('当前工作区已不存在这项持仓。');
+    const relevantSymbols = domesticInstrument ? [domesticInstrument.symbol] : holding ? [holding.symbol] : symbol ? [symbol] : [];
+    const allPositions = holding ? [holding] : relevantSymbols.length ? portfolioPositions.filter((item: any) => relevantSymbols.includes(item.symbol) && item.market === (domesticInstrument ? 'CN' : input.instrument?.market ?? 'US') && (!domesticInstrument || item.currency === 'CNY')) : portfolioPositions;
+    const positions = (symbol ? allPositions.filter((item: any) => item.symbol === symbol || item.id === instrumentRef) : allPositions).slice(0, 20);
+
+    if (input.includePositions ?? true) {
     const ledgerContent = JSON.stringify({ portfolio_id: snapshot.portfolio.id, through_date: overview.throughDate, target_symbol: symbol, positions: positions.map((item: any) => ({ instrument_id: item.id, symbol: item.symbol, currency: item.currency ?? 'USD', quantity: item.quantity, remaining_cost: item.cost, realized_pnl: item.realized })), cash_state: snapshot.portfolio.cash_state, history_complete: snapshot.portfolio.history_complete });
     const ledgerRevision = sha256(JSON.stringify({ device_id: snapshot.device_id, events: snapshot.events.map(item => item.revision_id) }));
     const ledger = snapshotSource(snapshot.portfolio.id, ledgerRevision, 'ledger', ledgerContent, overview.knownAt); sources.push(ledger);
     const positionText = symbol && !positions.length ? `当前未持有 ${symbol}` : positions.length ? positions.map((item: any) => `${item.symbol} ${item.quantity} 股，剩余成本 ${item.cost ?? '未知'} ${item.currency ?? 'USD'}`).join('；') : '当前无持仓';
-    facts.push({ id: runtime.id(), name: symbol ? '目标标的持仓状态' : '当前账本持仓', value: positionText, source_ids: [ledger.id], freshness: 'current', completeness: snapshot.portfolio.history_complete ? 'complete' : 'partial' });
+    facts.push({ id: runtime.id(), name: symbol ? '目标标的持仓状态' : '当前账本持仓', value: positionText.slice(0, 2000), source_ids: [ledger.id], freshness: 'current', completeness: snapshot.portfolio.history_complete ? 'complete' : 'partial' });
+    }
     const headParents = new Set(state.journal.map(item => item.parent_revision).filter(Boolean));
-    const notes = (input.includeJournal ?? true) ? state.journal.filter(item => !headParents.has(item.revision_id) && item.type === 'personal_note' && item.journal_date === input.journalDate && !excluded.has(item.id)) : [];
-    const reasons = (input.includeTradeReasons ?? true) ? financial.records().filter(record => record.note && (!symbol || record.symbol === symbol)).map(record => ({ id: record.id, revision: record.revisionId, text: record.note, at: record.recordedAt })) : [];
-    const excerpts = [...notes.map(item => ({ id: item.id, revision: item.revision_id, text: item.body!, at: item.updated_at })), ...reasons].slice(0, 20).map(item => { const source = snapshotSource(item.id, item.revision, 'journal', item.text, item.at); sources.push(source); return { id: runtime.id(), text: item.text, source_id: source.id, classification: 'user_original' as const }; });
-    const missingInformation: string[] = [];
-    if (snapshot.portfolio.cash_state === 'unknown') missingInformation.push('现金余额');
+    const notes = (input.includeJournal ?? true) ? state.journal.filter(item => !headParents.has(item.revision_id) && item.type === 'personal_note' && (input.mode === 'daily_review' ? item.journal_date === input.journalDate : !relevantSymbols.length || relevantSymbols.some(value => item.body?.toUpperCase().includes(value))) && !excluded.has(item.id)) : [];
+    const reasons = (input.includeTradeReasons ?? true) ? financial.records().filter(record => record.note && (!relevantSymbols.length || relevantSymbols.includes(record.symbol)) && !excluded.has(record.id)).map(record => ({ id: record.id, revision: record.revisionId, text: record.note, at: record.recordedAt })) : [];
+    const excerpts = [...notes.map(item => ({ id: item.id, revision: item.revision_id, text: item.body!, at: item.updated_at })), ...reasons].sort((a, b) => b.at.localeCompare(a.at)).filter(item => item.text.length <= 8000).slice(0, 8).map(item => { const source = snapshotSource(item.id, item.revision, 'journal', item.text, item.at); sources.push(source); return { id: runtime.id(), text: item.text, source_id: source.id, classification: 'user_original' as const }; });
+    const missingInformation: string[] = ['其他账户与未来计划未知', '未接入财务筛选数据，不构成全市场筛选'];
+    if (allPositions.length > positions.length) missingInformation.push(`仅使用 ${positions.length}/${allPositions.length} 项持仓，不是全仓分析`);
+    if (notes.length + reasons.length > excerpts.length) missingInformation.push('相关个人原文仅选择最近至多 8 条，过长原文未外发');
+    if (domesticInstrument) {
+      const content = JSON.stringify(domesticInstrument), source = snapshotSource(runtime.id(), sha256(content), 'journal', content); sources.push(source);
+      facts.push({ id: runtime.id(), name: '用户选择的国内标的（身份信息，不含授权行情）', value: `${domesticInstrument.name} ${domesticInstrument.instrument_key}`, source_ids: [source.id], freshness: 'current', completeness: 'partial' });
+      missingInformation.push('国内行情未授权用于 AI；本次不外发价格或净值');
+    }
+    if ((input.includePositions ?? true) && snapshot.portfolio.cash_state === 'unknown') missingInformation.push('现金余额');
     const policy = state.policies.at(-1);
-    if (!(input.includePolicy ?? true) || !policy || policy.status === 'unknown') missingInformation.push('确认的投资计划');
-    else {
+    if ((input.includePolicy ?? true) && (!policy || policy.status === 'unknown')) missingInformation.push('确认的投资计划');
+    else if ((input.includePolicy ?? true) && policy && policy.status !== 'unknown') {
       const content = JSON.stringify(policy), source = snapshotSource(policy.id, policy.revision_id, 'policy', content, policy.confirmed_at); sources.push(source);
-      facts.push({ id: runtime.id(), name: '用户确认的投资计划', value: `期限：${policy.horizon ?? '未填写'}；最大单标的权重：${policy.max_single_weight ?? '未填写'}`, source_ids: [source.id], freshness: 'current', completeness: policy.horizon && policy.max_single_weight ? 'complete' : 'partial' });
+      facts.push({ id: runtime.id(), name: '用户确认的投资计划', value: policy.description ?? `期限：${policy.horizon ?? '未填写'}；最大单标的权重：${policy.max_single_weight ?? '未填写'}`, source_ids: [source.id], freshness: 'current', completeness: policy.description || policy.horizon && policy.max_single_weight ? 'complete' : 'partial' });
     }
     missingInformation.push('实时报价');
+    const scopeSource = sources.find(item => item.type === 'ledger') ?? snapshotSource(runtime.id(), runtime.id(), 'user_statement', '未选择的账户数据不提供。');
+    if (!sources.includes(scopeSource)) sources.push(scopeSource);
+    facts.push({ id: runtime.id(), name: '本次范围与数据限制', value: missingInformation.join('；'), source_ids: [scopeSource.id], freshness: 'current', completeness: 'partial' });
     const rawHistory = conversationId && (input.includeHistory ?? true) ? workspace.conversation(conversationId).messages : [];
     const fakeTurns = new Set(rawHistory.filter(message => message.role === 'assistant' && message.execution_kind === 'fake').map(message => message.client_turn_id));
     const allHistory = rawHistory.filter(message => message.execution_kind !== 'fake' && !fakeTurns.has(message.client_turn_id));
@@ -74,7 +93,7 @@ export function createAiEngine(workspace: WorkspacePort, financial: FinancialPor
     const conversation = ensureConversation(input), state = workspace.read(), built = confirmedPreview ?? buildContext(input, conversation.id);
     const now = runtime.now(), requestId = runtime.id(), clientTurnId = runtime.id(), userMessageId = runtime.id(), assistantMessageId = runtime.id(), runId = runtime.id();
     const request = analysisRequestV2Schema.parse({ schema_version: 2, request_id: requestId, workspace_instance_id: state.instance_id, portfolio_id: state.portfolio_id, conversation_id: conversation.id, client_turn_id: clientTurnId, mode: input.mode, journal_date: input.journalDate, personal_snapshot_at: now, question: input.question, facts: built.facts, excerpts: built.excerpts, excluded_source_ids: input.excludedJournalIds ?? [] });
-    const common = { request, target: built.target, history: built.history, history_omitted_count: built.historyOmittedCount, source_snapshots: built.sources, consent: { scope_version: 1 as const, confirmed_at: now, include_positions: true, include_journal: input.includeJournal ?? true, include_trade_reasons: input.includeTradeReasons ?? true, include_policy: input.includePolicy ?? true, include_history: input.includeHistory ?? true }, prepared_at: now, expires_at: new Date(Date.parse(now) + 10 * 60_000).toISOString() };
+    const common = { request, target: built.target, history: built.history, history_omitted_count: built.historyOmittedCount, source_snapshots: built.sources, consent: { scope_version: 1 as const, confirmed_at: now, include_positions: input.includePositions ?? true, include_journal: input.includeJournal ?? true, include_trade_reasons: input.includeTradeReasons ?? true, include_policy: input.includePolicy ?? true, include_history: input.includeHistory ?? true }, prepared_at: now, expires_at: new Date(Date.parse(now) + 10 * 60_000).toISOString() };
     const envelope = confirmedPreview?.marketReceipt ? sealResearchTurnV2({ transport_version: 2, ...common, market: { use_market_data: true, receipt_id: confirmedPreview.marketReceipt.receipt_id, receipt_digest: confirmedPreview.marketReceipt.receipt_digest } }) : sealResearchTurnV1({ transport_version: 1, ...common });
     const turn = workspace.saveOutbox(outboxTurnSchema.parse({ schema_version: 2, request_id: requestId, workspace_instance_id: state.instance_id, conversation_id: conversation.id, client_turn_id: clientTurnId, user_message_id: userMessageId, assistant_message_id: assistantMessageId, run_id: runId, payload_digest: envelope.payload_digest, envelope, status: 'prepared', remote_run_id: null, response_digest: null, error_code: null, created_at: now, updated_at: now, last_checked_at: null, detached_reason: null }));
     return { conversation, envelope, turn, preview: built, privacyEpoch: state.privacy_epoch };
@@ -84,6 +103,8 @@ export function createAiEngine(workspace: WorkspacePort, financial: FinancialPor
     const currentState = workspace.read();
     if (currentState.instance_id !== turn.workspace_instance_id || currentState.privacy_epoch !== prepared.privacyEpoch || !currentState.conversations.some(item => item.id === conversation.id)) throw Error('会话已删除或隐私版本已变化，迟到结果不会写入。');
     const manifest = response?.manifest ?? finalManifestV2Schema.parse({ schema_version: 2, request_id: envelope.request.request_id, workspace_instance_id: envelope.request.workspace_instance_id, portfolio_id: envelope.request.portfolio_id, built_at: completedAt, known_at: completedAt, personal_snapshot_at: envelope.request.personal_snapshot_at, sources: envelope.source_snapshots.map(item => ({ id: item.id, revision: item.id, type: item.type, as_of: item.as_of, available_at: item.available_at, content_hash: item.content_digest, quality: item.type === 'ledger' ? 'client_computed' : 'user_reported' })), omissions: prepared.preview.omissions });
+    const allowedSourceIds = new Set([...envelope.source_snapshots.map(item => item.id), ...(response?.transport_version === 2 ? response.external_source_snapshots.map(item => item.id) : [])]);
+    if (manifest.sources.some(source => !allowedSourceIds.has(source.id))) throw Error('回答包含本次范围之外的来源。');
     const result = validateAnalysisResultV2(resultInput, envelope.request, manifest), runId = response?.run_id ?? turn.run_id;
     const run = analysisRunSchema.parse({ schema_version: 2, id: runId, request_id: envelope.request.request_id, conversation_id: conversation.id, parent_run_id: workspace.conversation(conversation.id).runs.at(-1)?.id ?? null, mode: envelope.request.mode, journal_date: envelope.request.journal_date, state: 'succeeded', output_validated: true, local_saved: true, execution_kind: executionKind, data_mode: financial.snapshot().mode, provider_id: response?.execution.provider_id ?? fakeProvider?.providerId, source_integrity: 'verified', source_ids: manifest.sources.map(item => item.id), final_manifest: manifest, provider_metadata: response ? { protocol: response.execution.protocol, model: response.execution.model, credential_mode: response.execution.credential_mode, input_units: response.execution.input_units, output_units: response.execution.output_units } : { protocol: fakeProvider?.protocol, model: fakeProvider?.model, credential_mode: 'not_applicable', input_units: envelope.payload_digest.length, output_units: result.summary.length }, result, created_at: envelope.prepared_at, completed_at: completedAt });
     const previous = workspace.conversation(conversation.id).messages.at(-1);
@@ -163,7 +184,7 @@ export function createAiEngine(workspace: WorkspacePort, financial: FinancialPor
     const instrument = current.origin === 'instrument' && current.anchor_id ? confirmResearchInstrument(current.anchor_id, 'STOCK') : undefined;
     return analyze({ origin: current.origin, anchorId: current.anchor_id, instrument, mode: 'follow_up', journalDate: input.journalDate, question: input.question, scenario: input.scenario, conversationId: input.conversationId, includeHistory: true });
   }
-  function confirmResearchInstrument(symbolInput: string, assetType: 'STOCK' | 'ETF') { const symbol = symbolInput.trim().toUpperCase(); if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(symbol)) throw Error('请输入有效美股代码。'); const existing = financial.snapshot().instruments.find(item => item.symbol === symbol); return instrumentCatalogEntrySchema.parse({ instrument_ref: existing?.id ?? runtime.id(), symbol, market: 'US', asset_type: existing?.asset_type ?? assetType, confirmed_at: runtime.now(), source: existing ? 'ledger_confirmed' : 'user_confirmed' }); }
+  function confirmResearchInstrument(symbolInput: string, assetType: 'STOCK' | 'ETF', market: 'US' | 'CN' | 'HK' = 'US') { const identity = /^(US|CN|HK):(.+)$/.exec(symbolInput); if (identity) { market=identity[1] as 'US'|'CN'|'HK'; symbolInput=identity[2]; } const symbol = symbolInput.trim().toUpperCase(); if (!(market === 'CN' ? /^[03658]\d{5}$/ : market === 'HK' ? /^\d{5}$/ : /^[A-Z][A-Z0-9.-]{0,14}$/).test(symbol)) throw Error('请输入当前市场有效的代码。'); const existing = financial.snapshot().instruments.find(item => item.symbol === symbol && (item.market ?? 'US') === market); return instrumentCatalogEntrySchema.parse({ instrument_ref: existing?.id ?? runtime.id(), symbol, market, asset_type: existing?.asset_type ?? assetType, confirmed_at: runtime.now(), source: existing ? 'ledger_confirmed' : 'user_confirmed' }); }
   async function capabilities() {
     if (!transport) return { realProviderConfigured: false, fakeProviderAvailable: !!fakeProvider, enabled: false, authorized: false, enrolled: false, consented: false, accessMode: 'closed_beta', usage: null, limits: null, consentVersion: 1, label: 'AI 服务暂不可用，你仍可记录交易和查看历史。' };
     try {

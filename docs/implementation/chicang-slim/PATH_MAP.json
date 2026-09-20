@@ -7,109 +7,170 @@
       "path": "apps/miniprogram",
       "status": "existing",
       "symbol": "miniprogram source, createService runtime bundle",
-      "relatedTests": ["apps/miniprogram/test/runtime.test.mjs", "apps/miniprogram/test/release-artifact.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/runtime.test.mjs",
+        "apps/miniprogram/test/release-artifact.test.mjs"
+      ]
     },
     "@ROUTES@": {
       "path": "apps/miniprogram/miniprogram/app.json",
       "status": "existing",
       "symbol": "pages and tabBar",
-      "relatedTests": ["apps/miniprogram/test/release-pages.test.mjs", "apps/miniprogram/test/runtime.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/release-pages.test.mjs",
+        "apps/miniprogram/test/runtime.test.mjs"
+      ]
     },
     "@HOLDINGS_PAGE@": {
       "path": "apps/miniprogram/miniprogram/pages/overview",
       "status": "existing",
       "symbol": "Page overview; createService.overview",
-      "relatedTests": ["apps/miniprogram/test/holdings-phase1.test.ts", "apps/miniprogram/test/optimization-pages.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/holdings-phase1.test.ts",
+        "apps/miniprogram/test/optimization-pages.test.mjs"
+      ]
     },
     "@HOLDING_DETAIL@": {
       "path": "apps/miniprogram/miniprogram/pages/position-detail",
       "status": "existing",
-      "symbol": "Page position-detail; createService.positionDetail",
-      "relatedTests": ["apps/miniprogram/test/optimization-pages.test.mjs", "apps/miniprogram/test/service.test.ts"]
+      "symbol": "position-detail for held instruments; market-detail routes existing holdings here and uses shared holding-editor for new identities",
+      "relatedTests": [
+        "apps/miniprogram/test/optimization-pages.test.mjs",
+        "apps/miniprogram/test/service.test.ts"
+      ]
     },
     "@TRADE_PAGE@": {
       "path": "apps/miniprogram/miniprogram/pages/records; apps/miniprogram/miniprogram/pages/entry",
       "status": "existing",
       "symbol": "Page records; Page entry; previewTrade/saveTrade",
-      "relatedTests": ["apps/miniprogram/test/service.test.ts", "apps/miniprogram/test/runtime.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/service.test.ts",
+        "apps/miniprogram/test/runtime.test.mjs"
+      ]
     },
     "@JOURNAL_PAGE@": {
       "path": "apps/miniprogram/miniprogram/pages/review; apps/miniprogram/miniprogram/pages/research",
       "status": "existing",
       "symbol": "legacy review compatibility redirect; AI journal tab with compose/calendar/history/personal notes",
-      "relatedTests": ["apps/miniprogram/test/journal-phase3.test.ts", "apps/miniprogram/test/release-pages.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/journal-phase3.test.ts",
+        "apps/miniprogram/test/release-pages.test.mjs"
+      ]
     },
     "@CHAT_VIEW@": {
       "path": "apps/miniprogram/miniprogram/pages/conversation",
       "status": "existing",
       "symbol": "Page conversation delete/save-as-note/focus; createAiEngine follow-up and privacy epoch guard",
-      "relatedTests": ["apps/miniprogram/test/ai-engine.test.ts", "apps/miniprogram/test/journal-phase3.test.ts", "apps/miniprogram/test/release-pages.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/ai-engine.test.ts",
+        "apps/miniprogram/test/journal-phase3.test.ts",
+        "apps/miniprogram/test/release-pages.test.mjs"
+      ]
     },
     "@BOARD_PAGE@": {
       "path": "apps/miniprogram/miniprogram/pages/market",
       "status": "existing",
-      "symbol": "Page market; createMarketDiscovery",
-      "relatedTests": ["apps/miniprogram/test/market-discovery.test.ts", "apps/miniprogram/test/market-client.test.ts"]
+      "symbol": "three-segment lightweight board; workspace-scoped discovery, public quote cache and 2-3 candidate selection",
+      "relatedTests": [
+        "apps/miniprogram/test/market-discovery.test.ts",
+        "apps/miniprogram/test/market-client.test.ts"
+      ]
     },
     "@ASSET_SELECTOR@": {
       "path": "apps/miniprogram/miniprogram/pages/holding-editor; apps/miniprogram/src/market/discovery.ts",
       "status": "existing",
       "symbol": "Page holding-editor and holding-import catalog resolution; createMarketDiscovery.search",
-      "relatedTests": ["apps/miniprogram/test/release-pages.test.mjs", "apps/miniprogram/test/market-discovery.test.ts"]
+      "relatedTests": [
+        "apps/miniprogram/test/release-pages.test.mjs",
+        "apps/miniprogram/test/market-discovery.test.ts"
+      ]
     },
     "@HOLDING_REPO@": {
       "path": "apps/miniprogram/src/service.ts",
       "status": "existing",
       "symbol": "createService.previewHolding/saveHolding/previewHoldingImport/saveHoldingImport/saveTrade; currentPositions",
-      "relatedTests": ["apps/miniprogram/test/holdings-phase1.test.ts", "apps/miniprogram/test/holdings-phase2.test.ts", "apps/miniprogram/test/service.test.ts"]
+      "relatedTests": [
+        "apps/miniprogram/test/holdings-phase1.test.ts",
+        "apps/miniprogram/test/holdings-phase2.test.ts",
+        "apps/miniprogram/test/service.test.ts"
+      ]
     },
     "@STORAGE@": {
       "path": "apps/miniprogram/src/repository.ts",
       "status": "existing",
       "symbol": "createRepository; pending-v1 staged commit; recovery point",
-      "relatedTests": ["apps/miniprogram/test/persistence.test.ts", "apps/miniprogram/test/pending-save.test.ts"]
+      "relatedTests": [
+        "apps/miniprogram/test/persistence.test.ts",
+        "apps/miniprogram/test/pending-save.test.ts"
+      ]
     },
     "@JOURNAL_REPO@": {
       "path": "apps/miniprogram/src/workspace/repository.ts",
       "status": "existing",
       "symbol": "createWorkspaceRepository history/calendar/saveAiMessageAsNote/deleteConversation/deletePersonalNote; immutable partitions and root switch",
-      "relatedTests": ["apps/miniprogram/test/workspace-journal.test.ts", "apps/miniprogram/test/journal-phase3.test.ts", "apps/miniprogram/test/full-backup.test.ts"]
+      "relatedTests": [
+        "apps/miniprogram/test/workspace-journal.test.ts",
+        "apps/miniprogram/test/journal-phase3.test.ts",
+        "apps/miniprogram/test/full-backup.test.ts"
+      ]
     },
     "@AI_CLIENT@": {
       "path": "apps/miniprogram/src/ai/engine.ts; apps/miniprogram/src/ai/cloud-transport.ts; apps/miniprogram/src/vision/transport.ts; apps/miniprogram/src/vision/cloud-transport.ts",
       "status": "existing",
-      "symbol": "createAiEngine; createCloudTransport; createHoldingVisionTransport/createCloudVisionTransport",
-      "relatedTests": ["apps/miniprogram/test/ai-engine.test.ts", "apps/miniprogram/test/cloud-transport.test.ts", "apps/miniprogram/test/vision-transport.test.ts"]
+      "symbol": "createAiEngine; createCloudTransport; createHoldingVisionTransport/createCloudVisionTransport; phase5 bounded related originals, candidate scope, workspace navigation and allowed source IDs",
+      "relatedTests": [
+        "apps/miniprogram/test/ai-engine.test.ts",
+        "apps/miniprogram/test/cloud-transport.test.ts",
+        "apps/miniprogram/test/vision-transport.test.ts"
+      ]
     },
     "@AI_SERVER@": {
       "path": "apps/ai-gateway/src/handler.ts; apps/ai-gateway/src/providers/deepseek.ts; apps/ai-gateway/src/vision/handler.ts; apps/ai-gateway/src/vision/deepseek.ts; apps/ai-gateway/src/vision/cloudbase-store.ts",
       "status": "existing",
       "symbol": "createPortfolioAiHandler; createHoldingVisionHandler; DeepSeek text/vision adapters; CloudBase vision store",
-      "relatedTests": ["apps/ai-gateway/test/handler.test.ts", "apps/ai-gateway/test/deepseek.test.ts", "apps/ai-gateway/test/vision-handler.test.ts", "apps/ai-gateway/test/deepseek-vision.test.ts", "apps/ai-gateway/test/vision-cloud-store.test.ts"]
+      "relatedTests": [
+        "apps/ai-gateway/test/handler.test.ts",
+        "apps/ai-gateway/test/deepseek.test.ts",
+        "apps/ai-gateway/test/vision-handler.test.ts",
+        "apps/ai-gateway/test/deepseek-vision.test.ts",
+        "apps/ai-gateway/test/vision-cloud-store.test.ts"
+      ]
     },
     "@MARKET_SERVER@": {
-      "path": "apps/ai-gateway/src/market/handler.ts; apps/ai-gateway/src/market/twelve-data-provider.ts",
+      "path": "apps/ai-gateway/src/market/handler.ts; apps/ai-gateway/src/market/twelve-data-provider.ts; apps/ai-gateway/src/market/tushare-provider.ts; apps/ai-gateway/src/market/domestic-board.ts",
       "status": "existing",
-      "symbol": "createPortfolioMarketHandler; Twelve Data provider adapter",
-      "relatedTests": ["apps/ai-gateway/test/market-handler.test.ts", "apps/ai-gateway/test/twelve-data-provider.test.ts"]
+      "symbol": "createPortfolioMarketHandler; Twelve Data provider adapter; gated domesticBoard and Tushare fund daily/NAV",
+      "relatedTests": [
+        "apps/ai-gateway/test/market-handler.test.ts",
+        "apps/ai-gateway/test/twelve-data-provider.test.ts"
+      ]
     },
     "@BACKUP@": {
       "path": "apps/miniprogram/src/workspace/backup.ts; apps/miniprogram/src/repository.ts",
       "status": "existing",
       "symbol": "fullBackupSchema v7; strict parseCompleteBackup v1-v7; financial backup v3 migration",
-      "relatedTests": ["apps/miniprogram/test/full-backup.test.ts", "apps/miniprogram/test/persistence.test.ts"]
+      "relatedTests": [
+        "apps/miniprogram/test/full-backup.test.ts",
+        "apps/miniprogram/test/persistence.test.ts"
+      ]
     },
     "@TESTS@": {
       "path": "apps/miniprogram/test",
       "status": "existing",
       "symbol": "node:test TypeScript and packaged-runtime suites",
-      "relatedTests": ["apps/miniprogram/test/holdings-phase1.test.ts", "apps/miniprogram/test/acceptance.test.ts"]
+      "relatedTests": [
+        "apps/miniprogram/test/holdings-phase1.test.ts",
+        "apps/miniprogram/test/acceptance.test.ts"
+      ]
     },
     "@SETTINGS@": {
       "path": "apps/miniprogram/miniprogram/pages/settings",
       "status": "existing",
       "symbol": "Page settings; v7 export/restore UI",
-      "relatedTests": ["apps/miniprogram/test/release-pages.test.mjs", "apps/miniprogram/test/runtime.test.mjs"]
+      "relatedTests": [
+        "apps/miniprogram/test/release-pages.test.mjs",
+        "apps/miniprogram/test/runtime.test.mjs"
+      ]
     }
   },
   "newFiles": [
@@ -137,12 +198,15 @@
     "docs/implementation/chicang-slim/PATH_MAP.json",
     "docs/implementation/chicang-slim/PROGRESS.md",
     "docs/implementation/chicang-slim/ACCEPTANCE.md",
-    "docs/implementation/chicang-slim/BLOCKERS.md"
+    "docs/implementation/chicang-slim/BLOCKERS.md",
+    "packages/market-data/src/reference.ts",
+    "packages/market-data/test/reference.test.ts"
   ],
   "commands": {
     "unit": "npm run test:weapp",
     "buildMiniProgram": "npm run build:weapp",
     "typecheck": "npm run typecheck -w @portfolio/miniprogram",
     "fullCheck": "npm run check:weapp"
-  }
+  },
+  "phase45BaselineCommit": "6588ccf5f5f3035d0414e88313b4196f491263ea"
 }

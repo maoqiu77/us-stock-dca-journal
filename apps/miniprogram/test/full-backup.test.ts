@@ -32,7 +32,7 @@ test('v7 restore validates all references and creates a fresh workspace with mat
   source.service.journal().savePersonalNote('2026-09-10', '人工决定：观察');
   const text = source.service.exportFullBackup(), oldInstance = JSON.parse(text).data.workspace.instance_id;
   const target = fixture(); const preview = target.service.previewCompleteBackup(text);
-  assert.deepEqual(preview, { version: 7, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
+  assert.deepEqual(preview, { version: 7, checkpoints: 0, importReceipts: 0, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
   target.service.restoreCompleteBackup(text);
   assert.equal(target.service.overview().totalCost, '21.00');
   assert.equal(target.service.journal().timeline('2026-09-10')[0].body, '人工决定：观察');

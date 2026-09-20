@@ -1,4 +1,6 @@
+import { researchSelectionSchema, researchSnapshotSchema, type ResearchSelection } from '@portfolio/market-data/research';
 import { decimal, decimalText, dateSchema, ledgerEventSchema, projectLedger, valuePortfolio, type LedgerEvent } from '@portfolio/domain';
+import { createRestoreStorage } from './workspace/restore-transaction.ts';
 import { createRepository, type StoragePort } from './repository.ts';
 import { screenshotMetricsSchema, activeEvents, clockState, emptySnapshot, projection, validateSnapshot, type Runtime, type Snapshot } from './model.ts';
 import { createWorkspaceRepository } from './workspace/repository.ts';
@@ -8,6 +10,7 @@ import type { AiTransport } from './ai/transport.ts';
 import type { FakeAiProvider } from './ai/fake-provider.ts';
 import { createMarketClient } from './market/client.ts';
 import type { MarketTransport } from './market/transport.ts';
+import { popularUS } from './market/popular.ts';
 import { createMarketDiscovery } from './market/discovery.ts';
 import { sha256 } from '@portfolio/ai-context';
 import type { VisionTransport } from './vision/transport.ts';
@@ -76,13 +79,15 @@ const ledgerMessages: Record<string, string> = {
   order_conflict: '同日记录顺序冲突，请重新预览后保存。',
 };
 
-export type ServiceOptions = { aiTransport?: AiTransport; fakeProvider?: FakeAiProvider; demoFactory?: (runtime: Runtime) => Snapshot; marketTransport?: MarketTransport; visionTransport?: VisionTransport };
+export type ServiceOptions = { aiTransport?: AiTransport; fakeProvider?: FakeAiProvider; demoFactory?: (runtime: Runtime) => Snapshot; marketTransport?: MarketTransport; seedPopularStocks?: boolean; visionTransport?: VisionTransport };
 export function createService(storage: StoragePort, runtime: Runtime, options: ServiceOptions = {}) {
+  const restore = createRestoreStorage(storage);
+  storage = restore.storage;
   const repo = createRepository(storage, runtime);
   const workspace = createWorkspaceRepository(storage, runtime, { readFinancial: repo.ensurePersisted, ledgerPending: repo.pendingSave });
   let aiEngine: ReturnType<typeof createAiEngine> | undefined;
   const marketClient = createMarketClient(storage, options.marketTransport, { now: runtime.now });
-  const marketDiscovery = createMarketDiscovery(storage, options.marketTransport, { now: runtime.now });
+  const marketDiscovery = createMarketDiscovery(storage, options.marketTransport, { now: runtime.now, defaults: options.seedPopularStocks ? popularUS : undefined, workspaceId: () => workspace.read().instance_id });
   // Exact content plus replacement generation: never rely on a short hash for stale edits.
   function snapshotToken(data: Snapshot) { return `${repo.generation()}:${JSON.stringify(data)}`; }
   function fail(code: string, message: string): never { throw new ServiceError(code, message); }
@@ -258,7 +263,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     const metadata = data.holding_assets.find(item => item.symbol === symbol && item.market === market && item.currency === currency);
     const legacy = data.instruments.find(item => item.symbol === symbol && market === 'US' && currency === 'USD');
     const id = metadata?.id ?? legacy?.id ?? uniqueId(data);
-    const catalog = [...marketDiscovery.view().results, ...marketDiscovery.view().watchlist].find(item => item.instrument_key === input.instrument.instrumentKey && item.symbol === symbol && item.name === name && item.market === market && item.currency === currency && item.asset_type === input.instrument.assetType);
+    const catalog = input.instrument.instrumentKey ? [...marketDiscovery.view().results, ...marketDiscovery.view().watchlist, ...marketDiscovery.domesticRows().map(row => row.instrument)].find(item => item.instrument_key === input.instrument.instrumentKey && item.symbol === symbol && item.name === name && item.market === market && item.currency === currency && item.asset_type === input.instrument.assetType) : undefined;
     const trustedExisting = legacy || metadata?.status === 'verified' && metadata.name === name && metadata.asset_type === input.instrument.assetType;
     const asset = { id, symbol, name, market, currency, asset_type: input.instrument.assetType, status: catalog || trustedExisting ? 'verified' as const : 'unverified' as const, confirmed_at: runtime.now() };
     const holding_assets = [...data.holding_assets.filter(item => item.id !== id), asset];
@@ -422,15 +427,26 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     clearMarketCache: marketClient.clear,
     searchMarket: marketDiscovery.search,
     cancelMarketSearch: marketDiscovery.cancelSearch,
-    marketDiscovery: marketDiscovery.view,
+    marketDiscovery() { const view = marketDiscovery.view(); return { ...view, domestic: marketDiscovery.domesticRows() }; },
+    domesticBoard: marketDiscovery.domesticBoard,
     addWatchlist: marketDiscovery.add,
     removeWatchlist: marketDiscovery.remove,
+    moveWatchlist: marketDiscovery.move,
     marketBars: marketDiscovery.loadBars,
+    refreshBoard: marketDiscovery.refreshQuotes,
+    async researchSnapshot(selection: ResearchSelection) {
+      if (!options.marketTransport?.researchSnapshot) throw Error('研究行情服务未配置。');
+      const value = researchSnapshotSchema.parse(await options.marketTransport.researchSnapshot(researchSelectionSchema.parse(selection)));
+      if (JSON.stringify(value.selection) !== JSON.stringify(researchSelectionSchema.parse(selection))) throw Error('研究行情范围不匹配。');
+      return value;
+    },
+    boardQuote: marketDiscovery.quoteView,
+    refreshDetailQuote: marketDiscovery.refreshDetailQuote,
     vision: () => options.visionTransport,
     async prepareAnalysisMarket(mode: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up', symbol?: string) {
       if (!options.marketTransport?.prepareAnalysisSnapshot) return null;
-      const data = repo.read(), projected = projection(data, runtime);
-      const heldIds = new Set(projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => item.instrument_id));
+      const data = repo.read();
+      const heldIds = new Set(currentPositions(data).filter(item => calculated(item.quantity).gt(0)).map(item => item.instrumentId));
       const ledger = data.instruments.filter(item => heldIds.has(item.id)), mapped = marketClient.snapshot(ledger).instruments;
       let keys = mapped.map(item => item.instrumentKey).filter((key): key is string => !!key);
       if (symbol) {
@@ -478,15 +494,15 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     previewBackup(text: string) { const data = repo.parseBackup(text); return { openings: active(data).filter(item => !item.voided && item.kind === 'opening_position').length, trades: active(data).filter(item => !item.voided && (item.kind === 'buy' || item.kind === 'sell')).length, reviews: data.reviews.length, mode: data.mode }; },
     exportFullBackup() { return encodeFullBackup(repo.read(), workspace.read(), runtime, marketDiscovery.exportWatchlist()); },
     previewCompleteBackup(text: string) { return backupPreview(parseCompleteBackup(text, runtime), runtime); },
-    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); marketDiscovery.replaceWatchlist(parsed.watchlist); marketClient.clear(); },
-    restoreBackup(text: string) { const financial = repo.parseBackup(text); const prepared = workspace.prepareReplacement(undefined, financial); repo.replace(financial); prepared.commit(); },
-    recoverPrevious() { const financial = repo.readPrevious(), previousWorkspace = workspace.readPreviousOptional(), prepared = workspace.prepareReplacement(previousWorkspace, financial); repo.recoverPrevious(); prepared.commit(); },
+    restoreCompleteBackup(text: string) { const parsed = parseCompleteBackup(text, runtime); restore.atomic(() => { const prepared = workspace.prepareReplacement(parsed.workspace, parsed.financial); repo.replace(parsed.financial); prepared.commit(); marketDiscovery.replaceWatchlist(parsed.watchlist); marketClient.clear(); }); },
+    restoreBackup(text: string) { repo.parseBackup(text); service.restoreCompleteBackup(text); },
+    recoverPrevious() { restore.atomic(() => { const financial = repo.readPrevious(), previousWorkspace = workspace.readPreviousOptional(), watchlist = previousWorkspace ? marketDiscovery.readWatchlist(previousWorkspace.instance_id) : [], prepared = workspace.prepareReplacement(previousWorkspace, financial); repo.recoverPrevious(); prepared.commit(); marketDiscovery.replaceWatchlist(watchlist); marketClient.clear(); }); },
     loadDemo() {
       if (!options.demoFactory) throw Error('当前构建不提供示例数据。');
       const data = repo.read(); if (data.events.length || data.reviews.length || data.mode === 'demo') fail('NOT_EMPTY', '只有空账本可以载入示例。');
       const next = options.demoFactory(runtime); const prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit();
     },
-    startEmpty() { const next = emptySnapshot(runtime), prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit(); },
+    startEmpty() { restore.atomic(() => { const next = emptySnapshot(runtime), prepared = workspace.prepareReplacement(undefined, next); repo.replace(next); prepared.commit(); }); },
     deleteAllLocalData() { workspace.purge(); repo.purge(); marketClient.clear(); marketDiscovery.replaceWatchlist([]); },
   };
   return service;

@@ -1,5 +1,5 @@
 <view class="container">
-  <view class="page-header"><view><view class="eyebrow">PORTFOLIO</view><view class="title">持仓</view></view><view class="actions page-header-actions compact"><button class="link" bindtap="showSettings">设置</button><button class="primary small" bindtap="addHolding">＋</button></view></view>
+  <view class="page-header"><view><view class="eyebrow">PORTFOLIO</view><view class="title">持仓</view></view><view class="actions page-header-actions compact"><button class="secondary small settings-entry" bindtap="showSettings">设置</button><button class="primary small" bindtap="addHolding">导入持仓</button></view></view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{clockAnomaly}}" class="error"><view class="symbol">设备时间异常，当前数值暂不显示</view><view>最近可靠时点：{{clockAnomaly.asOf}}</view><view>{{clockAnomaly.message}}</view></view>
   <block wx:if="{{view}}">

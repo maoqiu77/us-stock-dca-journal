@@ -1,3 +1,7 @@
+# 当前验收入口（2026-09-21）
+
+Phase 6/7 本轮状态、运行说明、回滚及阻塞见 [交接](../implementation/chicang-slim/PHASE67_HANDOFF.md)。下文历史游客/fake 验收不代表当前云端或真机状态；当前本地构建使用私有配置，未完成上线验收。
+
 # 微信小程序测试版
 
 项目主方向已于 2026-09-10 从独立 App 调整为微信小程序。当前 `0.2.0` 交付在 **W0 离线测试版** 基础上完成 MP0 / MP1 / J0，并完成 AI 新规划的 A0 / A1 本地能力（状态见 [ai-implementation-status.md](ai-implementation-status.md)）。它不依赖服务器、AppID、行情或真实模型。

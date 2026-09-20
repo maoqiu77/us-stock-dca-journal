@@ -4,8 +4,8 @@ export type RequestState = 'running' | 'outcome_unknown' | 'succeeded' | 'failed
 export type RequestRecord = { owner: string; requestId: string; digest: string; workspaceId: string; clientTurnId: string; state: RequestState; executionToken: string; envelope?: ResearchTurnEnvelopeV1 | ResearchTurnEnvelopeV2 | null; response?: ResearchTurnResponseV1 | ResearchTurnResponseV2 | null; responseDigest?: string; errorCode?: string; createdAt: string; updatedAt: string; acknowledgedAt?: string };
 export type Claim = { kind: 'claimed'; record: RequestRecord } | { kind: 'existing'; record: RequestRecord } | { kind: 'conflict' } | { kind: 'quota' } | { kind: 'global_quota' } | { kind: 'inflight' };
 export interface RequestStore {
-  claim(input: { owner: string; envelope: ResearchTurnEnvelopeV1 | ResearchTurnEnvelopeV2; now: string; dailyLimit: number; globalDailyLimit?: number; maxInflight: number; executionToken: string }): Promise<Claim>;
-  usage(owner: string, now: string): Promise<{ date: string; used: number; inflight: number }>;
+  claim(input: { owner: string; envelope: ResearchTurnEnvelopeV1 | ResearchTurnEnvelopeV2; now: string; dailyLimit: number; unlimited?: boolean; lifetimeLimit?: number | null; globalDailyLimit?: number; maxInflight: number; executionToken: string }): Promise<Claim>;
+  usage(owner: string, now: string, lifetime?: boolean): Promise<{ date: string; used: number; inflight: number; totalUsed?: number }>;
   get(owner: string, requestId: string): Promise<RequestRecord | undefined>;
   finish(owner: string, requestId: string, token: string, response: ResearchTurnResponseV1 | ResearchTurnResponseV2): Promise<void>;
   fail(owner: string, requestId: string, token: string, state: 'failed' | 'outcome_unknown', code: string): Promise<void>;
@@ -17,13 +17,13 @@ export function createMemoryRequestStore(): RequestStore {
   async function serial<T>(fn: () => T | Promise<T>) { const prior = queue; let release!: () => void; queue = new Promise<void>(resolve => { release = resolve; }); await prior; try { return await fn(); } finally { release(); } }
   const key = (owner: string, requestId: string) => `${owner}:${requestId}`;
   return {
-    usage: async (owner, now) => { const items = [...records.values()].filter(item => item.owner === owner && item.createdAt.slice(0, 10) === now.slice(0, 10)); return { date: now.slice(0, 10), used: items.length, inflight: items.filter(item => item.state === 'running').length }; },
+    usage: async (owner, now, lifetime) => { const items = [...records.values()].filter(item => item.owner === owner && item.createdAt.slice(0, 10) === now.slice(0, 10)); return { date: now.slice(0, 10), used: items.length, inflight: items.filter(item => item.state === 'running').length, ...(lifetime ? { totalUsed: [...records.values()].filter(item => item.owner === owner).length } : {}) }; },
     claim: input => serial(() => {
       const k = key(input.owner, input.envelope.request.request_id), existing = records.get(k);
       if (existing) return existing.digest === input.envelope.payload_digest ? { kind: 'existing', record: existing } : { kind: 'conflict' };
       const items = [...records.values()].filter(item => item.owner === input.owner);
       if (items.some(item => item.workspaceId === input.envelope.request.workspace_instance_id && item.clientTurnId === input.envelope.request.client_turn_id)) return { kind: 'conflict' };
-      if (items.filter(item => item.createdAt.slice(0, 10) === input.now.slice(0, 10)).length >= input.dailyLimit) return { kind: 'quota' };
+      if (!input.unlimited && (input.lifetimeLimit !== undefined ? input.lifetimeLimit !== null && items.length >= input.lifetimeLimit : items.filter(item => item.createdAt.slice(0, 10) === input.now.slice(0, 10)).length >= input.dailyLimit)) return { kind: 'quota' };
       if ([...records.values()].filter(item => item.createdAt.slice(0, 10) === input.now.slice(0, 10)).length >= (input.globalDailyLimit ?? Number.MAX_SAFE_INTEGER)) return { kind: 'global_quota' };
       if (items.filter(item => item.state === 'running').length >= input.maxInflight) return { kind: 'inflight' };
       const record: RequestRecord = { owner: input.owner, requestId: input.envelope.request.request_id, digest: input.envelope.payload_digest, workspaceId: input.envelope.request.workspace_instance_id, clientTurnId: input.envelope.request.client_turn_id, state: 'running', executionToken: input.executionToken, envelope: input.envelope, createdAt: input.now, updatedAt: input.now };

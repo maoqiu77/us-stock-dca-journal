@@ -154,3 +154,15 @@ test('removing current holding keeps historical trades, persists across reload a
   assert.equal(reloaded.overview().positions[0].quantity, '2');
   assert.deepEqual(reloaded.records(), records);
 });
+
+test('domestic provider catalog -> manual holding -> backup preserves exact identity without inventing trades', async () => {
+ const instrument = { instrument_key: 'CN:FUND:000001', symbol: '000001', name: '测试 QDII A', market: 'CN' as const, currency: 'CNY' as const, asset_type: 'FUND' as const, exchange: 'FUND' as const, provider_symbol: '000001.OF', provider_catalog_version: '2026-09-19T04:00:00Z' };
+ const f = setup({ capabilities: async () => { throw Error('not used'); }, search: async () => [], quotes: async () => [], domesticBoard: async () => ({ segment: 'fund', status: 'available', reason: '', rows: [{ instrument, price: null, tradeDate: null, changePct: null, nav: '1.1', navDate: '2026-09-18', announcementDate: '2026-09-19', premiumPct: null, premiumLabel: '', source: 'test fixture only', fetchedAt: '2026-09-19T04:00:00Z', quality: 'available' }] }) });
+ await f.service.domesticBoard('fund');
+ const input = { ...manualHolding, batchId: 'cn_test_0001', instrument: { symbol: instrument.symbol, name: instrument.name, market: instrument.market, currency: instrument.currency, assetType: instrument.asset_type, status: 'verified' as const, instrumentKey: instrument.instrument_key } };
+ const preview = f.service.previewHolding(input); f.service.saveHolding({ ...input, contentToken: preview.contentToken });
+ const position = f.service.overview(undefined, 'CNY').positions[0]; assert.equal(position.symbol, '000001'); assert.equal(position.status, 'verified'); assert.equal(f.service.records().length, 0);
+ const ai = f.service.ai().previewContext({ mode: 'portfolio_review', journalDate: '2026-09-19', question: '研究此基金', domesticInstrument: instrument });
+ assert.ok(ai.facts.some(fact => fact.value.includes('CN:FUND:000001'))); assert.ok(ai.missingInformation.some(text => text.includes('不外发价格或净值'))); assert.ok(!ai.sources.some(source => source.type === 'quote'));
+ const backup = f.service.exportFullBackup(), restored = setup(); restored.service.restoreCompleteBackup(backup); assert.equal(restored.service.overview(undefined, 'CNY').positions[0].symbol, '000001');
+});
