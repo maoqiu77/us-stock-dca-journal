@@ -1,1 +1,9 @@
 .task-grid { display: grid; gap: 16rpx; margin-bottom: 24rpx; }
+.quick-actions { display: flex; gap: 16rpx; margin-bottom: 24rpx; }
+.quick-actions button { flex: 1; }
+.calendar { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 24rpx 0; }
+button.day { width: 72rpx; min-width: 72rpx; padding: 0; line-height: 64rpx; background: #edf3ec; color: #32634a; }
+button.day.marked { box-shadow: 0 -6rpx 0 #d6a655 inset; }
+button.day.selected { background: #216b50; color: white; }
+.history-item { border-top: 1rpx solid #edf0ea; padding: 22rpx 0; }
+button.danger { color: #a14939; }

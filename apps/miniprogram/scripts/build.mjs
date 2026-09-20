@@ -78,6 +78,7 @@ await promisify(execFile)('npm', ['run', 'build', '-w', '@portfolio/ai-gateway']
 await rm(join(out, 'cloudfunctions'), { recursive: true, force: true });
 await cp(join(gatewayRoot, 'cloud'), join(out, 'cloudfunctions'), { recursive: true });
 await cp(join(gatewayRoot, 'dist/gateway.cjs'), join(out, 'cloudfunctions/portfolioAi/gateway.cjs'));
+await cp(join(gatewayRoot, 'dist/gateway.cjs'), join(out, 'cloudfunctions/portfolioAiCleanup/gateway.cjs'));
 await cp(join(gatewayRoot, 'dist/market.cjs'), join(out, 'cloudfunctions/portfolioMarket/market.cjs'));
 const cloudFunctionNames = (await readdir(join(out, 'cloudfunctions'), { withFileTypes: true })).filter(item => item.isDirectory()).map(item => item.name).sort();
 const cloudFunctions = Object.fromEntries(await Promise.all(cloudFunctionNames.map(async name => [name, await treeDigest(join(out, 'cloudfunctions', name))])));

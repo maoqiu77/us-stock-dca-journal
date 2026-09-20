@@ -12,25 +12,27 @@ function fixture(capacity = 10240) {
   return { values, runtime, storage, service: createService(storage, runtime, { fakeProvider: fakeAiProvider }) };
 }
 
-test('v5 full backup declares every included partition and keeps new notes out of financial v2', () => {
+test('v7 full backup declares privacy deletions and keeps new notes out of financial v3', () => {
   const f = fixture();
   f.service.saveReview('2026-09-09', '旧复盘');
   f.service.journal().savePersonalNote('2026-09-10', '新记录');
   const backup = JSON.parse(f.service.exportFullBackup());
   assert.equal(backup.format, 'portfolio-wechat-backup');
-  assert.equal(backup.version, 5);
-  assert.deepEqual(backup.scope, { financial: true, journal: true, conversations: true, analysis_runs: true, sources: true, policies: true, outbox: true, watchlist: true });
-  assert.equal(backup.data.financial.version, 2);
+  assert.equal(backup.version, 7);
+  assert.deepEqual(backup.scope, { financial: true, journal: true, conversations: true, analysis_runs: true, sources: true, policies: true, outbox: true, watchlist: true, holding_checkpoints: true, import_receipts: true, privacy_deletions: true });
+  assert.equal(backup.excludes.original_images, true);
+  assert.equal(backup.excludes.vision_tasks, true);
+  assert.equal(backup.data.financial.version, 3);
   assert.deepEqual(backup.data.financial.reviews.map((item: { text: string }) => item.text), ['旧复盘']);
   assert.deepEqual(backup.data.workspace.journal.map((item: { body: string }) => item.body), ['旧复盘', '新记录']);
 });
 
-test('v5 restore validates all references and creates a fresh workspace with matching ledger', () => {
+test('v7 restore validates all references and creates a fresh workspace with matching ledger', () => {
   const source = fixture(); source.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', date: '2026-09-10', quantity: '2', price: '10', fee: '1' });
   source.service.journal().savePersonalNote('2026-09-10', '人工决定：观察');
   const text = source.service.exportFullBackup(), oldInstance = JSON.parse(text).data.workspace.instance_id;
   const target = fixture(); const preview = target.service.previewCompleteBackup(text);
-  assert.deepEqual(preview, { version: 5, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
+  assert.deepEqual(preview, { version: 7, openings: 0, trades: 1, personalNotes: 1, conversations: 0, runs: 0, sources: 0, watchlist: 0, mode: 'personal', complete: true });
   target.service.restoreCompleteBackup(text);
   assert.equal(target.service.overview().totalCost, '21.00');
   assert.equal(target.service.journal().timeline('2026-09-10')[0].body, '人工决定：观察');
@@ -41,7 +43,20 @@ test('v5 restore validates all references and creates a fresh workspace with mat
   assert.throws(() => target.service.previewCompleteBackup(JSON.stringify(broken)), /引用/);
 });
 
-test('v5 roundtrips versioned watchlist but excludes clearable market cache and live receipts', () => {
+test('strict v6 complete backups remain readable after the privacy backup upgrade', () => {
+  const source = fixture(); source.service.journal().savePersonalNote('2026-09-10', '升级前记录');
+  const backup = JSON.parse(source.service.exportFullBackup());
+  backup.version = 6;
+  delete backup.scope.privacy_deletions;
+  delete backup.excludes.original_images;
+  delete backup.excludes.vision_tasks;
+  const target = fixture(), preview = target.service.previewCompleteBackup(JSON.stringify(backup));
+  assert.equal(preview.version, 6);
+  target.service.restoreCompleteBackup(JSON.stringify(backup));
+  assert.equal(target.service.journal().timeline('2026-09-10')[0].body, '升级前记录');
+});
+
+test('v7 roundtrips versioned watchlist but excludes clearable market cache and live receipts', () => {
   const source = fixture();
   source.service.addWatchlist({ schema_version: 1, instrument_key: 'US:XNAS:QQQ', symbol: 'QQQ', name: 'Invesco QQQ Trust', mic: 'XNAS', exchange: 'NASDAQ', market: 'US', currency: 'USD', asset_type: 'ETF', provider_symbol: 'QQQ', provider_catalog_version: 'v1', status: 'active' });
   const text = source.service.exportFullBackup(), encoded = JSON.parse(text);
@@ -52,7 +67,7 @@ test('v5 roundtrips versioned watchlist but excludes clearable market cache and 
   assert.deepEqual(target.service.marketDiscovery().watchlist.map((item: any) => item.symbol), ['QQQ']);
 });
 
-test('imported v5 outbox is detached and recovery never sends a model request', async () => {
+test('imported v7 outbox is detached and recovery never sends a model request', async () => {
   const source = fixture(); source.service.ai().prepare({ origin: 'portfolio', mode: 'portfolio_review', journalDate: '2026-09-10', question: '不应重放' });
   const text = source.service.exportFullBackup(); let calls = 0;
   const targetBase = fixture();
@@ -62,13 +77,13 @@ test('imported v5 outbox is detached and recovery never sends a model request', 
   assert.deepEqual(await target.ai().recoverPending(), []); assert.equal(calls, 0);
 });
 
-test('v1/v2 import becomes a complete fresh workspace and never mixes current conversations', () => {
+test('standalone financial import becomes a complete fresh workspace and never mixes current conversations', () => {
   const old = fixture(); old.service.saveReview('2026-09-10', '来自 v2');
-  const v2 = old.service.exportBackup();
+  const v3 = old.service.exportBackup();
   const target = fixture(); target.service.journal().savePersonalNote('2026-09-09', '当前工作区内容');
   const prior = target.service.journal().read().instance_id;
-  assert.equal(target.service.previewCompleteBackup(v2).version, 2);
-  target.service.restoreCompleteBackup(v2);
+  assert.equal(target.service.previewCompleteBackup(v3).version, 3);
+  target.service.restoreCompleteBackup(v3);
   const restored = target.service.journal().read();
   assert.notEqual(restored.instance_id, prior);
   assert.deepEqual(target.service.journal().timeline('2026-09-10').map(item => item.body), ['来自 v2']);
@@ -154,11 +169,12 @@ test('pre-release local v1 recovers citations and migrates without changing old 
   assert.equal(migrated.messages.length, 2);
   for (const [key, text] of oldBytes) assert.equal(f.values.get(key), text);
 
-  const { outbox, ...legacyState } = state;
-  const { outbox: scopeOutbox, watchlist: scopeWatchlist, ...legacyScope } = backup.scope;
+  const { outbox, privacy_epoch, deletions, ...legacyState } = state;
+  const { outbox: scopeOutbox, watchlist: scopeWatchlist, holding_checkpoints: scopeCheckpoints, import_receipts: scopeReceipts, privacy_deletions: scopePrivacy, ...legacyScope } = backup.scope;
   const { excludes, ...legacyBackup } = backup;
   const { watchlist, ...legacyData } = backup.data;
-  const external = { ...legacyBackup, version: 3, scope: legacyScope, data: { ...legacyData, workspace: { ...legacyState, version: 1, runs: legacyRuns, sources: legacySources, messages: legacyMessages } } };
+  const { revision, holding_assets, holding_checkpoints, import_receipts, ...legacyFinancial } = legacyData.financial;
+  const external = { ...legacyBackup, version: 3, scope: legacyScope, data: { ...legacyData, financial: { ...legacyFinancial, version: 2 }, workspace: { ...legacyState, version: 1, runs: legacyRuns, sources: legacySources, messages: legacyMessages } } };
   assert.throws(() => reopened.previewCompleteBackup(JSON.stringify(external)), /版本/);
   external.data.workspace.runs[0].source_ids = state.runs[0].source_ids;
   assert.equal(reopened.previewCompleteBackup(JSON.stringify(external)).version, 3);

@@ -15,6 +15,7 @@ import {
   migrationStateSchema,
   outboxTurnSchema,
   sourceSnapshotSchema,
+  shanghaiDayKey,
   workspaceStateSchema,
   type AnalysisRun,
   type Conversation,
@@ -47,7 +48,7 @@ const runPartitionSchema = z.strictObject({ version: z.literal(2), runs: z.array
 const interimAnalysisRunSchema = analysisRunSchema.omit({ source_ids: true }).extend({ source_ids: analysisRunSchema.shape.source_ids.optional() });
 const interimRunPartitionSchema = z.strictObject({ version: z.literal(2), runs: z.array(interimAnalysisRunSchema).max(5000) });
 const sourcePartitionSchema = z.strictObject({ version: z.literal(2), sources: z.array(sourceSnapshotSchema).max(10000) });
-const policyPartitionSchema = z.strictObject({ version: z.literal(2), policies: workspaceStateSchema.shape.policies });
+const policyPartitionSchema = z.strictObject({ version: z.literal(2), policies: workspaceStateSchema.shape.policies, privacy_epoch: workspaceStateSchema.shape.privacy_epoch, deletions: workspaceStateSchema.shape.deletions });
 const outboxPartitionSchema = z.strictObject({ version: z.literal(2), turns: z.array(z.union([outboxTurnSchema, legacyOutboxTurnV1Schema])).max(2000) });
 const legacyManifestSchema = z.strictObject({ version: z.literal(1), instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), created_at: timestampSchema, migration: migrationStateSchema, partitions: z.strictObject({ journal: partitionRefSchema, chat: partitionRefSchema, run: partitionRefSchema, source: partitionRefSchema, policy: partitionRefSchema }) });
 const legacyRootSchema = z.strictObject({ version: z.literal(1), active_instance_id: idSchema, portfolio_id: idSchema, generation: z.number().int().nonnegative(), manifest_key: z.string().min(1).max(300), switched_at: timestampSchema });
@@ -186,9 +187,10 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     const storedRuns = readPartition(manifest.partitions.run, interimRunPartitionSchema, '分析').runs;
     const runs = storedRuns.map(run => analysisRunSchema.parse({ ...run, source_ids: run.source_ids ?? storedCitationIds(run.result) }));
     const sources = readPartition(manifest.partitions.source, sourcePartitionSchema, '来源').sources;
-    const policies = readPartition(manifest.partitions.policy, policyPartitionSchema, '计划').policies;
+    const policy = readPartition(manifest.partitions.policy, policyPartitionSchema, '计划');
+    const policies = policy.policies;
     const outbox = readPartition(manifest.partitions.outbox, outboxPartitionSchema, '待处理请求').turns.map(turn => turn.schema_version === 2 ? turn : outboxTurnSchema.parse({ ...turn, schema_version: 2, status: 'detached', detached_reason: '旧版本待处理请求已隔离，不会自动联网重放。' }));
-    const state = workspaceStateSchema.safeParse({ version: 3, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages, runs, sources, policies, outbox });
+    const state = workspaceStateSchema.safeParse({ version: 3, instance_id: manifest.instance_id, portfolio_id: manifest.portfolio_id, root_generation: manifest.generation, migration: manifest.migration, journal, conversations: chat.conversations, messages: chat.messages, runs, sources, policies, privacy_epoch: policy.privacy_epoch, deletions: policy.deletions, outbox });
     if (!state.success) throw Error('工作区引用损坏或版本不兼容。');
     validateWorkspaceReferences(state.data);
     return state.data;
@@ -201,7 +203,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
       chat: JSON.stringify(chatPartitionSchema.parse({ version: 2, conversations: valid.conversations, messages: valid.messages })),
       run: JSON.stringify(runPartitionSchema.parse({ version: 2, runs: valid.runs })),
       source: JSON.stringify(sourcePartitionSchema.parse({ version: 2, sources: valid.sources })),
-      policy: JSON.stringify(policyPartitionSchema.parse({ version: 2, policies: valid.policies })),
+      policy: JSON.stringify(policyPartitionSchema.parse({ version: 2, policies: valid.policies, privacy_epoch: valid.privacy_epoch, deletions: valid.deletions })),
       outbox: JSON.stringify(outboxPartitionSchema.parse({ version: 2, turns: valid.outbox })),
     };
     if (Object.values(payloads).some(text => utf8Size(text) > 800 * 1024)) throw Error('工作区单个分区超过 800 KiB，请先导出完整备份并整理旧内容。');
@@ -377,6 +379,61 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     const sourceIds = new Set(runs.flatMap(run => run.source_ids));
     return { conversation: item, messages: state.messages.filter(message => message.conversation_id === id).sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)), runs, sources: state.sources.filter(source => sourceIds.has(source.id)) };
   }
+  function historyFrom(state: WorkspaceState, date: string) {
+    const legacyIds = new Set(Object.values(state.migration.legacy_review_map));
+    const notes = heads(state.journal).filter(item => (item.type === 'personal_note' || item.type === 'user_decision') && item.journal_date === date).map(item => ({ kind: 'personal_note' as const, id: item.id, conversationId: null, role: null, text: item.body ?? '', createdAt: legacyIds.has(item.id) ? null : item.created_at, legacyDayKey: legacyIds.has(item.id) ? item.journal_date : undefined, revisionId: item.revision_id }));
+    const messages = state.messages.filter(item => shanghaiDayKey(item.created_at) === date).map(item => ({ kind: 'message' as const, id: item.id, conversationId: item.conversation_id, role: item.role, text: item.content, createdAt: item.created_at, legacyDayKey: undefined, revisionId: null }));
+    return [...notes, ...messages].sort((a, b) => String(b.createdAt ?? b.legacyDayKey).localeCompare(String(a.createdAt ?? a.legacyDayKey)) || b.id.localeCompare(a.id));
+  }
+  function history(date: string) { return historyFrom(read(), date); }
+  function calendarMonth(month: string) {
+    if (!/^\d{4}-(?:0[1-9]|1[0-2])$/.test(month)) throw Error('请选择有效月份。');
+    const state = read(), days = new Set<string>();
+    for (const item of heads(state.journal)) if ((item.type === 'personal_note' || item.type === 'user_decision') && item.journal_date.startsWith(`${month}-`)) days.add(item.journal_date);
+    for (const item of state.messages) { const day = shanghaiDayKey(item.created_at); if (day.startsWith(`${month}-`)) days.add(day); }
+    return { month, days: [...days].sort() };
+  }
+  function saveAiMessageAsNote(messageId: string, date: string, text: string) {
+    const state = read(), message = state.messages.find(item => item.id === messageId && item.role === 'assistant' && item.classification === 'ai_generated');
+    if (!message) throw Error('AI 原文不存在，无法另存为个人手记。');
+    return savePersonalNote(date, text);
+  }
+  function deletionReceipt(state: WorkspaceState, kind: 'conversation' | 'personal_note', targetId: string) {
+    const privacy_epoch = state.privacy_epoch + 1;
+    return { id: runtime.id(), kind, target_id: targetId, deleted_at: runtime.now(), privacy_epoch };
+  }
+  function removeDerivedRuns(state: WorkspaceState, runIds: Set<string>) {
+    if (!runIds.size) return state;
+    const runs = state.runs.filter(item => !runIds.has(item.id));
+    const retainedSources = new Set(runs.flatMap(item => item.source_ids));
+    return { ...state, runs, messages: state.messages.filter(item => !item.run_id || !runIds.has(item.run_id)), journal: state.journal.filter(item => item.type !== 'analysis_ref' || !item.ref_id || !runIds.has(item.ref_id)), sources: state.sources.filter(item => retainedSources.has(item.id)) };
+  }
+  function deleteConversation(id: string) {
+    let receipt!: WorkspaceState['deletions'][number];
+    mutate(state => {
+      if (!state.conversations.some(item => item.id === id)) throw Error('会话不存在或已删除。');
+      const runIds = new Set(state.runs.filter(item => item.conversation_id === id || item.source_integrity === 'legacy_unverified').map(item => item.id));
+      let next = removeDerivedRuns(state, runIds);
+      receipt = deletionReceipt(next, 'conversation', id);
+      next = { ...next, root_generation: state.root_generation + 1, privacy_epoch: receipt.privacy_epoch, deletions: [...state.deletions, receipt], conversations: next.conversations.filter(item => item.id !== id), messages: next.messages.filter(item => item.conversation_id !== id), journal: next.journal.filter(item => !(item.type === 'conversation_ref' && item.ref_id === id)), outbox: next.outbox.filter(item => item.conversation_id !== id) };
+      return next;
+    });
+    return receipt;
+  }
+  function deletePersonalNote(id: string) {
+    let receipt!: WorkspaceState['deletions'][number];
+    mutate(state => {
+      const current = heads(state.journal).find(item => item.id === id && (item.type === 'personal_note' || item.type === 'user_decision'));
+      if (!current) throw Error('个人手记不存在或已删除。');
+      const sourceIds = new Set(state.sources.filter(item => item.origin_entity_id === id).map(item => item.id));
+      const runIds = new Set(state.runs.filter(item => item.source_integrity === 'legacy_unverified' || item.source_ids.some(sourceId => sourceIds.has(sourceId))).map(item => item.id));
+      let next = removeDerivedRuns(state, runIds);
+      receipt = deletionReceipt(next, 'personal_note', id);
+      next = { ...next, root_generation: state.root_generation + 1, privacy_epoch: receipt.privacy_epoch, deletions: [...state.deletions, receipt], journal: next.journal.filter(item => item.id !== id), outbox: next.outbox.filter(item => !item.envelope.source_snapshots.some(source => source.origin_entity_id === id)) };
+      return next;
+    });
+    return receipt;
+  }
   function readPrevious() {
     const text = raw(WORKSPACE_PREVIOUS_KEY, '无法读取工作区恢复点。');
     if (!text) throw Error('还没有可用的完整工作区恢复点。');
@@ -407,7 +464,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     for (const key of [WORKSPACE_PENDING_KEY, WORKSPACE_PENDING_BEFORE_KEY, WORKSPACE_PENDING_NEXT_KEY, `${LEGACY_WORKSPACE_PREFIX}.root`]) try { storage.set(key, ''); } catch { throw Error('删除工作区待处理数据失败。'); }
     cleanupCommittedRoot(current); cleanupCommittedRoot(previous); generation++;
   }
-  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, createConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, conversation, confirmPolicy, purge };
+  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, saveAiMessageAsNote, deletePersonalNote, createConversation, deleteConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, history, calendarMonth, conversation, confirmPolicy, purge };
 }
 
 export function validateWorkspaceReferences(state: WorkspaceState) {

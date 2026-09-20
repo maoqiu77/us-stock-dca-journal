@@ -1,1 +1,4 @@
 .assistant { border-left: 8rpx solid #d6a655; }
+.container { box-sizing: border-box; height: 100vh; }
+.focused { box-shadow: 0 0 0 4rpx #d6a655 inset; }
+button.danger { color: #a14939; }

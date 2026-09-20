@@ -45,12 +45,12 @@ test('MP1 independent hand-calculation fixture survives corrections, restart and
   assert.equal(other.service.snapshot().events.length, restarted.snapshot().events.length);
 });
 
-test('MP0/MP1 fixed v1 fixture imports as v2; duplicate revisions and collisions preserve financial counts and bytes', () => {
+test('MP0/MP1 fixed v1 fixture imports as v3; duplicate revisions and collisions preserve financial counts and bytes', () => {
   const f = setup(); const s = f.service;
   assert.equal(s.previewBackup(v1).trades, 1); assert.equal(f.values.size, 0);
   s.restoreBackup(v1);
-  assert.equal(s.snapshot().version, 2);
-  const backup = JSON.parse(s.exportBackup()); assert.equal(backup.version, 2);
+  assert.equal(s.snapshot().version, 3);
+  const backup = JSON.parse(s.exportBackup()); assert.equal(backup.version, 3);
   backup.data.events.push(structuredClone(backup.data.events[0]));
   s.restoreBackup(JSON.stringify(backup));
   assert.equal(s.records().length, 1); assert.equal(s.overview().tradeCount, 1);

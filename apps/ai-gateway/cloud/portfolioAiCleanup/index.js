@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const gateway = require('./gateway.cjs');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const terminalStates = ['succeeded', 'acked', 'failed', 'expired', 'outcome_unknown'];
 const document = result => Array.isArray(result.data) ? result.data[0] : result.data;
@@ -63,5 +64,6 @@ exports.main = async event => {
     if (request?.state === 'running') continue;
     await db.collection('market_receipts_private').doc(row._id).remove(); removedReceipts++;
   }
-  return { removed, purgedRequests, removedReceipts };
+  const vision = await gateway.cleanupExpiredVisionTasks(gateway.createCloudbaseVisionTaskStore(db), { remove: fileID => cloud.deleteFile({ fileList: [fileID] }) }, now);
+  return { removed, purgedRequests, removedReceipts, vision };
 };

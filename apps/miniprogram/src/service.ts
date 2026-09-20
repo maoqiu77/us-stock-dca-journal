@@ -9,6 +9,8 @@ import type { FakeAiProvider } from './ai/fake-provider.ts';
 import { createMarketClient } from './market/client.ts';
 import type { MarketTransport } from './market/transport.ts';
 import { createMarketDiscovery } from './market/discovery.ts';
+import { sha256 } from '@portfolio/ai-context';
+import type { VisionTransport } from './vision/transport.ts';
 
 export class ServiceError extends Error {
   readonly code: string;
@@ -20,6 +22,28 @@ export type TradeInput = Guard & { kind: 'buy' | 'sell'; symbol: string; assetTy
 export type OpeningInput = Guard & { date: string; symbol: string; assetType?: AssetType; quantity: string; totalCost: string; note?: string };
 type Position = { quantity: string; cost: string; realized: string };
 export type MutationPreview = { amount: string; fee: string; net: string; availableQuantity: string; before: Position; after: Position; deltas: Position; order: { date: string; position: number; maxPosition: number }; contentToken: string; affectedPositions: Array<{ symbol: string; before: Position; after: Position }> };
+export type HoldingInput = Omit<Guard, 'expectedRevision'> & {
+  batchId: string;
+  expectedRevision: number;
+  observedAt: string;
+  instrument: { symbol: string; name: string; market: string; currency: string; assetType: 'STOCK' | 'ETF' | 'FUND'; status: 'verified' | 'unverified'; instrumentKey?: string };
+  quantity: string;
+  unitCost?: string | null;
+  replaceApproved?: boolean;
+};
+export type HoldingImportInput = Omit<Guard, 'expectedRevision'> & {
+  batchId: string;
+  expectedRevision: number;
+  observedAt: string;
+  rows: Array<{
+    rowId: string;
+    instrument: HoldingInput['instrument'];
+    quantity: string;
+    unitCost?: string | null;
+    replaceApproved?: boolean;
+    costRemovalApproved?: boolean;
+  }>;
+};
 
 function numberText(value: string, places = 12, positive = true) {
   const text = String(value ?? '').trim();
@@ -37,13 +61,21 @@ function normalizeSymbol(value: string) {
   if (!/^[A-Z0-9][A-Z0-9.-]{0,14}$/.test(symbol)) throw new ServiceError('INVALID_INPUT', '请输入有效美股代码，如 QQQ 或 AAPL。');
   return symbol;
 }
+function holdingDecimal(value: unknown, nullable = false) {
+  const raw = String(value ?? '').trim();
+  if (!raw && nullable) return null;
+  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(raw)) throw new ServiceError('INVALID_INPUT', '请输入有效数字；千分位必须完整，不能使用指数、百分号或负数。');
+  const text = raw.replaceAll(',', '').replace(/^0+(?=\d)/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '') || '0';
+  if (text.length > 40 || (text.split('.')[1]?.length ?? 0) > 12) throw new ServiceError('INVALID_INPUT', '数字格式过长，最多 12 位小数。');
+  return decimalText(decimal(text));
+}
 const ledgerMessages: Record<string, string> = {
   oversell: '卖出数量超过当时持仓；请检查日期、标的、同日顺序或后续卖出记录。',
   invalid_opening_position: '期初持仓必须位于统一期初日，且不能叠加到已有交易历史。',
   order_conflict: '同日记录顺序冲突，请重新预览后保存。',
 };
 
-export type ServiceOptions = { aiTransport?: AiTransport; fakeProvider?: FakeAiProvider; demoFactory?: (runtime: Runtime) => Snapshot; marketTransport?: MarketTransport };
+export type ServiceOptions = { aiTransport?: AiTransport; fakeProvider?: FakeAiProvider; demoFactory?: (runtime: Runtime) => Snapshot; marketTransport?: MarketTransport; visionTransport?: VisionTransport };
 export function createService(storage: StoragePort, runtime: Runtime, options: ServiceOptions = {}) {
   const repo = createRepository(storage, runtime);
   const workspace = createWorkspaceRepository(storage, runtime, { readFinancial: repo.ensurePersisted, ledgerPending: repo.pendingSave });
@@ -55,7 +87,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
   function fail(code: string, message: string): never { throw new ServiceError(code, message); }
   function active(data: Snapshot) { return activeEvents(data, runtime); }
   function uniqueId(data: Snapshot, additional: string[] = []) {
-    const ids = new Set([data.device_id, data.portfolio.id, ...additional, ...data.instruments.map(item => item.id), ...data.events.flatMap(event => [event.record_id, event.revision_id])]);
+    const ids = new Set([data.device_id, data.portfolio.id, ...additional, ...data.instruments.map(item => item.id), ...data.holding_assets.map(item => item.id), ...data.holding_checkpoints.map(item => item.id), ...data.events.flatMap(event => [event.record_id, event.revision_id])]);
     for (let attempt = 0; attempt < 100; attempt++) { const id = runtime.id(); if (!ids.has(id)) return id; }
     return fail('ID_UNAVAILABLE', '无法生成唯一记录编号，请重试。');
   }
@@ -96,6 +128,39 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
       portfolio_id: data.portfolio.id, executed_at: null, recorded_at: runtime.now(), provenance: { source: 'manual' as const, confirmed_at: runtime.now() }, voided: false };
   }
   function replay(data: Snapshot) { return projection(data, runtime); }
+  function currentPositions(data: Snapshot, ledger = replay(data)) {
+    const ledgerById = new Map(ledger.positions.map(item => [item.instrument_id, item]));
+    const visibleHeads = new Set(ledger.input_head.map(item => item.revision_id));
+    const activeRows = active(data).filter(item => !item.voided && visibleHeads.has(item.revision_id));
+    const activeByRecord = new Map(activeRows.map(item => [item.record_id, item]));
+    const checkpoints = new Map<string, Snapshot['holding_checkpoints'][number]>();
+    for (const item of data.holding_checkpoints.filter(item => Date.parse(item.observed_at) <= Date.parse(ledger.known_at))) {
+      const old = checkpoints.get(item.instrument_id);
+      if (!old || old.observed_at < item.observed_at || old.observed_at === item.observed_at) checkpoints.set(item.instrument_id, item);
+    }
+    const ids = new Set([...ledgerById.keys(), ...checkpoints.keys()]);
+    return [...ids].map(instrumentId => {
+      const base = ledgerById.get(instrumentId), checkpoint = checkpoints.get(instrumentId);
+      if (!checkpoint) return { instrumentId, quantity: base?.quantity ?? '0', remainingCost: base?.remaining_cost ?? '0', unitCost: base?.unit_cost ?? null, realized: base?.realized_pnl ?? '0', checkpoint: null, checkpointConflict: false };
+      const included = new Map(checkpoint.baseline_heads.map(item => [item.record_id, item.revision_id]));
+      const checkpointConflict = [...included].some(([recordId, revisionId]) => activeByRecord.get(recordId)?.revision_id !== revisionId);
+      let quantity = decimal(checkpoint.quantity);
+      let cost = checkpoint.unit_cost === null ? null : quantity.times(decimal(checkpoint.unit_cost));
+      const after = activeRows.filter(item => 'instrument_id' in item && item.instrument_id === instrumentId && !included.has(item.record_id) && (item.kind === 'buy' || item.kind === 'sell'));
+      for (const event of after) {
+        if (event.kind === 'buy') {
+          quantity = quantity.plus(event.quantity);
+          if (cost !== null) cost = cost.plus(decimal(event.amount)).plus(event.fee);
+        } else if (event.kind === 'sell') {
+          const sold = decimal(event.quantity);
+          if (sold.gt(quantity)) fail('HISTORY_INVALID', '校准后的真实卖出超过当前持仓，请重新校准。');
+          if (cost !== null && quantity.gt(0)) cost = cost.minus(cost.times(sold).div(quantity));
+          quantity = quantity.minus(sold);
+        }
+      }
+      return { instrumentId, quantity: decimalText(quantity), remainingCost: cost === null ? null : decimalText(cost), unitCost: cost === null || quantity.isZero() ? null : decimalText(cost.div(quantity)), realized: checkpoint ? null : base?.realized_pnl ?? '0', checkpoint, checkpointConflict };
+    });
+  }
   function projectedPosition(data: Snapshot, instrumentId: string): Position {
     const item = replay(data).positions.find(row => row.instrument_id === instrumentId);
     return { quantity: item?.quantity ?? '0', cost: money(item?.remaining_cost ?? '0'), realized: money(item?.realized_pnl ?? '0') };
@@ -124,6 +189,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     checkDate(data, input.date);
     if (input.kind !== 'buy' && input.kind !== 'sell') fail('INVALID_INPUT', '请选择买入或卖出。');
     const old = head(data, input.recordId); guard(data, input, old);
+    if (old && data.holding_checkpoints.some(item => item.baseline_heads.some(head => head.record_id === old.record_id))) fail('CHECKPOINT_CONFLICT', '该交易已包含在持仓校准中；请新建校准，不能静默改写校准前流水。');
     if (old && old.kind !== 'buy' && old.kind !== 'sell') fail('INVALID_INPUT', '记录类型不匹配。');
     const { instrument, instruments } = instrumentFor(data, input.symbol, input.assetType);
     const quantity = numberText(input.quantity), price = numberText(input.price), fee = numberText(input.fee || '0', 4, false);
@@ -131,11 +197,12 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     const draft = parseEvent({ ...base({ ...data, instruments }, old), kind: input.kind, instrument_id: instrument.id, trade_date: input.date, sequence: old?.sequence ?? 0,
       note: String(input.note ?? '').trim(), quantity, price, amount, fee });
     const order = reorder({ ...data, instruments }, draft, old, input.position);
-    return { candidate: validateCandidate({ ...data, instruments, events: order.events }), instrument, old, order: { date: input.date, position: order.position, maxPosition: order.maxPosition }, amount, fee };
+    return { candidate: validateCandidate({ ...data, instruments, events: order.events, revision: data.revision + 1 }), instrument, old, order: { date: input.date, position: order.position, maxPosition: order.maxPosition }, amount, fee };
   }
   function buildOpening(data: Snapshot, input: OpeningInput) {
     checkDate(data, input.date);
     const old = head(data, input.recordId); guard(data, input, old);
+    if (old && data.holding_checkpoints.some(item => item.baseline_heads.some(head => head.record_id === old.record_id))) fail('CHECKPOINT_CONFLICT', '该期初记录已包含在持仓校准中；请新建校准，不能静默改写。');
     if (old && old.kind !== 'opening_position') fail('INVALID_INPUT', '记录类型不匹配。');
     const openings = active(data).filter(item => item.kind === 'opening_position' && !item.voided && item.record_id !== old?.record_id);
     if (openings.some(item => item.trade_date !== input.date)) fail('OPENING_DATE_CONFLICT', '所有期初持仓必须使用同一个期初日期。');
@@ -147,7 +214,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     const draft = parseEvent({ ...base({ ...data, instruments }, old), kind: 'opening_position', instrument_id: instrument.id, trade_date: input.date, sequence,
       note: String(input.note ?? '').trim(), quantity, total_cost: totalCost });
     const order = reorder({ ...data, instruments }, draft, old, old ? undefined : openings.length);
-    const candidate = { ...data, portfolio: { ...data.portfolio, opening_date: input.date }, instruments, events: order.events };
+    const candidate = { ...data, portfolio: { ...data.portfolio, opening_date: input.date }, instruments, events: order.events, revision: data.revision + 1 };
     return { candidate: validateCandidate(candidate), instrument, order: { date: input.date, position: order.position, maxPosition: order.maxPosition }, totalCost };
   }
   function preview(data: Snapshot, candidate: Snapshot, instrumentId: string, order: MutationPreview['order'], amount: string, fee: string, net: string, availableQuantity: string): MutationPreview {
@@ -183,22 +250,129 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
   }
   function records() { const data = repo.read(); return active(data).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence).map(item => row(data, item)); }
 
-  function overview(cutoff?: { throughDate: string; knownAt: string }) {
+  function holdingAsset(data: Snapshot, input: HoldingInput) {
+    const symbol = normalizeSymbol(input.instrument.symbol), market = String(input.instrument.market ?? '').trim().toUpperCase(), currency = String(input.instrument.currency ?? '').trim().toUpperCase();
+    const name = String(input.instrument.name ?? '').trim();
+    if (!name || name.length > 120 || !/^[A-Z]{3}$/.test(currency) || !market || market.length > 32) fail('INVALID_INPUT', '请填写有效的名称、市场和三位币种代码。');
+    const metadata = data.holding_assets.find(item => item.symbol === symbol && item.market === market && item.currency === currency);
+    const legacy = data.instruments.find(item => item.symbol === symbol && market === 'US' && currency === 'USD');
+    const id = metadata?.id ?? legacy?.id ?? uniqueId(data);
+    const catalog = [...marketDiscovery.view().results, ...marketDiscovery.view().watchlist].find(item => item.instrument_key === input.instrument.instrumentKey && item.symbol === symbol && item.name === name && item.market === market && item.currency === currency && item.asset_type === input.instrument.assetType);
+    const trustedExisting = legacy || metadata?.status === 'verified' && metadata.name === name && metadata.asset_type === input.instrument.assetType;
+    const asset = { id, symbol, name, market, currency, asset_type: input.instrument.assetType, status: catalog || trustedExisting ? 'verified' as const : 'unverified' as const, confirmed_at: runtime.now() };
+    const holding_assets = [...data.holding_assets.filter(item => item.id !== id), asset];
+    let instruments = data.instruments;
+    if (!legacy && market === 'US' && currency === 'USD' && input.instrument.assetType !== 'FUND') {
+      instruments = [...instruments, { id, symbol, exchange: 'UNSPECIFIED', market: 'US' as const, quote_currency: 'USD' as const, asset_type: input.instrument.assetType, confirmed_at: runtime.now() }];
+    }
+    return { asset, holding_assets, instruments };
+  }
+  function holdingSignature(input: HoldingInput, quantity: string, unitCost: string | null) {
+    return JSON.stringify({ expectedRevision: input.expectedRevision, observedAt: input.observedAt, instrument: { symbol: normalizeSymbol(input.instrument.symbol), name: input.instrument.name.trim(), market: input.instrument.market.trim().toUpperCase(), currency: input.instrument.currency.trim().toUpperCase(), assetType: input.instrument.assetType, instrumentKey: input.instrument.instrumentKey ?? null }, quantity, unitCost });
+  }
+  function buildHolding(data: Snapshot, input: HoldingInput) {
+    if (!/^[A-Za-z0-9_-]{8,80}$/.test(String(input.batchId ?? ''))) fail('INVALID_INPUT', '本次保存标识无效，请重新打开表单。');
+    const quantity = holdingDecimal(input.quantity)!;
+    const unitCost = holdingDecimal(input.unitCost, true);
+    if (!Number.isSafeInteger(input.expectedRevision)) fail('REVISION_CONFLICT', '持仓版本无效，请刷新后重试。');
+    if (!Number.isFinite(Date.parse(input.observedAt)) || new Date(input.observedAt).toISOString() !== input.observedAt || input.observedAt > runtime.now()) fail('INVALID_INPUT', '当前持仓日期无效。');
+    const signature = holdingSignature(input, quantity, unitCost);
+    const receipt = data.import_receipts.find(item => item.batch_id === input.batchId);
+    if (receipt) {
+      if (receipt.payload_signature !== signature) fail('IDEMPOTENCY_CONFLICT', '重复保存标识对应了不同内容，已拒绝冲突写入。');
+      return { kind: 'already_applied' as const, candidate: data, receipt, contentToken: snapshotToken(data) };
+    }
+    guard(data, { contentToken: input.contentToken });
+    if (input.expectedRevision !== data.revision) fail('REVISION_CONFLICT', '持仓已变化，请重新查看旧值和新值后确认。');
+    const resolved = holdingAsset(data, input);
+    const before = currentPositions(data).find(item => item.instrumentId === resolved.asset.id);
+    if (before && !input.replaceApproved) fail('CONFIRM_REPLACE', '已有持仓必须明确确认旧值到新值。');
+    if (!before && quantity === '0') fail('INVALID_INPUT', '新持仓数量必须大于零。');
+    const baseline_heads = active(data).map(item => ({ record_id: item.record_id, revision_id: item.revision_id }));
+    const checkpoint = { id: uniqueId(data, [resolved.asset.id]), instrument_id: resolved.asset.id, quantity, unit_cost: unitCost, observed_at: input.observedAt, baseline_heads, source: 'manual' as const, batch_id: input.batchId, history_coverage: before ? 'reconciled' as const : 'snapshot_only' as const };
+    const resulting_revision = data.revision + 1;
+    const nextReceipt = { batch_id: input.batchId, payload_signature: signature, resulting_revision };
+    const candidate = validateCandidate({ ...data, instruments: resolved.instruments, holding_assets: resolved.holding_assets, holding_checkpoints: [...data.holding_checkpoints, checkpoint], import_receipts: [...data.import_receipts, nextReceipt], revision: resulting_revision });
+    return { kind: 'commit' as const, candidate, receipt: nextReceipt, contentToken: snapshotToken(data) };
+  }
+
+  function buildHoldingImport(data: Snapshot, input: HoldingImportInput) {
+    if (!/^[A-Za-z0-9_-]{8,80}$/.test(String(input.batchId ?? ''))) fail('INVALID_INPUT', '本次导入标识无效，请重新选择截图。');
+    if (!Array.isArray(input.rows) || input.rows.length < 1 || input.rows.length > 20) fail('INVALID_INPUT', '每次只能导入 1–20 项持仓。');
+    if (!Number.isSafeInteger(input.expectedRevision)) fail('REVISION_CONFLICT', '持仓版本无效，请刷新后重试。');
+    if (!Number.isFinite(Date.parse(input.observedAt)) || new Date(input.observedAt).toISOString() !== input.observedAt || input.observedAt > runtime.now()) fail('INVALID_INPUT', '当前持仓日期无效。');
+    const normalized = input.rows.map(row => {
+      const rowId = String(row.rowId ?? '').trim();
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(rowId)) fail('INVALID_INPUT', '识别行标识无效。');
+      return { ...row, rowId, quantity: holdingDecimal(row.quantity)!, unitCost: holdingDecimal(row.unitCost, true) };
+    });
+    if (new Set(normalized.map(row => row.rowId)).size !== normalized.length) fail('INVALID_INPUT', '识别结果包含重复行。');
+    const identities = normalized.map(row => `${normalizeSymbol(row.instrument.symbol)}|${String(row.instrument.market).trim().toUpperCase()}|${String(row.instrument.currency).trim().toUpperCase()}`);
+    if (new Set(identities).size !== identities.length) fail('DUPLICATE_INSTRUMENT', '同一截图中存在重复标的，请只保留正确的一行，不会自动相加。');
+    const signature = sha256(JSON.stringify({ expectedRevision: input.expectedRevision, observedAt: input.observedAt, rows: normalized.map(row => ({ rowId: row.rowId, instrument: { symbol: normalizeSymbol(row.instrument.symbol), name: row.instrument.name.trim(), market: row.instrument.market.trim().toUpperCase(), currency: row.instrument.currency.trim().toUpperCase(), assetType: row.instrument.assetType, instrumentKey: row.instrument.instrumentKey ?? null }, quantity: row.quantity, unitCost: row.unitCost, replaceApproved: !!row.replaceApproved, costRemovalApproved: !!row.costRemovalApproved })) }));
+    const receipt = data.import_receipts.find(item => item.batch_id === input.batchId);
+    if (receipt) {
+      if (receipt.payload_signature !== signature) fail('IDEMPOTENCY_CONFLICT', '本次导入内容已变化，请重新检查。');
+      const current = new Map(currentPositions(data).map(item => [item.instrumentId, item]));
+      const rows = data.holding_checkpoints.filter(item => item.batch_id === input.batchId).map(item => { const value = current.get(item.instrument_id); const result = { quantity: value?.quantity ?? item.quantity, unitCost: value?.unitCost ?? item.unit_cost }; return { rowId: item.id, instrumentId: item.instrument_id, before: result, after: result }; });
+      return { kind: 'already_applied' as const, candidate: data, receipt, rows, contentToken: snapshotToken(data) };
+    }
+    guard(data, { contentToken: input.contentToken });
+    if (input.expectedRevision !== data.revision) fail('REVISION_CONFLICT', '持仓刚刚有变化，请确认本次更新差异。');
+    const beforeRows = new Map(currentPositions(data).map(item => [item.instrumentId, item]));
+    const baseline_heads = active(data).map(item => ({ record_id: item.record_id, revision_id: item.revision_id }));
+    let candidate = data;
+    const checkpoints: Snapshot['holding_checkpoints'] = [];
+    const previews: Array<{ rowId: string; before: { quantity: string; unitCost: string | null }; after: { quantity: string; unitCost: string | null }; instrumentId: string }> = [];
+    for (const row of normalized) {
+      const resolved = holdingAsset(candidate, { batchId: input.batchId, expectedRevision: input.expectedRevision, observedAt: input.observedAt, instrument: row.instrument, quantity: row.quantity, unitCost: row.unitCost });
+      const before = beforeRows.get(resolved.asset.id);
+      if (before && !row.replaceApproved) fail('CONFIRM_REPLACE', `已有持仓 ${resolved.asset.symbol} 必须明确确认旧值到新值。`);
+      if (!before && row.quantity === '0') fail('INVALID_INPUT', '新持仓数量必须大于零。');
+      let unitCost = row.unitCost;
+      if (before && unitCost === null && row.quantity === before.quantity) unitCost = before.unitCost;
+      if (before && before.unitCost !== null && unitCost === null && row.quantity !== before.quantity && !row.costRemovalApproved) fail('CONFIRM_COST_UNKNOWN', `${resolved.asset.symbol} 数量已变化且成本将从已知变为未知，请明确确认。`);
+      const checkpoint = { id: uniqueId(candidate, [resolved.asset.id, ...checkpoints.map(item => item.id)]), instrument_id: resolved.asset.id, quantity: row.quantity, unit_cost: unitCost, observed_at: input.observedAt, baseline_heads, source: 'screenshot' as const, batch_id: input.batchId, history_coverage: before ? 'reconciled' as const : 'snapshot_only' as const };
+      checkpoints.push(checkpoint);
+      previews.push({ rowId: row.rowId, instrumentId: resolved.asset.id, before: { quantity: before?.quantity ?? '0', unitCost: before?.unitCost ?? null }, after: { quantity: row.quantity, unitCost } });
+      candidate = { ...candidate, instruments: resolved.instruments, holding_assets: resolved.holding_assets, holding_checkpoints: [...candidate.holding_checkpoints, checkpoint] };
+    }
+    const resulting_revision = data.revision + 1;
+    const nextReceipt = { batch_id: input.batchId, payload_signature: signature, resulting_revision };
+    candidate = validateCandidate({ ...candidate, import_receipts: [...candidate.import_receipts, nextReceipt], revision: resulting_revision });
+    return { kind: 'commit' as const, candidate, receipt: nextReceipt, rows: previews, contentToken: snapshotToken(data) };
+  }
+
+  function overview(cutoff?: { throughDate: string; knownAt: string }, requestedCurrency?: string) {
     const data = repo.read(), projected = cutoff ? projection(data, runtime, { through_date: cutoff.throughDate, known_at: cutoff.knownAt }) : projection(data, runtime), state = clockState(data, runtime);
-    const held = projected.positions.filter(item => calculated(item.quantity).gt(0)), instruments = held.map(item => data.instruments.find(candidate => candidate.id === item.instrument_id)!), market = marketClient.snapshot(instruments), { observations: _marketObservations, ...marketView } = market;
+    const current = currentPositions(data, projected).filter(item => calculated(item.quantity).gt(0));
+    const assetById = new Map(data.holding_assets.map(item => [item.id, item]));
+    const currencyOf = (id: string) => assetById.get(id)?.currency ?? 'USD';
+    const currencies = [...new Set(current.map(item => currencyOf(item.instrumentId)))].sort();
+    const selectedCurrency = requestedCurrency && currencies.includes(requestedCurrency) ? requestedCurrency : currencies.includes('CNY') ? 'CNY' : currencies[0] ?? data.portfolio.base_currency;
+    const held = current.filter(item => currencyOf(item.instrumentId) === selectedCurrency);
+    const instruments = held.map(item => data.instruments.find(candidate => candidate.id === item.instrumentId)).filter((item): item is Snapshot['instruments'][number] => !!item);
+    const market = marketClient.snapshot(instruments), { observations: _marketObservations, ...marketView } = market;
     const valuation = valuePortfolio(projected, data.mode === 'demo' ? [] : market.observations, { as_of: projected.known_at, max_age_ms: 20 * 60 * 1000 });
     const valued = new Map(valuation.positions.map(item => [item.instrument_id, item]));
-    const positions = held.map(item => { const instrument = data.instruments.find(candidate => candidate.id === item.instrument_id)!, value = valued.get(item.instrument_id), marketRow = market.instruments.find(candidate => candidate.id === item.instrument_id); return { id: item.instrument_id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: item.quantity, cost: money(item.remaining_cost), unitCost: item.unit_cost ? calculated(item.unit_cost).toFixed(4) : '—', realized: money(item.realized_pnl), marketPrice: value?.quote?.price ?? null, marketValue: value?.market_value ? money(value.market_value) : null, unrealized: value?.unrealized_pnl ? money(value.unrealized_pnl) : null, weightExCash: value?.position_weight_ex_cash ? `${calculated(value.position_weight_ex_cash).times(100).toFixed(2)}%` : null, quoteAsOf: value?.quote?.as_of ?? null, quoteFreshness: marketRow?.stale ? 'stale' : value?.quote ? 'current' : 'unavailable', mappingStatus: marketRow?.mapping ?? 'not_found', attribution: marketRow?.quote?.attribution ?? '' }; });
-    return { mode: data.mode, positions, totalCost: money(projected.positions.reduce((sum, item) => sum.plus(item.remaining_cost), decimal('0')).toString()), realized: money(projected.realized_pnl), cash: projected.cash,
-      marketValue: valuation.stock_coverage.current_complete && held.length ? money(valuation.covered_market_value) : null, coveredMarketValue: valuation.stock_coverage.covered ? money(valuation.covered_market_value) : null, netValue: valuation.net_value ? money(valuation.net_value) : null, market: marketView, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
+    const observations = new Map(market.observations.map(item => [item.instrument_id, item]));
+    const positions = held.map(item => { const legacy = data.instruments.find(candidate => candidate.id === item.instrumentId), asset = assetById.get(item.instrumentId), value = valued.get(item.instrumentId), observation = observations.get(item.instrumentId), marketRow = market.instruments.find(candidate => candidate.id === item.instrumentId); const marketPrice = value?.quote?.price ?? observation?.price ?? null; const marketValue = marketPrice ? money(decimal(item.quantity).times(marketPrice).toString()) : null; const unrealized = marketValue !== null && item.remainingCost !== null ? money(calculated(marketValue).minus(item.remainingCost).toString()) : null; return { id: item.instrumentId, name: asset?.name ?? legacy?.symbol ?? '', symbol: asset?.symbol ?? legacy?.symbol ?? '', market: asset?.market ?? 'US', currency: asset?.currency ?? 'USD', status: asset?.status ?? 'verified', assetType: asset?.asset_type ?? legacy?.asset_type ?? 'ETF', quantity: item.quantity, cost: item.remainingCost === null ? null : money(item.remainingCost), unitCost: item.unitCost ? calculated(item.unitCost).toFixed(4) : null, realized: item.realized === null ? null : money(item.realized), marketPrice, marketValue, unrealized, weightExCash: value?.position_weight_ex_cash ? `${calculated(value.position_weight_ex_cash).times(100).toFixed(2)}%` : null, quoteAsOf: value?.quote?.as_of ?? observation?.as_of ?? null, quoteFreshness: marketRow?.stale ? 'stale' : marketPrice ? 'current' : 'unavailable', mappingStatus: marketRow?.mapping ?? 'not_found', attribution: marketRow?.quote?.attribution ?? '', checkpoint: !!item.checkpoint, checkpointConflict: item.checkpointConflict }; });
+    const completeMarket = positions.length > 0 && positions.every(item => item.marketValue !== null);
+    const marketValue = completeMarket ? money(positions.reduce((sum, item) => sum.plus(item.marketValue!), decimal('0')).toString()) : null;
+    const completePnl = completeMarket && positions.every(item => item.unrealized !== null);
+    const unrealizedPnl = completePnl ? money(positions.reduce((sum, item) => sum.plus(item.unrealized!), decimal('0')).toString()) : null;
+    return { mode: data.mode, positions, currencies, selectedCurrency, totalCost: money(held.reduce((sum, item) => item.remainingCost === null ? sum : sum.plus(item.remainingCost), decimal('0')).toString()), realized: money(projected.realized_pnl), cash: projected.cash, unrealizedPnl,
+      marketValue, coveredMarketValue: positions.some(item => item.marketValue !== null) ? money(positions.reduce((sum, item) => item.marketValue === null ? sum : sum.plus(item.marketValue), decimal('0')).toString()) : null, netValue: null, market: { ...marketView, total: positions.length, covered: positions.filter(item => item.marketValue !== null).length }, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
       clockAnomaly: state.clock_anomaly, throughDate: projected.through_date, knownAt: projected.known_at };
   }
   function positionDetail(idOrSymbol: string) {
-    const data = repo.read(), instrument = data.instruments.find(item => item.id === idOrSymbol || item.symbol === idOrSymbol.trim().toUpperCase()); if (!instrument) return fail('NOT_FOUND', '标的不存在。');
-    const projected = replay(data).positions.find(item => item.instrument_id === instrument.id), related = active(data).filter(item => 'instrument_id' in item && item.instrument_id === instrument.id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position' && !item.voided);
+    const data = repo.read(), normalized = idOrSymbol.trim().toUpperCase();
+    const asset = data.holding_assets.find(item => item.id === idOrSymbol || item.symbol === normalized), instrument = data.instruments.find(item => item.id === (asset?.id ?? idOrSymbol) || item.symbol === normalized);
+    if (!asset && !instrument) return fail('NOT_FOUND', '标的不存在。');
+    const id = asset?.id ?? instrument!.id, projected = currentPositions(data).find(item => item.instrumentId === id), related = active(data).filter(item => 'instrument_id' in item && item.instrument_id === id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position' && !item.voided);
     const time = clockState(data, runtime);
-    const priced = overview().positions.find(item => item.id === instrument.id), marketIdentity = marketClient.snapshot([instrument]).instruments[0]?.canonicalInstrument ?? null;
-    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id: instrument.id, symbol: instrument.symbol, assetType: instrument.asset_type, quantity: projected?.quantity ?? '0', cost: money(projected?.remaining_cost ?? '0'), unitCost: projected?.unit_cost ? calculated(projected.unit_cost).toFixed(4) : '—', realized: money(projected?.realized_pnl ?? '0'), marketPrice: priced?.marketPrice ?? null, marketValue: priced?.marketValue ?? null, unrealized: priced?.unrealized ?? null, weightExCash: priced?.weightExCash ?? null, quoteAsOf: priced?.quoteAsOf ?? null, quoteFreshness: priced?.quoteFreshness ?? 'unavailable', mappingStatus: priced?.mappingStatus ?? 'not_found', attribution: priced?.attribution ?? '', marketIdentity, opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean) };
+    const currency = asset?.currency ?? 'USD', priced = overview(undefined, currency).positions.find(item => item.id === id), marketIdentity = instrument ? marketClient.snapshot([instrument]).instruments[0]?.canonicalInstrument ?? null : null;
+    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id, name: asset?.name ?? instrument!.symbol, symbol: asset?.symbol ?? instrument!.symbol, currency, market: asset?.market ?? 'US', status: asset?.status ?? 'verified', assetType: asset?.asset_type ?? instrument!.asset_type, quantity: projected?.quantity ?? '0', cost: projected?.remainingCost === null ? null : money(projected?.remainingCost ?? '0'), unitCost: projected?.unitCost ? calculated(projected.unitCost).toFixed(4) : null, realized: projected?.realized === null ? null : money(projected?.realized ?? '0'), marketPrice: priced?.marketPrice ?? null, marketValue: priced?.marketValue ?? null, unrealized: priced?.unrealized ?? null, weightExCash: priced?.weightExCash ?? null, quoteAsOf: priced?.quoteAsOf ?? null, quoteFreshness: priced?.quoteFreshness ?? 'unavailable', mappingStatus: priced?.mappingStatus ?? 'not_found', attribution: priced?.attribution ?? '', marketIdentity, opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean), checkpoint: !!projected?.checkpoint, checkpointConflict: projected?.checkpointConflict ?? false };
   }
   function journalTimeline(date: string) {
     const state = workspace.read(), runs = new Map(state.runs.map(item => [item.id, item]));
@@ -216,7 +390,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     journal: () => workspace,
     workspacePending: workspace.pendingSave, verifyWorkspacePending: workspace.verifyPending, retryWorkspacePending: workspace.retryPending,
     journalTimeline,
-    async refreshMarket() { const data = repo.read(), projected = projection(data, runtime), heldIds = new Set(projected.positions.filter(item => calculated(item.quantity).gt(0)).map(item => item.instrument_id)); await marketClient.refresh(data.instruments.filter(item => heldIds.has(item.id))); },
+    async refreshMarket() { const data = repo.read(), heldIds = new Set(currentPositions(data).filter(item => calculated(item.quantity).gt(0)).map(item => item.instrumentId)); await marketClient.refresh(data.instruments.filter(item => heldIds.has(item.id))); },
     invalidateMarketRequest: marketClient.invalidate,
     clearMarketCache: marketClient.clear,
     searchMarket: marketDiscovery.search,
@@ -225,6 +399,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     addWatchlist: marketDiscovery.add,
     removeWatchlist: marketDiscovery.remove,
     marketBars: marketDiscovery.loadBars,
+    vision: () => options.visionTransport,
     async prepareAnalysisMarket(mode: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up', symbol?: string) {
       if (!options.marketTransport?.prepareAnalysisSnapshot) return null;
       const data = repo.read(), projected = projection(data, runtime);
@@ -251,6 +426,10 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     saveTrade(input: TradeInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildTrade(data, input).candidate); },
     previewOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(), built = buildOpening(data, input); return preview(data, built.candidate, built.instrument.id, built.order, built.totalCost, '0', decimal(built.totalCost).negated().toString(), '0'); },
     saveOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildOpening(data, input).candidate); },
+    previewHolding(input: HoldingInput) { repo.assertWritable(); const data = repo.read(), built = buildHolding(data, input); if (built.kind === 'already_applied') { const row = currentPositions(data).find(item => data.import_receipts.some(receipt => receipt.batch_id === input.batchId) && data.holding_checkpoints.some(checkpoint => checkpoint.batch_id === input.batchId && checkpoint.instrument_id === item.instrumentId)); return { before: { quantity: row?.quantity ?? '0', unitCost: row?.unitCost ?? null }, after: { quantity: row?.quantity ?? '0', unitCost: row?.unitCost ?? null }, createsTrade: false, alreadyApplied: true, contentToken: built.contentToken }; } const next = currentPositions(built.candidate).find(item => built.candidate.holding_checkpoints.at(-1)?.instrument_id === item.instrumentId)!; const prior = currentPositions(data).find(item => item.instrumentId === next.instrumentId); return { before: { quantity: prior?.quantity ?? '0', unitCost: prior?.unitCost ?? null }, after: { quantity: next.quantity, unitCost: next.unitCost }, createsTrade: false, alreadyApplied: false, contentToken: built.contentToken }; },
+    saveHolding(input: HoldingInput) { repo.assertWritable(); const data = repo.read(), built = buildHolding(data, input); if (built.kind === 'already_applied') return { kind: 'already_applied' as const, revision: built.receipt.resulting_revision }; repo.write(built.candidate); return { kind: 'committed' as const, revision: built.receipt.resulting_revision }; },
+    previewHoldingImport(input: HoldingImportInput) { repo.assertWritable(); const built = buildHoldingImport(repo.read(), input); return { rows: built.rows, createsTrade: false, alreadyApplied: built.kind === 'already_applied', contentToken: built.contentToken }; },
+    saveHoldingImport(input: HoldingImportInput) { repo.assertWritable(); const built = buildHoldingImport(repo.read(), input); if (built.kind === 'already_applied') return { kind: 'already_applied' as const, revision: built.receipt.resulting_revision, imported: built.rows.length }; repo.write(built.candidate); return { kind: 'committed' as const, revision: built.receipt.resulting_revision, imported: built.rows.length }; },
     overview,
     revisionHistory(id: string) {
       const data = repo.read(), latest = head(data, id);
@@ -264,7 +443,8 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     positionDetail,
     voidTrade(id: string, expectedRevision?: string) {
       const data = repo.read(); checkDate(data, runtime.today()); const event = head(data, id); if (!event || event.voided) fail('NOT_FOUND', '记录不存在或已经作废。'); if (expectedRevision && expectedRevision !== event.revision_id) fail('STALE_REVISION', '该记录已被更正，请刷新后重试。');
-      const revised = parseEvent({ ...event, revision_id: uniqueId(data), parent_revision: event.revision_id, recorded_at: runtime.now(), provenance: { ...event.provenance, confirmed_at: runtime.now() }, voided: true }); repo.write(validateCandidate({ ...data, events: [...data.events, revised] }));
+      if (data.holding_checkpoints.some(item => item.baseline_heads.some(head => head.record_id === id))) fail('CHECKPOINT_CONFLICT', '该交易已包含在持仓校准中；请先重新校准当前持仓，不能静默改写。');
+      const revised = parseEvent({ ...event, revision_id: uniqueId(data), parent_revision: event.revision_id, recorded_at: runtime.now(), provenance: { ...event.provenance, confirmed_at: runtime.now() }, voided: true }); repo.write(validateCandidate({ ...data, events: [...data.events, revised], revision: data.revision + 1 }));
     },
     saveReview(date: string, text: string) { const data = repo.read(); checkDate(data, date); const trimmed = text.trim(); if (!trimmed || trimmed.length > 4000) fail('INVALID_INPUT', '请填写 1–4000 字的复盘内容。'); repo.write({ ...data, reviews: [...data.reviews.filter(item => item.date !== date), { date, text: trimmed, updated_at: runtime.now() }].sort((a, b) => b.date.localeCompare(a.date)) }); },
     exportBackup: repo.exportBackup, exportRaw: repo.exportRaw,

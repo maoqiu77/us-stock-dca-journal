@@ -1,6 +1,15 @@
 <view class="container">
-  <view class="eyebrow">AI RESEARCH</view><view class="title">AI 投研</view><view class="subtitle">先查看本次将使用的信息，再确认开始分析。</view>
+  <view class="eyebrow">AI JOURNAL</view><view class="row"><view class="title">AI 手记</view><button class="link" bindtap="newConversation">新对话</button></view><view class="subtitle">个人记录保存在本地；只有预览并确认后，所选内容才会发送给云端 AI。</view>
   <view class="demo">{{capability.label}}</view><view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="quick-actions"><button class="secondary small" bindtap="startNote">记一条</button><button class="secondary small" bindtap="toggleHistory">{{historyOpen ? '收起历史' : '日历 / 历史'}}</button></view>
+  <view wx:if="{{noteOpen}}" class="card"><view class="symbol">个人手记</view><view class="muted">不会自动发送给 AI</view><textarea value="{{noteText}}" maxlength="10000" bindinput="onNote" placeholder="记录今天的观察和决定"/><view class="actions"><button class="secondary" bindtap="cancelNote">取消</button><button class="primary" bindtap="saveNote">保存</button></view></view>
+  <view wx:if="{{historyOpen}}" class="card">
+    <view class="row"><button class="link" bindtap="previousMonth">上月</button><view class="symbol">{{month}}</view><button class="link" bindtap="nextMonth">下月</button></view>
+    <view class="calendar"><button wx:for="{{calendarDays}}" wx:key="day" class="day {{item.hasItems ? 'marked' : ''}} {{selectedDate === item.day ? 'selected' : ''}}" data-day="{{item.day}}" bindtap="selectHistoryDay">{{item.label}}</button></view>
+    <view class="section">{{selectedDate}} 历史</view><view wx:if="{{!historyItems.length}}" class="empty muted">这一天还没有记录。</view>
+    <view wx:for="{{historyItems}}" wx:key="id" class="history-item"><view class="badge">{{item.kind === 'personal_note' ? '个人手记' : (item.role === 'assistant' ? 'AI' : '我')}}</view><view class="note">{{item.text || item.body}}</view><view class="row"><button wx:if="{{item.conversationId}}" class="link" data-id="{{item.id}}" bindtap="openHistoryItem">打开会话</button><button wx:if="{{item.kind === 'personal_note'}}" class="link danger" data-id="{{item.id}}" bindtap="deleteHistoryItem">删除</button></view></view>
+  </view>
+  <view class="section">向 AI 提问</view>
   <view class="task-grid"><button class="{{mode === 'portfolio_review' ? 'primary' : 'secondary'}}" bindtap="selectPortfolio">分析我的持仓</button><button class="{{mode === 'instrument_research' ? 'primary' : 'secondary'}}" bindtap="selectInstrument">研究一只股票</button></view>
   <view class="card">
     <view wx:if="{{mode === 'instrument_research'}}" class="field"><view class="label">已确认的代码</view><input value="{{symbol}}" maxlength="15" bindinput="onSymbol" placeholder="例如 AAPL"/></view>

@@ -13,6 +13,7 @@ function boot(service, options = {}) {
     setNavigationBarTitle: () => {},
     showToast: value => calls.notices.push(value),
     showModal: value => { calls.notices.push(value); value.success?.({ confirm: true }); },
+    showActionSheet: value => value.success?.({ tapIndex: 0 }),
     setClipboardData: value => { calls.clipboard.push(value.data); value.success?.(); },
     getFileSystemManager: () => ({ writeFile: value => value.success?.() }),
     shareFileMessage: () => {}, env: { USER_DATA_PATH: '/tmp' },
@@ -27,7 +28,7 @@ test('overview exposes first-use choices and never renders fake totals during a 
   assert.equal(page.data.clockAnomaly.asOf, '2026-09-09T23:59:59+08:00');
   assert.equal(page.data.view, null);
   page.startWithOpening(); page.startWithTrade();
-  assert.deepEqual(env.calls.navigate, ['/pages/opening/index', '/pages/entry/index']);
+  assert.deepEqual(env.calls.navigate, ['/pages/holding-editor/index', '/pages/entry/index']);
 });
 
 test('entry autofills existing type, previews selected same-day order, and commits the exact preview token', () => {

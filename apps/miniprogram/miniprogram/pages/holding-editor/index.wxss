@@ -1,0 +1,2 @@
+/* Shared visual tokens are defined in app.wxss. */
+.choice { display: flex; gap: 16rpx; flex-wrap: wrap; }

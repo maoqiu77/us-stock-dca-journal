@@ -56,7 +56,10 @@ function fixture(retention = '86400000') {
   const exports: any = {};
   class Clock extends Date { static now() { return Date.parse(now); } }
   runInNewContext(readFileSync(new URL('../cloud/portfolioAiCleanup/index.js', import.meta.url), 'utf8'), {
-    exports, require: (name: string) => { assert.equal(name, 'wx-server-sdk'); return { init() {}, DYNAMIC_CURRENT_ENV: 'test', database: () => db }; },
+    exports, require: (name: string) => {
+      if (name === './gateway.cjs') return { createCloudbaseVisionTaskStore: () => ({}), cleanupExpiredVisionTasks: async () => ({ inspected: 0, removed: 0, pending: 0 }) };
+      assert.equal(name, 'wx-server-sdk'); return { init() {}, DYNAMIC_CURRENT_ENV: 'test', database: () => db };
+    },
     process: { env: { CLEANUP_JOB_TOKEN: 'synthetic-test-token', AI_PAYLOAD_RETENTION_MS: retention } }, Date: Clock,
   });
   return { main: exports.main, rows, reads: () => reads };

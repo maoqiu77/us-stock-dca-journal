@@ -1,1 +1,3 @@
 /* Shared visual tokens are defined in app.wxss. */
+.right { text-align: right; min-width: 180rpx; }
+.holding-name { max-width: 380rpx; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

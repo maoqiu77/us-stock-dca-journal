@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { activeEvents, clockState, emptySnapshot, projection, validateSnapshot } from '../src/model.ts';
+import { activeEvents, clockState, emptySnapshot, migrateV2Snapshot, projection, snapshotV2Schema, validateSnapshot } from '../src/model.ts';
 import { createRepository, MIGRATION_KEY, STORAGE_KEY, type StoragePort } from '../src/repository.ts';
 
 const v1BackupText = readFileSync(new URL('./fixtures/v1-backup.json', import.meta.url), 'utf8');
@@ -14,13 +14,13 @@ function memory(initial: Record<string, string> = {}) {
   return { values, storage };
 }
 
-test('strict v1 parsing migrates deterministically to v2 and protects original bytes before switching', () => {
+test('strict v1 parsing migrates deterministically to v3 and protects original bytes before switching', () => {
   const raw = JSON.stringify(JSON.parse(v1BackupText).data);
   const f = memory({ [STORAGE_KEY]: raw });
   const data = createRepository(f.storage, fixed()).read();
-  assert.equal(data.version, 2);
+  assert.equal(data.version, 3);
   assert.equal(f.values.get(MIGRATION_KEY), raw);
-  assert.equal(JSON.parse(f.values.get(STORAGE_KEY)!).version, 2);
+  assert.equal(JSON.parse(f.values.get(STORAGE_KEY)!).version, 3);
   const again = memory({ [STORAGE_KEY]: raw });
   assert.deepEqual(createRepository(again.storage, fixed()).read(), data);
   assert.equal(again.values.get(STORAGE_KEY), f.values.get(STORAGE_KEY));
@@ -83,16 +83,17 @@ test('external imports reject future facts but trusted recovery validates their 
   envelope.data.events[0].provenance.confirmed_at = '2026-09-11T12:00:00.000Z';
   const repo = createRepository(memory().storage, fixed());
   assert.throws(() => repo.parseBackup(JSON.stringify(envelope)), /2026-09-11.*QQQ/);
-  assert.doesNotThrow(() => validateSnapshot(envelope.data, fixed()));
+  const migrated = migrateV2Snapshot(snapshotV2Schema.parse(envelope.data));
+  assert.doesNotThrow(() => validateSnapshot(migrated, fixed()));
   envelope.data.events.push({ ...envelope.data.events[0], revision_id: '10000000-0000-4000-8000-000000000006', parent_revision: '10000000-0000-4000-8000-999999999999' });
-  assert.throws(() => validateSnapshot(envelope.data, fixed()), /10000000-0000-4000-8000-000000000004/);
+  assert.throws(() => validateSnapshot(migrateV2Snapshot(snapshotV2Schema.parse(envelope.data)), fixed()), /10000000-0000-4000-8000-000000000004/);
 });
 
 test('write verifies persisted bytes and accepts a host that throws after a successful write', () => {
   const f = memory(); const data = emptySnapshot(fixed());
   const storage: StoragePort = { get: f.storage.get, set(key, value) { f.storage.set(key, value); throw Error('late host error'); } };
   assert.doesNotThrow(() => createRepository(storage, fixed()).write(data));
-  assert.equal(JSON.parse(f.values.get(STORAGE_KEY)!).version, 2);
+  assert.equal(JSON.parse(f.values.get(STORAGE_KEY)!).version, 3);
   const broken = memory();
   const drops: StoragePort = { get: broken.storage.get, set() {} };
   assert.throws(() => createRepository(drops, fixed()).write(data), /核验/);
@@ -113,7 +114,7 @@ test('Shanghai calendar date does not create a false timestamp anomaly before UT
 
 test('external backup rejects a future portfolio opening date even when it has no events', () => {
   const runtime = fixed(); const data = emptySnapshot(runtime); data.portfolio.opening_date = '2026-09-11';
-  const envelope = JSON.stringify({ format: 'portfolio-wechat-backup', version: 2, data });
+  const envelope = JSON.stringify({ format: 'portfolio-wechat-backup', version: 3, data });
   assert.throws(() => createRepository(memory().storage, runtime).parseBackup(envelope), /2026-09-11/);
 });
 

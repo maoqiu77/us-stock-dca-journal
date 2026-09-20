@@ -1,0 +1,27 @@
+<view class="container">
+  <view class="title">截图导入</view><view class="subtitle">先选图，再检查每一行。识别结果绝不会自动写入持仓。</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{!capability.enabled || !capability.providerConfigured}}" class="demo">截图识别暂不可用，可返回手动添加。</view>
+  <view wx:if="{{stage === 'select'}}" class="card">
+    <image wx:if="{{imagePath}}" class="preview-image" src="{{imagePath}}" mode="aspectFit"/>
+    <view class="note">请先遮挡姓名、账号等信息。一次一张，压缩后不超过 4 MiB。</view>
+    <view class="actions"><button class="secondary" bindtap="chooseImage">{{imagePath ? '重新选图' : '选择截图'}}</button><button class="primary" loading="{{busy}}" disabled="{{busy || !imagePath || !capability.enabled || !capability.providerConfigured}}" bindtap="startRecognition">开始识别</button></view>
+  </view>
+  <block wx:if="{{stage === 'review'}}">
+    <view class="row section"><text>检查识别结果</text><button class="link" bindtap="chooseImage">重新选图</button></view>
+    <view wx:for="{{rows}}" wx:key="rowId" class="card">
+      <view class="row"><view class="symbol">{{item.name || '需要确认标的'}}</view><button class="small {{item.selected ? 'primary' : 'secondary'}}" data-index="{{index}}" bindtap="toggleRow">{{item.selected ? '已选' : '未选'}}</button></view>
+      <view class="field"><view class="label">名称</view><input value="{{item.name}}" data-index="{{index}}" data-field="name" bindinput="onRowField"/></view>
+      <view class="field"><view class="label">代码</view><input value="{{item.symbol}}" data-index="{{index}}" data-field="symbol" bindinput="onRowField"/></view>
+      <view class="row compact"><view class="field half"><view class="label">数量</view><input value="{{item.quantity}}" data-index="{{index}}" data-field="quantity" bindinput="onRowField"/></view><view class="field half"><view class="label">成本</view><input value="{{item.unitCost}}" data-index="{{index}}" data-field="unitCost" bindinput="onRowField"/></view></view>
+      <view class="row compact"><view class="field half"><view class="label">市场</view><input value="{{item.market}}" data-index="{{index}}" data-field="market" bindinput="onRowField"/></view><view class="field half"><view class="label">币种</view><input value="{{item.currency}}" data-index="{{index}}" data-field="currency" bindinput="onRowField"/></view></view>
+      <view class="label">类型</view><view class="type-row"><button class="small {{item.assetType === 'STOCK' ? 'primary' : 'secondary'}}" data-index="{{index}}" data-type="STOCK" bindtap="setAssetType">STOCK</button><button class="small {{item.assetType === 'ETF' ? 'primary' : 'secondary'}}" data-index="{{index}}" data-type="ETF" bindtap="setAssetType">ETF</button><button class="small {{item.assetType === 'FUND' ? 'primary' : 'secondary'}}" data-index="{{index}}" data-type="FUND" bindtap="setAssetType">FUND</button></view>
+      <view wx:if="{{item.candidates.length > 1}}" class="candidate-list"><view class="label">请选择正确标的</view><button wx:for="{{item.candidates}}" wx:for-item="candidate" wx:for-index="candidateIndex" wx:key="instrument_key" class="secondary small" data-index="{{index}}" data-candidate="{{candidateIndex}}" bindtap="pickCandidate">{{candidate.name}} · {{candidate.market}} · {{candidate.currency}}</button></view>
+      <view wx:for="{{item.issues}}" wx:for-item="issue" wx:key="*this" class="error compact-error">{{issue}}</view>
+      <view wx:if="{{item.status === 'unverified' && item.issues.length}}" class="actions"><button class="secondary" data-index="{{index}}" bindtap="confirmManual">确认为本地未核实标的</button></view>
+      <view wx:if="{{item.existing}}" class="note">已有持仓：{{item.existing.quantity}} → {{item.quantity || '--'}}<button class="secondary small" data-index="{{index}}" bindtap="confirmReplace">{{item.replaceApproved ? '已确认更新' : '确认更新这项'}}</button></view>
+      <button wx:if="{{item.existing && item.existing.unitCost && !item.unitCost}}" class="link" data-index="{{index}}" bindtap="confirmCostRemoval">{{item.costRemovalApproved ? '已确认成本可能变为未知' : '确认成本已知 → 未知'}}</button>
+    </view>
+    <view class="sticky-actions"><view class="muted">已选 {{selectedCount}} 项</view><button wx:if="{{!previewData}}" class="primary" disabled="{{busy || !selectedCount}}" bindtap="preview">检查导入</button><button wx:else class="primary" loading="{{busy}}" disabled="{{busy}}" bindtap="submit">确认导入 {{selectedCount}} 项</button></view>
+  </block>
+</view>

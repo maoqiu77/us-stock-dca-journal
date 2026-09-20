@@ -1,4 +1,4 @@
-import { assertSize, backupSchema, backupV1Schema, clockState, emptySnapshot, migrateV1Snapshot, snapshotV1Schema, utf8Size, validateSnapshot, type Runtime, type Snapshot } from './model.ts';
+import { assertSize, backupSchema, backupV1Schema, backupV2Schema, clockState, emptySnapshot, migrateV1Snapshot, migrateV2Snapshot, snapshotV1Schema, snapshotV2Schema, utf8Size, validateSnapshot, type Runtime, type Snapshot } from './model.ts';
 
 export interface StoragePort {
   get(key: string): string;
@@ -28,13 +28,15 @@ function setVerified(storage: StoragePort, key: string, value: string, message: 
   try { actual = storage.get(key); } catch { throw Error(`${message}；无法回读核验。`); }
   if (actual !== value) throw Error(`${message}；回读核验未通过。`);
 }
-function decodeSnapshot(raw: string, runtime: Runtime): { data: Snapshot; v1: boolean } {
+function decodeSnapshot(raw: string, runtime: Runtime): { data: Snapshot; legacy: boolean } {
   const input = json(raw, '账本不是有效 JSON。');
   const current = validateSnapshotSafely(input, runtime);
-  if (current) return { data: current, v1: false };
+  if (current) return { data: current, legacy: false };
+  const previous = snapshotV2Schema.safeParse(input);
+  if (previous.success) return { data: validateSnapshot(migrateV2Snapshot(previous.data), runtime), legacy: true };
   const legacy = snapshotV1Schema.safeParse(input);
   if (!legacy.success) throw Error('账本格式不正确或版本不受支持。');
-  return { data: validateSnapshot(migrateV1Snapshot(legacy.data), runtime), v1: true };
+  return { data: validateSnapshot(migrateV1Snapshot(legacy.data), runtime), legacy: true };
 }
 function validateSnapshotSafely(input: unknown, runtime: Runtime) { try { return validateSnapshot(input, runtime); } catch { return undefined; } }
 
@@ -56,7 +58,7 @@ export function createRepository(storage: StoragePort, runtime: Runtime) {
   }
   function read(): Snapshot {
     const raw = rawPrimary(); if (raw === '') return initial ??= emptySnapshot(runtime);
-    try { assertSize(raw); const decoded = decodeSnapshot(raw, runtime); if (decoded.v1) migratePrimary(raw, decoded.data); return decoded.data; }
+    try { assertSize(raw); const decoded = decodeSnapshot(raw, runtime); if (decoded.legacy) migratePrimary(raw, decoded.data); return decoded.data; }
     catch (error) {
       if (error instanceof Error && error.message.includes('升级')) throw error;
       throw Error('本地账本损坏或不兼容，已停止写入；可导出原始故障数据或恢复有效备份。');
@@ -144,9 +146,11 @@ export function createRepository(storage: StoragePort, runtime: Runtime) {
     assertSize(text); const parsed = json(text, '备份不是有效 JSON 文件。');
     const current = backupSchema.safeParse(parsed);
     if (current.success) return validateSnapshot(current.data.data, runtime, { external: true });
+    const previous = backupV2Schema.safeParse(parsed);
+    if (previous.success) return validateSnapshot(migrateV2Snapshot(previous.data.data), runtime, { external: true });
     const legacy = backupV1Schema.safeParse(parsed);
     if (legacy.success) return validateSnapshot(migrateV1Snapshot(legacy.data.data), runtime, { external: true });
-    throw Error('备份格式不正确；仅支持严格的 v1 或 v2 小程序备份，v1 不支持期初持仓交易类型。');
+    throw Error('备份格式不正确；仅支持严格的 v1、v2 或 v3 小程序备份。');
   }
   function ensureReplaceCapacity(previous: string, next: string) {
     if (!storage.info) return;
@@ -186,6 +190,6 @@ export function createRepository(storage: StoragePort, runtime: Runtime) {
       begin(data, true);
     },
     purge,
-    exportBackup() { const text = JSON.stringify({ format: 'portfolio-wechat-backup', version: 2, data: read() }); assertSize(text); return text; },
+    exportBackup() { const text = JSON.stringify({ format: 'portfolio-wechat-backup', version: 3, data: read() }); assertSize(text); return text; },
   };
 }
