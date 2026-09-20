@@ -310,6 +310,19 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     });
     return saved;
   }
+  // Stable identity makes retry safe even if the welcome flag could not be saved.
+  function ensureWelcomeNote() {
+    const id = 'b7134478-48c2-4b95-9a88-04b78138d021', state = read();
+    const existing = state.journal.find(item => item.id === id);
+    if (existing) return existing.journal_date;
+    if (state.deletions.some(item => item.target_id === id)) return runtime.today();
+    const date = runtime.today(), now = runtime.now();
+    const note = journalEntrySchema.parse({ id, revision_id: runtime.id(), parent_revision: null, journal_date: date, type: 'personal_note', ref_id: null,
+      body: 'Hello！这是你使用持仓手记的第一天。记下今天的投资想法、持仓变化和一点点感悟，让每一次记录都成为成长的积累。愿你保持耐心，理性投资，慢慢靠近自己的目标。\n\n——持仓手记 · 欢迎语',
+      classification: 'user_original', created_at: now, updated_at: now });
+    mutate(current => ({ ...current, root_generation: current.root_generation + 1, journal: [...current.journal, note] }));
+    return date;
+  }
   function createConversation(input: Pick<Conversation, 'origin' | 'anchor_id' | 'context_mode'>) {
     let conversation!: Conversation;
     mutate(state => {
@@ -481,7 +494,7 @@ export function createWorkspaceRepository(storage: StoragePort, runtime: Runtime
     for (const key of [WORKSPACE_PENDING_KEY, WORKSPACE_PENDING_BEFORE_KEY, WORKSPACE_PENDING_NEXT_KEY, `${LEGACY_WORKSPACE_PREFIX}.root`]) try { storage.set(key, ''); } catch { throw Error('删除工作区待处理数据失败。'); }
     cleanupCommittedRoot(current); cleanupCommittedRoot(previous); generation++;
   }
-  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, savePersonalNote, saveAiMessageAsNote, deletePersonalNote, createConversation, deleteConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, history, conversationHistory, calendarMonth, conversation, confirmPolicy, purge };
+  return { read, readPrevious, readPreviousOptional, pendingSave: () => !!pending(), verifyPending, retryPending, generation: () => generation, prepareReplacement, ensureWelcomeNote, savePersonalNote, saveAiMessageAsNote, deletePersonalNote, createConversation, deleteConversation, archiveAnalysis, saveOutbox, updateOutbox, timeline, history, conversationHistory, calendarMonth, conversation, confirmPolicy, purge };
 }
 
 export function validateWorkspaceReferences(state: WorkspaceState) {

@@ -40,3 +40,5 @@
   <view class="section">最近会话</view><view wx:if="{{!recent.length}}" class="card empty muted">还没有分析，选一只股票开始吧。</view><view wx:for="{{recent}}" wx:key="id" class="card" data-id="{{item.conversationId}}" bindtap="openConversation"><view class="row"><view class="history-title">{{item.title}}</view><text class="badge">{{item.modelLabel}}</text></view><view class="note summary-clamp">{{item.summary}}</view><view class="row history-footer"><text class="muted">{{item.dateLabel}} · {{item.turnCount}} 轮问答</text><text class="link-label">继续追问 ›</text></view></view>
   </block>
 </view>
+
+<welcome-dialog />

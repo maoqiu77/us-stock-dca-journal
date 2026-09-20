@@ -32,3 +32,5 @@
     <view class="sticky-actions"><view class="muted">待导入 {{selectedCount}} 项</view><button class="primary" loading="{{busy}}" disabled="{{busy || !selectedCount}}" bindtap="preview">导入持仓</button></view>
   </block>
 </view>
+
+<welcome-dialog />

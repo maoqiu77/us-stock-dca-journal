@@ -12,3 +12,5 @@
   <view class="source">行情来源：{{quote.source || '暂无'}}<view wx:if="{{chartAsOf}}">日 K：{{chartSource}} · {{chartAsOf}}</view><view>缺失数据以 -- 显示</view></view>
   <view class="actions"><button class="secondary" bindtap="addHolding">添加 / 校准持仓</button><button class="primary" bindtap="analyze">和 AI 聊聊</button></view><button wx:if="{{!domestic}}" class="link" bindtap="toggle">关注 / 取消关注</button>
 </block><view wx:if="{{error}}" class="error">{{error}}</view></view>
+
+<welcome-dialog />

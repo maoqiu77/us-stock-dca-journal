@@ -25,3 +25,5 @@
   <view class="manage-footer"><button class="link" bindtap="selectAllManaged">{{manageSelected.length === watchlist.length && watchlist.length ? '取消全选' : '全选'}}</button><button class="link manage-delete" disabled="{{!manageSelected.length}}" bindtap="deleteManaged">删除（{{manageSelected.length}}）</button></view>
   <view wx:if="{{dragItem}}" class="drag-floating" style="top:{{dragTop}}px"><view class="manage-name"><view>{{dragItem.name}}</view><text>{{dragItem.symbol}}.US</text></view><text>☰</text></view>
 </view>
+
+<welcome-dialog />

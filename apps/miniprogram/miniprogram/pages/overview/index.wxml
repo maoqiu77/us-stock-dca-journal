@@ -22,3 +22,5 @@
     <view class="muted">成本和真实交易仍按原账本计算；校准当前持仓不会制造买卖流水。</view>
   </block>
 </view>
+
+<welcome-dialog />

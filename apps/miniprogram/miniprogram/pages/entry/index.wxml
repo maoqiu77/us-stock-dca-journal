@@ -26,3 +26,5 @@
     <button class="primary" loading="{{saving}}" disabled="{{saving || pendingSave}}" bindtap="submit">确认保存</button>
   </view><view class="muted">改动任意字段后必须重新预览。仅记录已完成交易，不执行下单。</view>
 </view>
+
+<welcome-dialog />

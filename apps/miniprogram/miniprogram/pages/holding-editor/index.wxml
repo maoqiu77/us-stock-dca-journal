@@ -16,3 +16,5 @@
   <view wx:if="{{previewData}}" class="card"><view class="symbol">保存前核对</view><view class="row"><text>当前数量</text><text>{{previewData.before.quantity}} → {{previewData.after.quantity}}</text></view><view class="row"><text>成本价</text><text>{{previewData.before.unitCost === null ? '未知' : previewData.before.unitCost}} → {{previewData.after.unitCost === null ? '未知' : previewData.after.unitCost}}</text></view><view class="muted">写入类型：持仓校准（非交易）</view><button class="primary" loading="{{saving}}" disabled="{{saving || pendingSave}}" bindtap="submit">确认保存</button></view>
   <button wx:if="{{existing}}" class="delete-holding" disabled="{{saving || pendingSave}}" bindtap="deleteHolding">删除持仓</button>
 </view>
+
+<welcome-dialog />

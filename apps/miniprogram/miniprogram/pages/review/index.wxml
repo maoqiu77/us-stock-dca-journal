@@ -11,3 +11,5 @@
     <block wx:else><view class="note">{{item.body}}</view><button class="link" data-id="{{item.id}}" bindtap="edit">修订（保留版本）</button></block>
   </view></block>
 </view>
+
+<welcome-dialog />

@@ -14,3 +14,5 @@
   </view><view wx:if="{{preview}}" class="card"><view class="symbol">保存前核对</view><view class="row"><text>期初数量</text><text>{{quantity}} 股</text></view><view class="row"><text>确认总成本</text><text>${{preview.amount}}</text></view><view class="divider"/><view>回放全部后续记录后</view><view>持仓数量 {{preview.before.quantity}} → {{preview.after.quantity}}</view><view>剩余成本 ${{preview.before.cost}} → ${{preview.after.cost}}</view><view>已实现盈亏 ${{preview.before.realized}} → ${{preview.after.realized}}</view><view wx:if="{{preview.affectedPositions.length > 1}}" class="card"><view class="label">更正影响的全部标的</view><view wx:for="{{preview.affectedPositions}}" wx:key="symbol"><view>{{item.symbol}}：{{item.before.quantity}} → {{item.after.quantity}} 股</view><view>剩余成本 ${{item.before.cost}} → ${{item.after.cost}}；已实现盈亏 ${{item.before.realized}} → ${{item.after.realized}}</view></view></view>
     <button class="primary" loading="{{saving}}" disabled="{{saving || pendingSave}}" bindtap="submit">确认保存</button></view>
 </view>
+
+<welcome-dialog />

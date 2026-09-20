@@ -136,3 +136,17 @@ test('successful ordinary commits clear unreferenced immutable generations', () 
   const manifests = [...f.values.entries()].filter(([key, value]) => key.includes('.instance.') && key.endsWith('.manifest') && value);
   assert.equal(manifests.length, 1);
 });
+
+test('welcome note survives relaunch and midnight retries without duplication, and deletion stays deleted', () => {
+  const f = fixture(), repo = f.open();
+  assert.equal(repo.ensureWelcomeNote(), '2026-09-10');
+  const welcome = repo.read().journal.find(item => item.body?.includes('Hello！'))!;
+  assert.ok(repo.calendarMonth('2026-09').days.includes('2026-09-10'));
+  assert.ok(repo.conversationHistory('2026-09-10').some(item => item.id === welcome.id));
+  f.time('2026-09-11T12:00:00.000Z');
+  assert.equal(f.open().ensureWelcomeNote(), '2026-09-10');
+  assert.equal(repo.read().journal.filter(item => item.id === welcome.id).length, 1);
+  repo.deletePersonalNote(welcome.id);
+  f.open().ensureWelcomeNote();
+  assert.equal(repo.read().journal.some(item => item.id === welcome.id), false);
+});

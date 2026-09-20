@@ -13,3 +13,5 @@
     <view class="actions"><button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" data-opening="{{item.isOpening}}" bindtap="editRecord">更正</button><button class="link" data-id="{{item.id}}" bindtap="showHistory">版本历史</button><button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" data-revision="{{item.revisionId}}" bindtap="voidTrade">作废</button></view>
   </view>
 </view>
+
+<welcome-dialog />

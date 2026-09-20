@@ -1,0 +1,18 @@
+<view wx:if="{{visible}}" class="welcome-mask" catchtouchmove="blockTouch">
+  <view class="welcome-dialog" role="dialog" aria-modal="true" aria-label="欢迎使用持仓手记">
+    <view class="welcome-title">欢迎使用持仓手记</view>
+    <scroll-view scroll-y class="welcome-content">
+      <view class="welcome-section">如果你想：</view>
+      <view class="welcome-line">· 投资一点场内纳指 ETF</view>
+      <view class="welcome-line">· 研究感兴趣的股票</view>
+      <view class="welcome-line">· 记录自己的投资历程</view>
+      <view class="welcome-paragraph">就从这里开始。</view>
+      <view class="welcome-section">持仓手记可以帮你：</view>
+      <view class="welcome-line">· 研究股票，用 AI 辅助分析</view>
+      <view class="welcome-line">· 在日历记录每日感悟</view>
+      <view class="welcome-line">· 管理持仓，查看股票看板</view>
+      <view class="welcome-paragraph">第一条欢迎手记已为你记下。<view>愿每次记录，都让投资更有章法。</view></view>
+    </scroll-view>
+    <button class="welcome-confirm" bindtap="confirm">去看手记</button>
+  </view>
+</view>

@@ -26,3 +26,5 @@
   <button class="secondary" bindtap="startEmpty">开始新的空账本…</button>
   <view class="section">删除数据</view><view class="card"><view class="muted">“开始新的空账本”会保留恢复点。下方删除会清除当前设备中的活动数据、恢复点与待处理请求；外部备份需由你在保存位置自行删除。本机删除不能撤回已发送的云请求，任务结束后云端正文按保存确认或服务端保留期清理。</view><button class="secondary delete-local" bindtap="deleteAllLocalData" loading="{{deleting}}">删除本机全部数据</button></view>
 </view>
+
+<welcome-dialog />
