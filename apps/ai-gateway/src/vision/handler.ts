@@ -1,4 +1,4 @@
-import { sha256 } from '@portfolio/ai-context';
+import { sha256, normalizeScreenshotMetrics, normalizeScreenshotDocument, holdingVisionRowSchema, screenshotDocumentSchema } from '@portfolio/ai-context';
 import { z } from 'zod';
 
 export type VisionContext = { appId: string; openId: string; source: 'wechat-miniprogram' };
@@ -15,17 +15,8 @@ export type HoldingVisionConfig = {
 };
 
 const requestIdSchema = z.string().regex(/^[A-Za-z0-9_-]{8,80}$/);
-const nullableText = (max: number) => z.string().trim().min(1).max(max).nullable();
-export const holdingVisionRowSchema = z.strictObject({
-  name: nullableText(120),
-  code: nullableText(32),
-  quantityText: nullableText(40),
-  unitCostText: nullableText(40),
-  costBasis: z.enum(['average_cost', 'breakeven', 'unknown']),
-  currency: z.enum(['CNY', 'USD']).nullable(),
-  accountLabel: nullableText(80), marketValueText: z.string().max(40).nullable().optional(), holdingPnlText: z.string().max(40).nullable().optional(), holdingReturnRateText: z.string().max(40).nullable().optional(), dailyChangeRateText: z.string().max(40).nullable().optional(), navText: z.string().max(40).nullable().optional(), navDateText: z.string().max(40).nullable().optional(),
-});
-export const holdingVisionOutputSchema = z.strictObject({ rows: z.array(holdingVisionRowSchema).max(20), truncated: z.literal(false) });
+export { holdingVisionRowSchema } from '@portfolio/ai-context';
+export const holdingVisionOutputSchema = z.strictObject({ rows: z.array(holdingVisionRowSchema).max(20), truncated: z.boolean(), document: screenshotDocumentSchema.optional() });
 export type HoldingVisionOutput = z.infer<typeof holdingVisionOutputSchema>;
 export interface HoldingVisionProvider {
   configured(): boolean;
@@ -47,7 +38,7 @@ export type VisionTask = {
   createdAt: string;
   expiresAt: string;
   state: 'created' | 'processing' | 'completed' | 'failed' | 'cancelled';
-  response: { requestId: string; status: 'review_required'; rows: HoldingVisionOutput['rows'] } | null;
+  response: { requestId: string; status: 'review_required'; rows: HoldingVisionOutput['rows']; document?: HoldingVisionOutput['document']; truncated?: boolean } | null;
   errorCode: string | null;
   cleanupPending: boolean;
   objectCleaned: boolean;
@@ -218,11 +209,11 @@ export function createHoldingVisionHandler(deps: { config: HoldingVisionConfig; 
       if (image.mimeType !== claim.task.expectedMime || image.width * image.height > deps.config.maxPixels) throw Error('VISION_IMAGE_INVALID');
       stage = 'provider';
       const value = await withTimeout(deps.provider.recognize({ bytes, mimeType: image.mimeType, requestId: request.data }), deps.config.timeoutMs);
-      if ((value as any)?.truncated === true || Array.isArray((value as any)?.rows) && (value as any).rows.length > deps.config.maxRows) throw Error('VISION_ROWS_TRUNCATED');
+      if ((value as any)?.truncated === true && !(value as any)?.document || Array.isArray((value as any)?.rows) && (value as any).rows.length > deps.config.maxRows) throw Error('VISION_ROWS_TRUNCATED');
       const parsed = holdingVisionOutputSchema.safeParse(value);
       if (!parsed.success) throw Error('VISION_OUTPUT_SCHEMA_INVALID');
-      if (parsed.data.rows.length < 1) throw Error('VISION_OUTPUT_EMPTY');
-      const response = { requestId: request.data, status: 'review_required' as const, rows: parsed.data.rows };
+      if (parsed.data.rows.length < 1 && !parsed.data.document) throw Error('VISION_OUTPUT_EMPTY');
+      const response = { requestId: request.data, status: 'review_required' as const, rows: parsed.data.document && parsed.data.document.pageType !== 'holdings' ? [] : parsed.data.rows.map(normalizeScreenshotMetrics), ...(parsed.data.document ? { document: normalizeScreenshotDocument(parsed.data.document), truncated: parsed.data.truncated } : {}) };
       stage = 'persist';
       await deps.store.complete(owner, taskId, request.data, response);
       return ok(response);

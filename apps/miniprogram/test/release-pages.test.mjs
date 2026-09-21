@@ -485,3 +485,34 @@ test('returning to AI journal reconciles original pending requests without submi
   assert.equal(controller.data.error, '');
   assert.doesNotMatch(readFileSync(new URL('pages/research/index.wxml', source), 'utf8'), /待完成任务|查询原任务/);
 });
+
+test('multi-platform review preserves original and account fields while blocking option rows', async () => {
+  const service = { overview: () => ({ positions: [] }), searchMarket: async () => [], snapshot: () => ({ revision: 0 }) };
+  const { controller } = page('holding-import', service);
+  const source = { pageType: 'holdings', platform: 'Example', accountType: 'margin', accountLabel: '示例信用账户', currency: 'CNH', observedAtText: null, coverage: 'partial', fields: [{ label: '总负债', value: '50.00' }], groups: [] };
+  const originals = [{ label: '成本', value: '10.00' }, { label: '当日盈亏', value: '+2.00' }];
+  const rows = await controller.resolveRows([
+    { name: 'Example', code: 'EXAMPLE', quantityText: '2', unitCostText: '10', costBasis: 'unknown', currency: 'USD', originalFields: originals, source, assetType: 'STOCK' },
+    { name: 'EXAMPLE CALL', code: 'EXAMPLE', quantityText: '1', unitCostText: '3', costBasis: 'average_cost', currency: 'USD', assetType: 'OPTION', originalFields: [{ label: '到期日', value: '2027-01-15' }] },
+  ]);
+  assert.equal(rows[0].unitCost, '');
+  assert.deepEqual(rows[0].screenshotMetrics.originalFields, originals);
+  assert.deepEqual(rows[0].screenshotMetrics.source, source);
+  assert.equal(rows[0].issues.some(x => x.includes('成本')), false);
+  assert.equal(rows[1].unsupported, true);
+  controller.setData({ rows });
+  controller.toggleRow({ currentTarget: { dataset: { index: 1 } } });
+  controller.confirmManual({ currentTarget: { dataset: { index: 1 } } });
+  assert.equal(controller.data.rows[1].selected, false);
+});
+
+test('watchlist response keeps page explanation and produces no importable holdings', async () => {
+  const document = { pageType: 'watchlist', platform: 'Example', accountType: 'unknown', accountLabel: null, currency: 'USD', observedAtText: null, coverage: 'unknown', fields: [], groups: [] };
+  const service = { snapshot: () => ({ revision: 0 }), overview: () => ({ positions: [] }), vision: () => ({ capabilities: async () => ({ enabled: true, providerConfigured: true }), recognizeFile: async () => ({ document, rows: [{ name: 'Example', code: 'EXAMPLE' }] }) }) };
+  const { controller } = page('holding-import', service); await controller.onLoad();
+  controller.setData({ images: [{ number: 1, path: '/synthetic.png', size: 10, mimeType: 'image/png' }] });
+  await controller.startRecognition();
+  assert.equal(controller.data.rows.length, 0);
+  assert.equal(controller.data.document.pageType, 'watchlist');
+  assert.equal(controller.data.stage, 'review');
+});

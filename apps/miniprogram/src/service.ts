@@ -313,7 +313,7 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(rowId)) fail('INVALID_INPUT', '识别行标识无效。');
       const screenshotMetrics = row.screenshotMetrics === undefined ? undefined : screenshotMetricsSchema.parse(row.screenshotMetrics);
       if (screenshotMetrics) for (const [field, value] of Object.entries(screenshotMetrics)) {
-        if (value == null || value === '') continue;
+        if (typeof value !== 'string' || value === '') continue;
         const text = value.trim();
         const percent = field === 'holdingReturnRateText' || field === 'dailyChangeRateText';
         if (field === 'navDateText') continue;

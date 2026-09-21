@@ -1,36 +1,55 @@
 <view class="container">
-  <view class="title">截图导入</view><view class="subtitle">选择多张截图 → 核对持仓 → 确认导入。成本、金额、收益率、涨幅和净值均可留空；名称、代码、数量、市场和币种需核对。</view>
+  <view class="title">{{stage === 'review' ? '核对持仓' : '截图导入'}}</view>
+  <view class="subtitle">选截图，核对后即可导入。其他指标自动保留。</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
-  <view wx:if="{{!capability.enabled || !capability.providerConfigured}}" class="demo">截图识别暂不可用，可返回手动添加。</view>
+  <view wx:if="{{!capability.enabled || !capability.providerConfigured}}" class="note">截图识别暂不可用，已有草稿仍可核对。</view>
   <view wx:if="{{stage === 'select'}}" class="card">
     <view class="image-grid"><image wx:for="{{images}}" wx:key="path" class="preview-image" src="{{item.path}}" mode="aspectFit"/></view>
-    <view class="note">请先遮挡姓名、账号等信息。一次最多 9 张，每张压缩后不超过 4 MiB。每批最多导入 20 项。</view>
-    <view class="actions"><button class="secondary" bindtap="chooseImage">{{imagePath ? '重新选图' : '选择截图'}}</button><button class="primary" loading="{{busy}}" disabled="{{busy || !imagePath || !capability.enabled || !capability.providerConfigured}}" bindtap="startRecognition">开始识别</button></view>
+    <view class="note">支持多张截图。请遮挡姓名、账号；识别时将发送至云端。</view>
+    <button wx:if="{{!images.length}}" class="primary" disabled="{{busy}}" bindtap="chooseImage">选择截图</button>
+    <block wx:else><button class="primary" loading="{{busy}}" disabled="{{busy || !capability.enabled || !capability.providerConfigured}}" bindtap="startRecognition">开始识别</button><view class="link" bindtap="chooseImage">重新选择</view></block>
   </view>
-  <view wx:if="{{progress}}" class="note">{{progress}}</view><view wx:for="{{failedImages}}" wx:key="number" class="error">第 {{item.number}} 张：{{item.message}}</view><button wx:if="{{failedImages.length}}" class="secondary" disabled="{{busy}}" bindtap="startRecognition">重试失败图片</button>
+  <view wx:if="{{progress}}" class="note">{{progress}}</view>
+  <view wx:for="{{failedImages}}" wx:key="number" class="error">第 {{item.number}} 张：{{item.message}}</view>
+  <button wx:if="{{failedImages.length}}" class="secondary" disabled="{{busy}}" bindtap="startRecognition">重试失败图片</button>
   <block wx:if="{{stage === 'review'}}">
-    <view class="row section"><text>检查识别结果</text><button class="link" bindtap="chooseImage">重新选图</button></view>
-    <view wx:for="{{rows}}" wx:key="rowId" class="card">
-      <view class="row"><view class="symbol">{{item.name || '需要确认标的'}}</view><button class="small {{item.selected ? 'primary' : 'secondary'}}" data-index="{{index}}" bindtap="toggleRow">{{item.selected ? '✓ 待导入' : '不导入'}}</button></view>
-      <view class="muted">第 {{item.sourceImage}} 张 · {{item.symbol}} · {{item.currency}} · {{item.quantity || '数量待补充'}} 份</view>
-      <view wx:if="{{item.duplicate}}" class="note">与其他截图中的标的重复，请仅选择一项，不会自动相加。</view>
-      <view class="screenshot-metrics"><view class="muted">截图数据 · 非实时行情</view><view wx:if="{{item.screenshotMetrics.marketValueText}}" class="row"><text>持有金额</text><text>{{item.screenshotMetrics.marketValueText}}</text></view><view wx:if="{{item.screenshotMetrics.holdingPnlText}}" class="row"><text>持有收益</text><text>{{item.screenshotMetrics.holdingPnlText}}</text></view><view wx:if="{{item.screenshotMetrics.holdingReturnRateText}}" class="row"><text>持有收益率</text><text>{{item.screenshotMetrics.holdingReturnRateText}}</text></view><view wx:if="{{item.screenshotMetrics.dailyChangeRateText}}" class="row"><text>日涨幅</text><text>{{item.screenshotMetrics.dailyChangeRateText}}</text></view><view wx:if="{{item.screenshotMetrics.navText}}" class="row"><text>基金净值 / 参考价</text><text>{{item.screenshotMetrics.navText}}</text></view><view wx:if="{{item.screenshotMetrics.navDateText}}" class="row"><text>净值日期（按原图）</text><text>{{item.screenshotMetrics.navDateText}}</text></view></view>
-      <button class="link" data-index="{{index}}" bindtap="toggleEdit">{{item.editing ? '收起' : '修改识别信息'}}</button><block wx:if="{{item.editing}}">
-      <view class="field"><view class="label">名称</view><input value="{{item.name}}" data-index="{{index}}" data-field="name" bindinput="onRowField"/></view>
-      <view class="field"><view class="label">代码</view><input value="{{item.symbol}}" data-index="{{index}}" data-field="symbol" bindinput="onRowField"/></view>
-      <view class="row compact"><view class="field half"><view class="label">数量</view><input value="{{item.quantity}}" data-index="{{index}}" data-field="quantity" bindinput="onRowField"/></view><view class="field half"><view class="label">单位成本</view><input value="{{item.unitCost}}" data-index="{{index}}" data-field="unitCost" bindinput="onRowField"/></view></view>
-      <view class="row compact"><view class="field half"><view class="label">市场</view><input value="{{item.market}}" data-index="{{index}}" data-field="market" bindinput="onRowField"/></view><view class="field half"><view class="label">币种</view><input value="{{item.currency}}" data-index="{{index}}" data-field="currency" bindinput="onRowField"/></view></view>
-      <view class="label">类型</view><view class="type-row"><button class="small {{item.assetType === 'STOCK' ? 'primary' : 'secondary'}}" data-index="{{index}}" data-type="STOCK" bindtap="setAssetType">股票</button><button class="small {{item.assetType === 'ETF' ? 'primary' : 'secondary'}}" data-index="{{index}}" data-type="ETF" bindtap="setAssetType">ETF</button><button class="small {{item.assetType === 'FUND' ? 'primary' : 'secondary'}}" data-index="{{index}}" data-type="FUND" bindtap="setAssetType">基金</button></view>
-<view class="label">截图数据（未识别可补充）</view><view class="field"><view class="label">持有金额</view><input value="{{item.screenshotMetrics.marketValueText}}" data-index="{{index}}" data-field="marketValueText" bindinput="onMetric" placeholder="未提供"/></view><view class="field"><view class="label">持有收益</view><input value="{{item.screenshotMetrics.holdingPnlText}}" data-index="{{index}}" data-field="holdingPnlText" bindinput="onMetric" placeholder="未提供"/></view><view class="field"><view class="label">持有收益率</view><input value="{{item.screenshotMetrics.holdingReturnRateText}}" data-index="{{index}}" data-field="holdingReturnRateText" bindinput="onMetric" placeholder="未提供"/></view><view class="field"><view class="label">日涨幅</view><input value="{{item.screenshotMetrics.dailyChangeRateText}}" data-index="{{index}}" data-field="dailyChangeRateText" bindinput="onMetric" placeholder="未提供"/></view><view class="field"><view class="label">基金净值 / 参考价</view><input value="{{item.screenshotMetrics.navText}}" data-index="{{index}}" data-field="navText" bindinput="onMetric" placeholder="未提供"/></view><view class="field"><view class="label">净值日期（按原图）</view><input value="{{item.screenshotMetrics.navDateText}}" data-index="{{index}}" data-field="navDateText" bindinput="onMetric" placeholder="未提供"/></view>
-      </block><view wx:if="{{item.status === 'unverified'}}" class="note">尚未匹配行情，核对名称和代码后可保存持仓。</view>
-      <view wx:if="{{item.candidates.length > 1}}" class="candidate-list"><view class="label">请选择正确标的</view><button wx:for="{{item.candidates}}" wx:for-item="candidate" wx:for-index="candidateIndex" wx:key="instrument_key" class="secondary small" data-index="{{index}}" data-candidate="{{candidateIndex}}" bindtap="pickCandidate">{{candidate.name}} · {{candidate.market}} · {{candidate.currency}}</button></view>
-      <view wx:for="{{item.issues}}" wx:for-item="issue" wx:key="*this" class="error compact-error">{{issue}}</view>
-      <view wx:if="{{item.status === 'unverified' && item.issues.length}}" class="actions"><button class="secondary" data-index="{{index}}" bindtap="confirmManual">{{item.existing ? '信息无误，更新这项' : '信息无误，导入这项'}}</button></view>
-      <view wx:if="{{item.existing}}" class="note">已有持仓：{{item.existing.quantity}} → {{item.quantity || '--'}}<button wx:if="{{!item.issues.length && !item.replaceApproved}}" class="secondary small" data-index="{{index}}" bindtap="confirmReplace">{{item.replaceApproved ? '已确认更新' : '确认更新这项'}}</button></view>
-      <button wx:if="{{item.existing && item.existing.unitCost && !item.unitCost}}" class="link" data-index="{{index}}" bindtap="confirmCostRemoval">{{item.costRemovalApproved ? '已确认成本可能变为未知' : '确认成本已知 → 未知'}}</button>
+    <view class="row section"><text>{{rows.length}} 项 · 已选 {{selectedCount}} 项</text><text class="link" bindtap="chooseImage">重新选图</text></view>
+    <view wx:for="{{documents}}" wx:key="number" class="note">
+      第 {{item.number}} 张 · {{item.platform || '截图'}}
+      <view wx:if="{{item.pageType && item.pageType !== 'holdings'}}">{{item.pageType === 'watchlist' ? '这是自选列表，请换一张持仓截图。' : '未识别为持仓页面，请补充持仓截图。'}}</view>
+      <view wx:if="{{item.coverage === 'partial' || item.truncated}}">仅导入截图可见项目，不影响其他持仓。</view>
+      <view wx:if="{{item.accountType === 'margin'}}">信用账户：负债和保证金仅保留原文，不计入持仓合计。</view>
     </view>
-    <view class="sticky-actions"><view class="muted">待导入 {{selectedCount}} 项</view><button class="primary" loading="{{busy}}" disabled="{{busy || !selectedCount}}" bindtap="preview">导入持仓</button></view>
+    <view wx:for="{{rows}}" wx:key="rowId" class="card">
+      <view class="row" data-index="{{index}}" bindtap="toggleEdit"><view class="symbol">{{item.name || '名称待补充'}}</view><text class="muted">{{item.editing ? '收起' : '›'}}</text></view>
+      <view data-index="{{index}}" bindtap="toggleEdit">
+        <view class="row"><text class="muted">持有金额 · {{item.currency || '币种待补充'}}</text><text>{{item.screenshotMetrics.marketValueText || '未显示'}}</text></view>
+        <view class="row"><text class="muted">持有盈亏 · 截图</text><text>{{item.screenshotMetrics.holdingPnlText || '未显示'}}</text></view>
+        <view wx:for="{{item.issues}}" wx:for-item="issue" wx:key="*this" class="compact-error">{{issue}} · 点此查看</view>
+      </view>
+      <view wx:if="{{item.duplicate}}" class="note">重复项目，请仅选择一项。</view>
+      <view wx:if="{{!item.unsupported}}" class="select-state" data-index="{{index}}" bindtap="toggleRow">{{item.selected ? '☑ 本次导入' : '□ 本次不导入'}}</view>
+      <block wx:if="{{item.editing}}">
+        <view class="muted">第 {{item.sourceImage}} 张 · {{item.symbol}} · {{item.quantity || '数量未显示'}}</view>
+        <block wx:if="{{!item.unsupported}}">
+          <view class="field"><view class="label">名称</view><input value="{{item.name}}" data-index="{{index}}" data-field="name" bindinput="onRowField"/></view>
+          <view class="field"><view class="label">代码</view><input value="{{item.symbol}}" data-index="{{index}}" data-field="symbol" bindinput="onRowField" placeholder="请确认代码"/></view>
+          <view wx:if="{{item.candidates.length}}" class="candidate-list"><view class="label">匹配结果，点选正确的一项</view><button wx:for="{{item.candidates}}" wx:for-item="candidate" wx:for-index="candidateIndex" wx:key="instrument_key" class="secondary small" data-index="{{index}}" data-candidate="{{candidateIndex}}" bindtap="pickCandidate">{{candidate.name}} · {{candidate.symbol}} · {{candidate.market}}</button></view>
+          <view class="row compact"><view class="field half"><view class="label">持有数量 / 份额</view><input value="{{item.quantity}}" data-index="{{index}}" data-field="quantity" bindinput="onRowField"/></view><view class="field half"><view class="label">平均成本（可不填）</view><input value="{{item.unitCost}}" data-index="{{index}}" data-field="unitCost" bindinput="onRowField" placeholder="未知"/></view></view>
+          <view wx:if="{{item.costBasis !== 'average_cost'}}" class="note">截图显示的成本口径未确认，保留原文，不直接用于账本计算。</view>
+          <view class="row compact"><view class="field half"><view class="label">市场</view><input value="{{item.market}}" data-index="{{index}}" data-field="market" bindinput="onRowField"/></view><view class="field half"><view class="label">币种</view><input value="{{item.currency}}" data-index="{{index}}" data-field="currency" bindinput="onRowField"/></view></view>
+          <view class="type-row"><text class="link" data-index="{{index}}" data-type="STOCK" bindtap="setAssetType">{{item.assetType === 'STOCK' ? '●' : '○'}} 股票</text><text class="link" data-index="{{index}}" data-type="ETF" bindtap="setAssetType">{{item.assetType === 'ETF' ? '●' : '○'}} ETF</text><text class="link" data-index="{{index}}" data-type="FUND" bindtap="setAssetType">{{item.assetType === 'FUND' ? '●' : '○'}} 基金</text></view>
+        </block>
+        <view class="label">截图原始信息</view>
+        <view wx:for="{{item.screenshotMetrics.originalFields}}" wx:for-item="field" wx:key="index" class="row"><text>{{field.label}}</text><text>{{field.value}} {{field.unit || ''}}</text></view>
+        <view wx:for="{{item.observationIssues}}" wx:key="*this" class="note">{{item}}</view>
+        <view wx:if="{{item.existing}}" class="note">已有数量 {{item.existing.quantity}} → {{item.quantity || '--'}}，最终确认后更新。</view>
+      </block>
+    </view>
+    <view wx:if="{{documents.length}}" class="link" bindtap="toggleDocuments">{{showDocuments ? '收起账户原始信息' : '账户原始信息 ›'}}</view>
+    <block wx:if="{{showDocuments}}"><view wx:for="{{documents}}" wx:key="number" class="card"><view>第 {{item.number}} 张 · {{item.currency}}</view><view wx:for="{{item.fields}}" wx:for-item="field" wx:key="index">{{field.label}}：{{field.value}} {{field.unit || ''}}</view><view wx:for="{{item.groups}}" wx:for-item="group" wx:key="index"><view>{{group.label}} · {{group.currency}}</view><view wx:for="{{group.fields}}" wx:for-item="field" wx:key="index">{{field.label}}：{{field.value}}</view></view></view></block>
+    <view class="sticky-actions"><button class="primary" loading="{{busy}}" disabled="{{busy || !selectedCount}}" bindtap="preview">确认导入 {{selectedCount}} 项</button></view>
+    <view class="muted">未完成的内容自动保存为本地草稿。</view>
   </block>
 </view>
-
 <welcome-dialog />

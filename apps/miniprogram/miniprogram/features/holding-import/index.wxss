@@ -12,3 +12,5 @@
 .type-row button { flex: 1; min-width: 0; margin: 0; }
 
 .row > button.small { width: auto; flex-shrink: 0; margin: 0; }
+.select-state { color: #17674d; font-size: 25rpx; }
+.link { color: #17674d; padding: 12rpx 0; }

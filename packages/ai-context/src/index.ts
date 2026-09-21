@@ -4,3 +4,4 @@ export * from './research-v2.ts';
 export * from './digest.ts';
 export * from './transport-v1.ts';
 export * from './transport-v2.ts';
+export * from './holding-vision.ts';

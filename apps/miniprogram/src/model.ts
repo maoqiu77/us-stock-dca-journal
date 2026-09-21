@@ -1,3 +1,4 @@
+import { screenshotMetricsSchema } from '@portfolio/ai-context';
 import { z } from 'zod';
 import { portfolioSchema, instrumentSchema, ledgerEventSchema, idSchema, dateSchema, timestampSchema, decimalStringSchema, projectLedger, type LedgerEvent, type ProjectionCutoff } from '@portfolio/domain';
 
@@ -20,14 +21,7 @@ export const holdingAssetSchema = z.strictObject({
   confirmed_at: timestampSchema,
 });
 const checkpointHeadSchema = z.strictObject({ record_id: idSchema, revision_id: idSchema });
-export const screenshotMetricsSchema = z.strictObject({
-  marketValueText: z.string().max(40).nullable().optional(),
-  holdingPnlText: z.string().max(40).nullable().optional(),
-  holdingReturnRateText: z.string().max(40).nullable().optional(),
-  dailyChangeRateText: z.string().max(40).nullable().optional(),
-  navText: z.string().max(40).nullable().optional(),
-  navDateText: z.string().max(40).nullable().optional(),
-});
+export { screenshotMetricsSchema } from '@portfolio/ai-context';
 export const holdingCheckpointSchema = z.strictObject({
   id: idSchema,
   instrument_id: idSchema,

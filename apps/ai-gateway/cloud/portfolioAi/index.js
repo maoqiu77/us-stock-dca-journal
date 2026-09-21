@@ -27,7 +27,7 @@ const visionProvider = visionEnabled ? gateway.createDeepSeekVisionProvider({
   apiKey: process.env.DEEPSEEK_API_KEY || '',
   model: process.env.AI_VISION_MODEL || '',
   timeoutMs: number('AI_VISION_TIMEOUT_MS', 35000),
-  maxOutputTokens: number('AI_VISION_MAX_OUTPUT_TOKENS', 1200),
+  maxOutputTokens: number('AI_VISION_MAX_OUTPUT_TOKENS', 12000),
 }) : gateway.disabledVisionProvider();
 const visionHandler = gateway.createHoldingVisionHandler({
   config: { expectedAppId: process.env.EXPECTED_WEAPP_APPID || '', enabled: visionEnabled, maxBytes: number('AI_VISION_MAX_BYTES', 4194304), maxPixels: number('AI_VISION_MAX_PIXELS', 20000000), maxRows: number('AI_VISION_MAX_ROWS', 20), timeoutMs: number('AI_VISION_TIMEOUT_MS', 35000), taskTtlMs: number('AI_VISION_TASK_TTL_MS', 86400000), dailyLimit: null, maxInflight: 1 },

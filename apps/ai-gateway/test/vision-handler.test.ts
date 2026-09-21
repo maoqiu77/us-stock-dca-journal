@@ -143,3 +143,36 @@ test('vision response preserves screenshot returns and NAV date as distinct fiel
   assert.equal(result.ok, true);
   assert.deepEqual((result as any).data.rows[0], row);
 });
+
+test('document classification excludes watchlists and retains explicitly partial holdings', async () => {
+  for (const pageType of ['watchlist', 'holdings'] as const) {
+    const document = { pageType, platform: 'Example', accountType: 'unknown', accountLabel: null, currency: 'USD', observedAtText: null, coverage: 'partial', fields: [], groups: [] };
+    const row = { name: 'EXAMPLE', code: 'EXAMPLE', quantityText: '2', unitCostText: null, costBasis: 'unknown', currency: 'USD', accountLabel: null, originalFields: [{ label: '当日盈亏', value: '+2.00' }] };
+    const f = fixture({ document, rows: [row], truncated: true }), task = await f.create();
+    const result: any = await f.handler({ action: 'recognizeHoldings', requestId: 'recognize_document', uploadTaskId: task.uploadTaskId }, context);
+    assert.equal(result.ok, true);
+    assert.equal(result.data.rows.length, pageType === 'holdings' ? 1 : 0);
+    assert.deepEqual(result.data.document, document);
+    assert.equal(result.data.truncated, true);
+    assert.equal(f.counts().removeCalls, 1);
+  }
+});
+
+
+test('daily holding P&L percentage stays raw instead of becoming price change', async () => {
+  const row = { name: 'NVDA', code: 'NVDA', quantityText: '353', unitCostText: null, costBasis: 'unknown', currency: 'USD', accountLabel: null, dailyChangeRateText: '+2.89%', originalFields: [{ label: '当日盈亏', value: '+2.89%' }] };
+  const f = fixture({ rows: [row], truncated: false }), task = await f.create();
+  const result: any = await f.handler({ action: 'recognizeHoldings', requestId: 'recognize_daily_pnl', uploadTaskId: task.uploadTaskId }, context);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.rows[0].dailyChangeRateText, null);
+  assert.deepEqual(result.data.rows[0].originalFields, row.originalFields);
+});
+
+
+test('an unselected margin tab without margin metrics cannot establish a margin account', async () => {
+  const document = { pageType: 'holdings', platform: null, accountType: 'margin', accountLabel: '普通账户', currency: 'CNY', observedAtText: null, coverage: 'partial', fields: [{ label: '总资产', value: '100' }], groups: [] };
+  const f = fixture({ document, rows: [], truncated: false }), task = await f.create();
+  const result: any = await f.handler({ action: 'recognizeHoldings', requestId: 'recognize_account_tab', uploadTaskId: task.uploadTaskId }, context);
+  assert.equal(result.ok, true);
+  assert.equal(result.data.document.accountType, 'cash');
+});

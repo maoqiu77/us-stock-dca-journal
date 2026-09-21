@@ -177,3 +177,14 @@ test('manual readdition after deletion needs no replacement approval', () => {
   f.service.saveHolding({ batchId: 'manual_after_delete', expectedRevision: 2, observedAt, instrument, quantity: '5' });
   assert.equal(f.service.overview().positions[0].quantity, '5');
 });
+
+test('special screenshot fields and account observations survive restore without becoming ledger cash', () => {
+  const f = setup();
+  const screenshotMetrics = { marketValueText: '40.00', originalFields: [{ label: '当日参考盈亏', value: '+2.00', unit: 'USD' }], source: { pageType: 'holdings' as const, platform: 'Example', accountType: 'margin' as const, accountLabel: '示例账户', currency: 'CNH', observedAtText: null, coverage: 'partial' as const, fields: [{ label: '总负债', value: '10.00' }], groups: [] } };
+  f.service.saveHoldingImport({ batchId: 'special_fields_01', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'one', instrument: asset('EXAMPLE'), quantity: '2', screenshotMetrics }] });
+  const backup = f.service.exportFullBackup(), restored = setup();
+  restored.service.restoreCompleteBackup(backup);
+  assert.deepEqual(restored.service.positionDetail('EXAMPLE').screenshotMetrics, screenshotMetrics);
+  assert.equal(restored.service.positionDetail('EXAMPLE').cost, null);
+  assert.equal(restored.service.records().length, 0);
+});

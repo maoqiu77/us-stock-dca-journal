@@ -27,3 +27,5 @@ export const service = createService({
 }, { today, now: () => new Date().toISOString(), id }, { aiTransport, marketTransport, visionTransport, seedPopularStocks: true });
 export const buildInfo = { version: config?.version ?? '', profile: config?.profile ?? '' };
 export function showError(error: unknown) { wx.showModal({ title: '未完成操作', content: error instanceof Error ? error.message : '操作失败，请重试。', showCancel: false }); }
+
+export { normalizeScreenshotMetrics, normalizeScreenshotDocument } from '@portfolio/ai-context';
