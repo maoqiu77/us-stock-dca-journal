@@ -44,7 +44,7 @@ export function normalizeScreenshotMetrics<T extends z.infer<typeof screenshotMe
   if (!metrics.dailyChangeRateText || !metrics.originalFields?.length) return metrics;
   const fields = metrics.originalFields;
   const priceChange = fields.some(field => /涨跌幅|日涨幅|日涨跌|price.*change/i.test(field.label));
-  const dailyPnl = fields.some(field => /(?:当日|今日|日内|本日|daily|today).*(?:盈亏|收益|profit|pnl|return)/i.test(field.label));
+  const dailyPnl = fields.some(field => /(?:当日|今日|日内|本日|daily|today).*(?:盈亏|收益|profit|pnl|return)|^day\s*chg$/i.test(field.label));
   return dailyPnl && !priceChange ? { ...metrics, dailyChangeRateText: null } : metrics;
 }
 

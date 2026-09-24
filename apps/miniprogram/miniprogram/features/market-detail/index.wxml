@@ -9,6 +9,16 @@
     <block wx:else><market-chart bars="{{bars}}" style-mode="candle"/><view class="date-axis"><text>{{startDate}}</text><text>{{endDate}}</text></view><view class="muted chart-note">{{chartAdjustment}} · MA 按交易日收盘价计算</view></block>
   </view>
   <view class="card"><view class="section-label">{{domestic ? '基金概况' : '行情概况'}}</view><view class="metrics"><view wx:for="{{stats}}" wx:key="label" class="metric"><view class="muted">{{item.label}}</view><view class="metric-value">{{item.value}}</view><view wx:if="{{item.note}}" class="metric-note">{{item.note}}</view></view></view><view wx:if="{{domestic && instrument.asset_type === 'ETF'}}" class="muted chart-note">折溢价为参考值；跨境 ETF 净值与交易价格可能不在同一时点。</view></view>
+  <view wx:if="{{domestic && instrument.asset_type === 'FUND'}}" class="holdings-section">
+    <view class="holdings-heading"><view class="section-label">基金持仓</view><button class="link small" loading="{{holdingsLoading}}" disabled="{{holdingsLoading}}" bindtap="loadFundHoldings">刷新</button></view>
+    <view wx:if="{{holdingsLoading && !fundHoldings}}" class="muted holdings-state">加载持仓披露…</view>
+    <view wx:if="{{holdingsError}}" class="muted holdings-state">{{holdingsError}}</view>
+    <view wx:if="{{fundHoldings}}">
+      <view wx:if="{{allocationRows.length}}" class="holdings-group"><view class="holdings-subhead"><text>资产配置</text><text>{{fundHoldings.allocation.asOf}}</text></view><view class="allocation-list"><view wx:for="{{allocationRows}}" wx:key="label"><view class="muted">{{item.label}}</view><view>{{item.value}}</view></view></view></view>
+      <view class="holdings-group"><view class="holdings-subhead"><text>前十重仓股票</text><text>{{fundHoldings.asOf}}</text></view><view class="holdings-table"><view class="holdings-table-head"><text>股票</text><text>占净值</text></view><view wx:for="{{fundHoldings.stocks}}" wx:key="rank" class="holding-stock"><view><text class="holding-rank">{{item.rank}}</text><text>{{item.name}}</text><view class="muted holding-code">{{item.symbol}}</view></view><text class="holding-weight">{{item.weightPct}}%</text></view></view></view>
+      <view class="muted holdings-source">{{fundHoldings.source}} · {{holdingsNotice}}</view>
+    </view>
+  </view>
   <view class="source">行情来源：{{quote.source || '暂无'}}<view wx:if="{{chartAsOf}}">日 K：{{chartSource}} · {{chartAsOf}}</view><view>缺失数据以 -- 显示</view></view>
   <view class="actions"><button class="secondary" bindtap="addHolding">添加 / 校准持仓</button><button class="primary" bindtap="analyze">和 AI 聊聊</button></view><button wx:if="{{!domestic}}" class="link" bindtap="toggle">关注 / 取消关注</button>
 </block><view wx:if="{{error}}" class="error">{{error}}</view></view>

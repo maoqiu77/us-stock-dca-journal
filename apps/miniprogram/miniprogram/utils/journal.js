@@ -57,14 +57,15 @@ function conversationView(view) {
   const messages = view.messages || [], runs = new Map((view.runs || []).map(run => [run.id, run]));
   const turns = messages.filter(message => message.role === 'assistant').map(message => {
     const run = runs.get(message.run_id), result = run?.result || {};
+    const isFollowUp = run?.mode === 'follow_up';
     const user = messages.find(item => item.id === message.parent_message_id || (item.role === 'user' && message.client_turn_id && item.client_turn_id === message.client_turn_id));
     const question = user?.content || '', title = questionTitle(question);
     const market = marketDetails((run?.source_ids || []).map(id => sources.get(id)).filter(Boolean));
-    const missing = [...new Set([...(result.missing_information || []), ...market.missing].map(item => item.trim()).filter(item => item && !/^(无|暂无|无缺失|无缺失项|none|n\/a)[。.!！]?$/i.test(item)))];
+    const missing = isFollowUp ? [] : [...new Set([...(result.missing_information || []), ...market.missing].map(item => item.trim()).filter(item => item && !/^(无|暂无|无缺失|无缺失项|none|n\/a)[。.!！]?$/i.test(item)))];
     const personal = missing.filter(item => /成本|仓位|持仓|风险偏好|投资期限/.test(item));
     const required = missing.filter(item => !personal.includes(item));
     if (!personal.some(item => /成本|持仓数量/.test(item)) && /持有数量 未提供 股|成本价 未提供/.test(question)) personal.unshift('未填写持仓与成本，当前仅提供行情分析；个人盈亏与仓位情景需要补充信息。');
-    return { id: message.id, userId: user?.id || '', question, questionTitle: title, generatedQuestion: /^请分析 (US|CN|HK) 市场的 /.test(question), summary: message.content, time: localTime(message.created_at), savedDate: localTime(message.created_at).slice(0, 10), modelLabel: message.execution_kind === 'real' ? 'AI 分析' : '离线合成 · 非模型回答', evidence: result.evidence || [], counterarguments: result.counterarguments || [], conditions: (result.conditions || []).map(item => ({ ...item, label: item.basis === 'user_assumption' ? '条件假设' : '基于已观察数据' })), questions: followUpQuestions(result.next_questions), missing: required, personal: [...new Set(personal)], metrics: market.metrics, sources: market.details, expanded: false, questionOpen: false };
+    return { id: message.id, userId: user?.id || '', question, questionTitle: title, generatedQuestion: /^请分析 (US|CN|HK) 市场的 /.test(question), summary: message.content, time: localTime(message.created_at), savedDate: localTime(message.created_at).slice(0, 10), modelLabel: message.execution_kind === 'real' ? 'AI 分析' : '离线合成 · 非模型回答', evidence: isFollowUp ? [] : (result.evidence || []), counterarguments: isFollowUp ? [] : (result.counterarguments || []), conditions: isFollowUp ? [] : (result.conditions || []).map(item => ({ ...item, label: item.basis === 'user_assumption' ? '条件假设' : '基于已观察数据' })), questions: followUpQuestions(result.next_questions), missing: required, personal: isFollowUp ? [] : [...new Set(personal)], metrics: market.metrics, sources: market.details, expanded: false, questionOpen: false };
   });
   return { turns, title: questionTitle(messages.find(message => message.role === 'user')?.content), nextQuestions: turns.length ? turns[turns.length - 1].questions : [] };
 }

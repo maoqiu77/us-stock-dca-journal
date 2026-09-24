@@ -98,6 +98,58 @@ test('unknown cost and missing quote remain unknown while currencies are never s
   assert.equal(cny.market.covered, 0);
 });
 
+test('A-share holding refresh uses a timestamped CNY quote and recalculates its value', async () => {
+  const transport: MarketTransport = {
+    capabilities: async () => ({ schema_version: 1, enabled: false, provider_configured: false, authorized: true, access_mode: 'public', quote_access: false, bars_access: false, search_access: false, ai_source_access: false, archive_access: false, provider: null, feed: null, coverage: 'unknown', timeliness: 'unknown', delay_seconds: null, attribution: '', limits: { quote_batch: 30, search_results: 10, bars: 400 } }),
+    search: async () => [], quotes: async () => [],
+    domesticHoldingQuotes: async symbols => symbols.map(symbol => ({ symbol, price: '34.52', asOf: '2026-09-19T03:59:00.000Z', fetchedAt: '2026-09-19T04:00:00.000Z', source: 'fixture', status: 'available' as const })),
+  };
+  const f = setup(transport);
+  f.service.saveHolding({ ...manualHolding, instrument: { symbol: '600009', name: '上海机场', market: 'CN', currency: 'CNY', assetType: 'STOCK', status: 'verified' }, quantity: '10', unitCost: '30' });
+  assert.equal(f.service.overview().positions[0].marketValue, null);
+  await f.service.refreshMarket();
+  const row = f.service.overview().positions[0];
+  assert.equal(row.marketPrice, '34.52');
+  assert.equal(row.marketValue, '345.20');
+  assert.equal(row.unrealized, '45.20');
+  assert.equal(row.pnlPercent, '15.1%');
+  assert.equal(row.quoteAsOf, '2026-09-19T03:59:00.000Z');
+});
+
+test('public US quote with unknown delay updates displayed holding value without claiming realtime freshness', async () => {
+  const transport: MarketTransport = {
+    capabilities: async () => ({ schema_version: 1, enabled: true, provider_configured: true, authorized: true, access_mode: 'public', quote_access: true, bars_access: false, search_access: true, ai_source_access: false, archive_access: false, provider: 'fixture', feed: 'public-reference', coverage: 'indicative', timeliness: 'unknown', delay_seconds: null, attribution: '延迟未知', limits: { quote_batch: 30, search_results: 10, bars: 400 } }),
+    search: async query => [{ schema_version: 1, instrument_key: `US:XNAS:${query}`, symbol: query, name: query, mic: 'XNAS', exchange: 'NASDAQ', market: 'US', currency: 'USD', asset_type: 'STOCK', provider_symbol: query, provider_catalog_version: 'v1', status: 'active' }],
+    quotes: async keys => keys.map(key => ({ schema_version: 1, instrument_key: key, symbol: 'TSLA', currency: 'USD', price: '378.90', price_kind: 'indicative', previous_close: null, previous_close_date: null, change: null, change_percent: null, volume: null, volume_scope: 'unknown', session: 'unknown', market_status: 'unknown', trading_date: '2026-09-18', exchange_timezone: 'America/New_York', provider: 'fixture', feed: 'public-reference', coverage: 'indicative', timeliness: 'unknown', delay_seconds: null, as_of: '2026-09-19T03:59:00.000Z', received_at: '2026-09-19T04:00:00.000Z', served_at: '2026-09-19T04:00:00.000Z', freshness: 'unknown', cache_state: 'miss', status: 'available', reason: null, adjustment: 'unadjusted', attribution: '延迟未知' })),
+  };
+  const f = setup(transport);
+  f.service.saveHolding({ ...manualHolding, instrument: { symbol: 'TSLA', name: '特斯拉', market: 'US', currency: 'USD', assetType: 'STOCK', status: 'verified' }, quantity: '2', unitCost: '' });
+  await f.service.refreshMarket();
+  const row = f.service.overview().positions[0];
+  assert.equal(row.marketPrice, '378.90');
+  assert.equal(row.marketValue, '757.80');
+  assert.equal(row.unrealized, null);
+  assert.equal(row.quoteFreshness, 'unknown');
+  assert.equal(row.quoteAsOf, '2026-09-19T03:59:00.000Z');
+  assert.equal(f.service.positionDetail('TSLA').marketIdentity?.instrument_key, 'US:XNAS:TSLA');
+  assert.equal(f.service.marketDiscovery().watchlist.some(item => item.instrument_key === 'US:XNAS:TSLA'), true);
+  await f.service.refreshMarket();
+  assert.equal(f.service.marketDiscovery().watchlist.filter(item => item.instrument_key === 'US:XNAS:TSLA').length, 1);
+});
+
+test('verified screenshot import appears on the board and opens its market identity immediately', async () => {
+  const item = { schema_version: 1 as const, instrument_key: 'US:XNAS:NVDA', symbol: 'NVDA', name: 'Nvidia', mic: 'XNAS', exchange: 'NASDAQ', market: 'US' as const, currency: 'USD' as const, asset_type: 'STOCK' as const, provider_symbol: 'NVDA', provider_catalog_version: 'v1', status: 'active' as const };
+  const transport: MarketTransport = {
+    capabilities: async () => ({ schema_version: 1, enabled: true, provider_configured: true, authorized: true, access_mode: 'public', quote_access: true, bars_access: true, search_access: true, ai_source_access: false, archive_access: false, provider: 'fixture', feed: 'fixture', coverage: 'indicative', timeliness: 'unknown', delay_seconds: null, attribution: 'fixture', limits: { quote_batch: 30, search_results: 10, bars: 400 } }),
+    search: async () => [item], quotes: async () => [],
+  };
+  const f = setup(transport);
+  await f.service.searchMarket('NVDA');
+  f.service.saveHoldingImport({ batchId: 'nvda_import_001', expectedRevision: 0, observedAt: f.runtime.now(), rows: [{ rowId: 'nvda', instrument: { symbol: 'NVDA', name: 'Nvidia', market: 'US', currency: 'USD', assetType: 'STOCK', status: 'verified', instrumentKey: item.instrument_key }, quantity: '2', unitCost: '100' }] });
+  assert.equal(f.service.marketDiscovery().watchlist.some(row => row.instrument_key === item.instrument_key), true);
+  assert.equal(f.service.positionDetail('NVDA').marketIdentity?.instrument_key, item.instrument_key);
+});
+
 test('legacy snapshots migrate without changing original events or review text', () => {
   const f = setup();
   f.service.saveTrade({ kind: 'buy', symbol: 'AAPL', assetType: 'STOCK', date: '2026-09-19', quantity: '2', price: '10', fee: '1', note: '原始理由' });
@@ -165,4 +217,21 @@ test('domestic provider catalog -> manual holding -> backup preserves exact iden
  const ai = f.service.ai().previewContext({ mode: 'portfolio_review', journalDate: '2026-09-19', question: '研究此基金', domesticInstrument: instrument });
  assert.ok(ai.facts.some(fact => fact.value.includes('CN:FUND:000001'))); assert.ok(ai.missingInformation.some(text => text.includes('不外发价格或净值'))); assert.ok(!ai.sources.some(source => source.type === 'quote'));
  const backup = f.service.exportFullBackup(), restored = setup(); restored.service.restoreCompleteBackup(backup); assert.equal(restored.service.overview(undefined, 'CNY').positions[0].symbol, '000001');
+});
+
+test('held fund refresh uses the latest published NAV and keeps its actual NAV date', async () => {
+ const instrument = { instrument_key: 'CN:FUND:000001', symbol: '000001', name: '测试基金', market: 'CN' as const, currency: 'CNY' as const, asset_type: 'FUND' as const, exchange: 'FUND' as const, provider_symbol: '000001.OF', provider_catalog_version: '2026-09-19T04:00:00Z' };
+ const requested: string[][] = [];
+ const f = setup({ capabilities: async () => { throw Error('not used'); }, search: async () => [], quotes: async () => [], domesticBoard: async (segment, symbols) => { assert.equal(segment, 'fund'); requested.push(symbols || []); return { segment, status: 'available', reason: '', rows: [{ instrument, price: null, tradeDate: null, changePct: 0.5, nav: '1.2500', navDate: '2026-09-18', announcementDate: null, premiumPct: null, premiumLabel: '', source: 'fixture', fetchedAt: '2026-09-19T04:00:00Z', quality: 'available' }] }; } });
+ const input = { ...manualHolding, batchId: 'fund_nav_refresh_001', instrument: { symbol: instrument.symbol, name: instrument.name, market: instrument.market, currency: instrument.currency, assetType: instrument.asset_type, status: 'verified' as const, instrumentKey: instrument.instrument_key }, quantity: '20', unitCost: '1' };
+ await f.service.domesticBoard('fund', [instrument.symbol]);
+ f.service.saveHolding(input);
+ await f.service.refreshMarket();
+ const position = f.service.overview(undefined, 'CNY').positions[0];
+ assert.deepEqual(requested.map(row => [...row]), [['000001'], ['000001']]);
+ assert.equal(position.marketPrice, '1.2500');
+ assert.equal(position.marketValue, '25.00');
+ assert.equal(position.unrealized, '5.00');
+ assert.equal(position.quoteAsOf, '2026-09-18');
+ assert.equal(position.quoteFreshness, 'official_nav');
 });

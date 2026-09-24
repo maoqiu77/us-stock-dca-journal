@@ -4,12 +4,16 @@
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view class="card">
     <view class="field"><label class="label">名称</label><input value="{{name}}" data-field="name" bindinput="onField" placeholder="例如 纳斯达克 100 ETF"/></view>
-    <view class="field"><label class="label">代码</label><input value="{{symbol}}" data-field="symbol" bindinput="onField" placeholder="例如 QQQ、510300"/><button class="secondary" loading="{{searching}}" bindtap="searchAsset">搜索标的</button><view wx:for="{{candidates}}" wx:key="instrument_key" class="note" data-index="{{index}}" bindtap="pickAsset">{{item.name}} · {{item.symbol}} · {{item.market}} / {{item.currency}}</view></view>
+    <view class="field"><label class="label">代码</label><input value="{{symbol}}" data-field="symbol" bindinput="onField" placeholder="例如 QQQ、510300"/><button class="secondary" loading="{{searching}}" bindtap="searchAsset">搜索标的</button><view wx:for="{{candidates}}" wx:key="instrument_key" class="note" data-index="{{index}}" bindtap="pickAsset">{{item.name}} · {{item.symbol}} · {{item.currency}}</view></view>
     <view class="field"><view class="label">资产类型</view><view class="choice"><button class="{{assetType === 'ETF' ? 'primary' : 'secondary'}}" data-type="ETF" bindtap="onType">ETF</button><button class="{{assetType === 'STOCK' ? 'primary' : 'secondary'}}" data-type="STOCK" bindtap="onType">股票</button><button class="{{assetType === 'FUND' ? 'primary' : 'secondary'}}" data-type="FUND" bindtap="onType">基金</button></view></view>
-    <view class="field"><label class="label">市场 / 交易方式</label><input value="{{market}}" data-field="market" bindinput="onField" placeholder="US / CN / OTC"/></view>
-    <view class="field"><label class="label">币种</label><input value="{{currency}}" data-field="currency" bindinput="onField" placeholder="USD / CNY"/></view>
+    <view class="field"><view class="label">币种</view><picker mode="selector" range="{{currencyOptions}}" value="{{currencyIndex}}" bindchange="onCurrency"><view class="picker">{{currency}}<text>⌄</text></view></picker></view>
     <view class="field"><label class="label">数量 / 份额</label><input type="digit" value="{{quantity}}" data-field="quantity" bindinput="onField"/></view>
-    <view class="field"><label class="label">持仓成本价（选填）</label><input type="digit" value="{{unitCost}}" data-field="unitCost" bindinput="onField"/><view class="muted">不填表示未知，不会用当前价格补齐。</view></view>
+    <view class="paired-fields">
+      <view class="field half"><label class="label">持仓成本价</label><input type="digit" value="{{unitCost}}" data-field="unitCost" bindinput="onField" placeholder="可选"/></view>
+      <view class="field half"><view class="label">持仓盈亏</view><view class="pnl-input"><picker mode="selector" range="{{pnlModes}}" value="{{pnlModeIndex}}" bindchange="onPnlMode"><view class="pnl-mode">{{pnlMode === 'profit' ? '盈利' : '亏损'}}<text>⌄</text></view></picker><input type="digit" value="{{pnlPercent}}" data-field="pnlPercent" bindinput="onField" placeholder="%"/></view></view>
+    </view>
+    <view class="price-hint">当前价 {{marketPrice ? (currency === 'CNY' ? '¥' : '$') + marketPrice : '暂不可用'}} · 成本价和盈亏比可任选一项填写，另一项会自动换算。</view>
+    <view wx:if="{{costSuggestion && !unitCost && quantity === costSuggestion.quantity && symbol === existing.symbol && market === existing.market && currency === existing.currency && assetType === existing.assetType}}" class="cost-suggestion"><view>截图持有金额 {{currency === 'CNY' ? '¥' : '$'}}{{costSuggestion.marketValue}} − 持有盈亏 {{currency === 'CNY' ? '¥' : '$'}}{{costSuggestion.holdingPnl}} = 估算总成本 {{currency === 'CNY' ? '¥' : '$'}}{{costSuggestion.totalCost}}</view><view class="muted">按截图的 {{costSuggestion.quantity}} {{assetType === 'FUND' ? '份' : '股'}}计算，单位成本约 {{costSuggestion.unitCost}}。请核对截图时点及数据。</view><button class="secondary small" disabled="{{saving || pendingSave}}" bindtap="fillCost">填入估算成本</button></view>
     <view wx:if="{{existing}}" class="note">当前数量 {{existing.quantity}} → {{quantity || '--'}}。校准会保留全部历史交易，但校准前收益可能不再完整。</view>
     <button class="secondary" disabled="{{saving || pendingSave}}" bindtap="preview">检查</button>
   </view>

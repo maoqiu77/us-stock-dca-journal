@@ -30,3 +30,36 @@ button.day.today { outline: 2rpx solid #216b50; outline-offset: -2rpx; }
 .calendar-selection button { flex: none; width: auto; }
 
 .task-grid button { width: 100%; min-width: 0; padding: 0 8rpx; white-space: nowrap; font-size: 27rpx; }
+
+/* AI research entry */
+page { background: #f5fbf8; color: #1b3433; }
+.container { padding-left: 20rpx; padding-right: 20rpx; }
+.container > .section { margin: 26rpx 0 16rpx; color: #172e2e; font-size: 32rpx; }
+.task-grid { gap: 14rpx; margin: 12rpx 0 22rpx; }
+.task-grid button { height: 78rpx; line-height: normal; border-radius: 15rpx; font-size: 25rpx; font-weight: 600; }
+.task-grid button.secondary, .market-tabs button.secondary { background: #f0f5f2; color: #294740; }
+.task-grid button.primary, .market-tabs button.primary { background: #2b6951; color: #fff; box-shadow: 0 8rpx 18rpx #225b4320; }
+.task-button { display: flex; height: 100%; align-items: center; justify-content: center; gap: 18rpx; }
+.task-bars { height: 30rpx; display: flex; align-items: flex-end; gap: 4rpx; }
+.task-bars text { display: block; width: 4rpx; background: currentColor; }
+.task-bars text:nth-child(1) { height: 9rpx; }.task-bars text:nth-child(2) { height: 18rpx; }.task-bars text:nth-child(3) { height: 28rpx; }
+.search-icon { position: relative; width: 22rpx; height: 22rpx; border: 3rpx solid currentColor; border-radius: 50%; flex: none; }
+.search-icon::after { content: ''; position: absolute; width: 12rpx; height: 3rpx; background: currentColor; right: -10rpx; bottom: -5rpx; transform: rotate(48deg); border-radius: 2rpx; }
+.research-instrument { padding: 26rpx; border: 0; border-radius: 20rpx; box-shadow: 0 8rpx 30rpx #254d3510; }
+.research-instrument .symbol { font-size: 32rpx; color: #172d2a; margin-bottom: 20rpx; }
+.market-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8rpx; margin: 0 0 22rpx; }
+.market-tabs button { width: 100%; min-width: 0; height: 68rpx; line-height: 68rpx; border-radius: 12rpx; font-size: 25rpx; font-weight: 600; }
+.research-search-wrap { box-sizing: border-box; display: flex; align-items: center; gap: 18rpx; height: 80rpx; padding: 0 24rpx; border: 1rpx solid #dce4e5; border-radius: 14rpx; background: #fff; color: #758491; }
+.research-search-wrap .search-icon { margin-right: 5rpx; }
+.research-search { min-width: 0; height: 100%; flex: 1; padding: 0; margin: 0; border: 0; background: transparent; font-size: 25rpx; }
+.instrument-picks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14rpx; margin: 18rpx 0 0; }
+.instrument-picks .pick { box-sizing: border-box; display: flex; align-items: center; gap: 14rpx; width: 100%; height: 104rpx; padding: 14rpx 18rpx; border: 1rpx solid #e9eeee; border-radius: 14rpx; background: #fff; box-shadow: 0 5rpx 14rpx #1b392b0d; line-height: 1.2; }
+.instrument-picks .pick.chosen { background: #f1f8f3; border-color: #2b6951; }
+.pick-logo { display: flex; align-items: center; justify-content: center; width: 48rpx; height: 48rpx; flex: none; border-radius: 6rpx; }
+.qqq-logo { background: #1e5b9e; }
+.qqq-logo image { width: 44rpx; height: 44rpx; }
+.pick-fallback { background: #eaf2ee; color: #2b6951; font-size: 17rpx; }
+.pick-copy { min-width: 0; flex: 1; text-align: left; }
+.pick-copy > view:first-child { color: #1d2a2e; font-size: 25rpx; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-copy .muted { margin-top: 8rpx; color: #75818e; font-size: 21rpx; }
+.pick-chevron { width: 10rpx; height: 10rpx; border-top: 2rpx solid #788691; border-right: 2rpx solid #788691; transform: rotate(45deg); flex: none; }

@@ -26,7 +26,7 @@ const receipts = market.createCloudbaseMarketReceiptStore(db);
 const rawProvider = publicUS ? new market.EastmoneyUSProvider({ now }) : providerConfigured ? new market.TwelveDataProvider({ apiKey: key, feed, coverage, timeliness, delaySeconds: delay, attribution, catalogVersion: process.env.MARKET_CATALOG_VERSION || 'unversioned' }) : undefined;
 const provider = rawProvider ? market.createCachedMarketProvider(rawProvider, infrastructure, {
   scope: `${publicUS ? 'eastmoney' : 'twelvedata'}:${process.env.MARKET_ENTITLEMENT_DOMAIN || 'private'}:${feed}`,
-  quoteTtlMs: positive('MARKET_QUOTE_CACHE_SECONDS', 60, 3600) * 1000,
+  quoteTtlMs: positive('MARKET_QUOTE_CACHE_SECONDS', 15, 3600) * 1000,
   staleRetentionMs: positive('MARKET_STALE_RETENTION_SECONDS', 86400, 604800) * 1000,
   dailyUnits: positive('MARKET_DAILY_UNITS', 10000, 10000000), minuteUnits: positive('MARKET_MINUTE_UNITS', 100, 100000), now,
 }) : undefined;
@@ -44,6 +44,7 @@ const handler = market.createPortfolioMarketHandler({
     provider: process.env.CN_MARKET_PROVIDER !== 'tushare' ? new market.EastmoneyFundProvider({ now }) : process.env.TUSHARE_TOKEN ? new market.TushareFundProvider({ token: process.env.TUSHARE_TOKEN, cnyCodes: (process.env.CN_CNY_FUND_CODES || '').split(',').map(code => code.trim()).filter(code => /^\d{6}\.(SH|SZ|OF)$/.test(code)), now }) : undefined,
     cache: infrastructure.cache, now,
   }),
+  domesticHoldings: process.env.CN_MARKET_ENABLED === 'false' ? undefined : new market.EastmoneyCNHoldingProvider({ now }),
   research: process.env.RESEARCH_MARKET_ENABLED === 'false' ? undefined : new market.ResearchMarketProvider({ now }),
   provider, receipts, now, id: () => crypto.randomUUID(),
 });

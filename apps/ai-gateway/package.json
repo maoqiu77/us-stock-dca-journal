@@ -12,6 +12,7 @@
   "dependencies": {
     "@portfolio/ai-context": "0.0.0",
     "@portfolio/market-data": "0.0.0",
+    "node-html-parser": "6.1.13",
     "zod": "4.4.3"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 <view class="container">
   <view class="title">{{stage === 'review' ? '核对持仓' : '截图导入'}}</view>
-  <view class="subtitle">选截图，核对后即可导入。其他指标自动保留。</view>
+  <view class="subtitle">选截图 → 点开每项核对数量、金额和成本 → 确认导入。截图原文会保留。</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:if="{{!capability.enabled || !capability.providerConfigured}}" class="note">截图识别暂不可用，已有草稿仍可核对。</view>
   <view wx:if="{{stage === 'select'}}" class="card">
@@ -23,6 +23,7 @@
     <view wx:for="{{rows}}" wx:key="rowId" class="card">
       <view class="row" data-index="{{index}}" bindtap="toggleEdit"><view class="symbol">{{item.name || '名称待补充'}}</view><text class="muted">{{item.editing ? '收起' : '›'}}</text></view>
       <view data-index="{{index}}" bindtap="toggleEdit">
+        <view class="row"><text class="muted">{{item.symbol}} · 数量 {{item.quantity || '待核对'}}</text><text class="link">{{item.editing ? '收起详情' : '点此核对 ›'}}</text></view>
         <view class="row"><text class="muted">持有金额 · {{item.currency || '币种待补充'}}</text><text>{{item.screenshotMetrics.marketValueText || '未显示'}}</text></view>
         <view class="row"><text class="muted">持有盈亏 · 截图</text><text>{{item.screenshotMetrics.holdingPnlText || '未显示'}}</text></view>
         <view wx:for="{{item.issues}}" wx:for-item="issue" wx:key="*this" class="compact-error">{{issue}} · 点此查看</view>
@@ -35,10 +36,16 @@
           <view class="field"><view class="label">名称</view><input value="{{item.name}}" data-index="{{index}}" data-field="name" bindinput="onRowField"/></view>
           <view class="field"><view class="label">代码</view><input value="{{item.symbol}}" data-index="{{index}}" data-field="symbol" bindinput="onRowField" placeholder="请确认代码"/></view>
           <view wx:if="{{item.candidates.length}}" class="candidate-list"><view class="label">匹配结果，点选正确的一项</view><button wx:for="{{item.candidates}}" wx:for-item="candidate" wx:for-index="candidateIndex" wx:key="instrument_key" class="secondary small" data-index="{{index}}" data-candidate="{{candidateIndex}}" bindtap="pickCandidate">{{candidate.name}} · {{candidate.symbol}} · {{candidate.market}}</button></view>
+          <button wx:if="{{item.issues.length && item.name && item.symbol && item.market && item.currency && !item.candidates.length}}" class="secondary small" data-index="{{index}}" bindtap="confirmManual">我已核对，使用此标的</button>
           <view class="row compact"><view class="field half"><view class="label">持有数量 / 份额</view><input value="{{item.quantity}}" data-index="{{index}}" data-field="quantity" bindinput="onRowField"/></view><view class="field half"><view class="label">平均成本（可不填）</view><input value="{{item.unitCost}}" data-index="{{index}}" data-field="unitCost" bindinput="onRowField" placeholder="未知"/></view></view>
-          <view wx:if="{{item.costBasis !== 'average_cost'}}" class="note">截图显示的成本口径未确认，保留原文，不直接用于账本计算。</view>
+          <view wx:if="{{item.estimatedCostText}}" class="note">{{item.estimatedCostText}}</view>
           <view class="row compact"><view class="field half"><view class="label">市场</view><input value="{{item.market}}" data-index="{{index}}" data-field="market" bindinput="onRowField"/></view><view class="field half"><view class="label">币种</view><input value="{{item.currency}}" data-index="{{index}}" data-field="currency" bindinput="onRowField"/></view></view>
           <view class="type-row"><text class="link" data-index="{{index}}" data-type="STOCK" bindtap="setAssetType">{{item.assetType === 'STOCK' ? '●' : '○'}} 股票</text><text class="link" data-index="{{index}}" data-type="ETF" bindtap="setAssetType">{{item.assetType === 'ETF' ? '●' : '○'}} ETF</text><text class="link" data-index="{{index}}" data-type="FUND" bindtap="setAssetType">{{item.assetType === 'FUND' ? '●' : '○'}} 基金</text></view>
+          <view class="label">核对截图数据（可改，留空表示未知）</view>
+          <view class="field"><view class="label">持有金额 · {{item.currency}}</view><input value="{{item.screenshotMetrics.marketValueText}}" data-index="{{index}}" data-field="marketValueText" bindinput="onMetric"/></view>
+          <view class="field"><view class="label">持有盈亏 · {{item.currency}}</view><input value="{{item.screenshotMetrics.holdingPnlText}}" data-index="{{index}}" data-field="holdingPnlText" bindinput="onMetric"/></view>
+          <view class="row compact"><view class="field half"><view class="label">持有收益率</view><input value="{{item.screenshotMetrics.holdingReturnRateText}}" data-index="{{index}}" data-field="holdingReturnRateText" bindinput="onMetric"/></view><view class="field half"><view class="label">日涨幅</view><input value="{{item.screenshotMetrics.dailyChangeRateText}}" data-index="{{index}}" data-field="dailyChangeRateText" bindinput="onMetric"/></view></view>
+          <view wx:if="{{item.assetType === 'FUND'}}" class="field"><view class="label">基金净值</view><input value="{{item.screenshotMetrics.navText}}" data-index="{{index}}" data-field="navText" bindinput="onMetric"/></view>
         </block>
         <view class="label">截图原始信息</view>
         <view wx:for="{{item.screenshotMetrics.originalFields}}" wx:for-item="field" wx:key="index" class="row"><text>{{field.label}}</text><text>{{field.value}} {{field.unit || ''}}</text></view>

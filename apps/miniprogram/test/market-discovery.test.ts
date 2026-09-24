@@ -68,6 +68,15 @@ test('board preserves actual zero change, dates and persistent stale fallback wi
  offline = true; now = '2026-09-14T14:33:06.000Z'; await discovery.refreshQuotes(); assert.equal(discovery.quoteView(instrument('QQQ')).qualityLabel, '缓存已过期');
  const restarted = createMarketDiscovery(saved.port, undefined, { now: () => now }); assert.equal(restarted.quoteView(instrument('QQQ')).priceText, '101'); assert.equal(restarted.quoteView(instrument('QQQ')).qualityLabel, '缓存已过期');
 });
+test('board derives the current US session from New York time and a recent observation', async () => {
+ const saved=storage(); let now='2026-09-23T14:31:05.000Z';
+ const observed={...quote('QQQ','101',now),session:'unknown' as const,trading_date:'2026-09-23',as_of:'2026-09-23T14:31:00.000Z',received_at:now};
+ const discovery=createMarketDiscovery(saved.port,{capabilities:async()=>caps,search:async()=>[],quotes:async()=>[observed]},{now:()=>now});
+ discovery.add(instrument('QQQ'));await discovery.refreshQuotes();
+ assert.equal(discovery.quoteView(instrument('QQQ')).sessionLabel,'常规交易');
+ now='2026-09-23T14:50:00.000Z';
+ assert.equal(discovery.quoteView(instrument('QQQ')).sessionLabel,'时段待确认');
+});
 
 test('popular defaults seed once per workspace; deletion and order survive reload and backup', () => {
  const saved = storage(); let scope = 'new'; const defaults = [instrument('NVDA'), instrument('AMD'), instrument('AAPL')];

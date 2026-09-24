@@ -1,22 +1,29 @@
 const { service, today, showError } = require('../../lib/core');
 function input(page) {
-  const value = { kind: page.data.kind, symbol: page.data.symbol, assetType: page.data.assetType, date: page.data.date, quantity: page.data.quantity, price: page.data.price, fee: page.data.fee, note: page.data.note, position: Number(page.data.position) };
+  const value = { kind: page.data.kind, symbol: page.data.symbol, assetType: page.data.assetType, currency: page.data.currency, date: page.data.date, amount: page.data.amount, quantity: page.data.quantity, price: page.data.price, fee: page.data.fee, note: page.data.note, position: Number(page.data.position) };
   if (page.data.recordId) { value.recordId = page.data.recordId; value.expectedRevision = page.data.expectedRevision; }
   return value;
 }
 Page({
-  data: { kind: 'buy', symbol: '', assetType: 'ETF', date: '', today: '', quantity: '', price: '', fee: '0', note: '', recordId: '', expectedRevision: '', position: 0, orderChoices: ['第 1 笔'], availableQuantity: '—', preview: null, saving: false, pendingSave: false, retryable: false },
+  data: { kind: 'buy', symbol: '', assetType: 'ETF', currency: 'USD', date: '', today: '', amount: '', quantity: '', price: '', fee: '', note: '', recordId: '', expectedRevision: '', position: 0, availableQuantity: '—', preview: null, saving: false, pendingSave: false, retryable: false },
   onLoad(options = {}) {
     this.refreshPending();
     try {
-      const rows = service.records(), data = { date: options.date || today(), today: today(), kind: options.kind || 'buy', symbol: options.symbol || '', assetType: options.assetType || 'ETF' };
+      const rows = service.records(), data = { date: options.date || today(), today: today(), kind: options.kind || 'buy', symbol: options.symbol || '', assetType: options.assetType || 'ETF', currency: options.currency === 'CNY' ? 'CNY' : 'USD' };
       if (options.recordId) {
         const row = rows.find(item => item.id === options.recordId);
         if (!row || row.voided || row.isOpening) throw Error(row?.isOpening ? '请在期初持仓页更正这条记录。' : '记录不存在或已更新。');
         const ordered = rows.filter(item => !item.voided && item.date === row.date).sort((a, b) => a.sequence - b.sequence);
-        Object.assign(data, { recordId: row.id, expectedRevision: row.revisionId, kind: row.kind, symbol: row.symbol, assetType: row.assetType, date: row.date, position: Math.max(0, ordered.findIndex(item => item.id === row.id)), quantity: row.quantity, price: row.price, fee: row.fee, note: row.note });
+        Object.assign(data, { recordId: row.id, expectedRevision: row.revisionId, kind: row.kind, symbol: row.symbol, assetType: row.assetType, currency: row.currency || 'USD', date: row.date, position: Math.max(0, ordered.findIndex(item => item.id === row.id)), amount: row.amount, quantity: row.quantity, price: row.price, fee: row.fee, note: row.note });
       } else {
-        if (data.symbol) { const known = rows.find(item => item.symbol === data.symbol.toUpperCase()); if (known) data.assetType = known.assetType; }
+        if (data.symbol) {
+          const known = rows.find(item => item.symbol === data.symbol.toUpperCase());
+          if (known) { data.assetType = known.assetType; data.currency = known.currency || data.currency; }
+          else {
+            const asset = service.snapshot?.().holding_assets?.find(item => item.symbol === data.symbol.toUpperCase());
+            if (asset) { data.assetType = asset.asset_type; data.currency = asset.currency === 'CNY' ? 'CNY' : 'USD'; }
+          }
+        }
         data.position = rows.filter(item => !item.voided && item.date === data.date).length;
       }
       this.setData(data); this.refreshContext();
@@ -48,21 +55,56 @@ Page({
   verifySaveAfterRetry() { this.setData({ pendingSave: false, retryable: false, saving: true }); wx.showToast({ title: '已保存', icon: 'success' }); wx.navigateBack({ fail: () => {} }); },
   invalidate(update) { if (this.data.pendingSave || this.data.saving) return; this._previewToken = ''; this.setData({ ...update, preview: null }); },
   onField(event) {
-    const field = event.currentTarget.dataset.field; if (!['symbol', 'quantity', 'price', 'fee', 'note'].includes(field)) return;
+    const field = event.currentTarget.dataset.field; if (!['symbol', 'amount', 'quantity', 'price', 'fee', 'note'].includes(field)) return;
     const update = { [field]: event.detail.value };
-    if (field === 'symbol') { try { const symbol = event.detail.value.trim().toUpperCase(); const known = service.records().find(item => item.symbol === symbol); if (known) update.assetType = known.assetType; } catch (e) { showError(e); return; } }
+    if (field === 'symbol') { try { const symbol = event.detail.value.trim().toUpperCase(); const known = service.records().find(item => item.symbol === symbol); if (known) { update.assetType = known.assetType; update.currency = known.currency || this.data.currency; } else { const asset = service.snapshot?.().holding_assets?.find(item => item.symbol === symbol); if (asset) { update.assetType = asset.asset_type; update.currency = asset.currency === 'CNY' ? 'CNY' : 'USD'; } } } catch (e) { showError(e); return; } }
+    if (['amount', 'quantity', 'price'].includes(field)) Object.assign(update, this.calculateTradeFields(field, event.detail.value));
     this.invalidate(update); if (field === 'symbol') this.refreshContext(update);
   },
+  calculateTradeFields(field, value) {
+    this._recentTradeFields = [...(this._recentTradeFields || []).filter(item => item !== field), field].slice(-2);
+    const values = { amount: this.data.amount, quantity: this.data.quantity, price: this.data.price, [field]: value };
+    const positive = key => Number(String(values[key] || '').replace(/,/g, '')) > 0;
+    const valid = ['amount', 'quantity', 'price'].filter(positive);
+    if (valid.length < 2) return {};
+    const sources = valid.length === 2 ? valid : this._recentTradeFields.filter(item => valid.includes(item));
+    if (sources.length < 2) return {};
+    const target = ['amount', 'quantity', 'price'].find(item => !sources.includes(item));
+    const amount = Number(values.amount), quantity = Number(values.quantity), price = Number(values.price);
+    const calculated = target === 'amount' ? quantity * price : target === 'price' ? amount / quantity : amount / price;
+    return target && Number.isFinite(calculated) && calculated > 0 ? { [target]: String(Number(calculated.toFixed(target === 'quantity' ? 6 : 4))) } : {};
+  },
   onDate(event) { try { const date = event.detail.value, position = service.records().filter(row => !row.voided && row.date === date && row.id !== this.data.recordId).length; this.invalidate({ date, position }); this.refreshContext(); } catch (e) { showError(e); } },
-  onKind(event) { this.invalidate({ kind: event.currentTarget.dataset.kind }); this.refreshContext({ kind: event.currentTarget.dataset.kind }); },
-  onType(event) { this.invalidate({ assetType: event.currentTarget.dataset.type }); },
+  onKind(event) {
+    const kind = event.currentTarget.dataset.kind;
+    if (kind === 'observe') { this.observeOnly(); return; }
+    this.invalidate({ kind }); this.refreshContext({ kind });
+  },
+  observeOnly() {
+    const symbol = String(this.data.symbol || '').trim().toUpperCase();
+    if (!symbol) { showError(Error('请先填写标的代码，再加入总览。')); return; }
+    try {
+      const catalog = service.marketDiscovery ? service.marketDiscovery() : { results: [], watchlist: [] };
+      const candidate = [...(catalog.results || []), ...(catalog.watchlist || [])].find(item => item.symbol === symbol && item.asset_type === this.data.assetType);
+      if (!candidate || !service.addWatchlist) throw Error('当前标的还没有行情目录匹配，请先在看板搜索后再加入总览。');
+      service.addWatchlist(candidate);
+      wx.showToast({ title: '已加入总览', icon: 'success' });
+      wx.navigateBack({ fail: () => {} });
+    } catch (e) { showError(e); }
+  },
+  onType(event) {
+    const assetType = event.currentTarget.dataset.type;
+    this.invalidate({ assetType, currency: assetType === 'FUND' ? 'CNY' : this.data.currency });
+  },
+  // Kept for compatibility with older saved page drafts; the selector is no longer rendered.
   onOrder(event) { const position = Number(event.detail.value); this.invalidate({ position }); this.refreshContext({ position }); },
+  onCurrency(event) { const currency = event.currentTarget.dataset.currency === 'CNY' ? 'CNY' : 'USD'; this.invalidate({ currency }); },
   refreshContext(changes = {}) {
     try {
       const state = { ...this.data, ...changes }; const sameDay = service.records().filter(row => !row.voided && row.date === state.date && row.id !== state.recordId); const max = sameDay.length;
       const position = Math.min(Number(state.position) || 0, max); let availableQuantity = '—';
-      if (state.symbol.trim()) availableQuantity = service.availableQuantity({ symbol: state.symbol, date: state.date, position, excludeRecordId: state.recordId || undefined });
-      this.setData({ orderChoices: Array.from({ length: max + 1 }, (_, index) => `第 ${index + 1} 笔`), position, availableQuantity });
+      if (state.symbol.trim()) availableQuantity = service.availableQuantity({ symbol: state.symbol, currency: state.currency, date: state.date, position, excludeRecordId: state.recordId || undefined });
+      this.setData({ position, availableQuantity });
     } catch (e) { showError(e); }
   },
   preview() { if (this.data.pendingSave || this.data.saving) return; try { const result = service.previewTrade(input(this)); this._previewToken = result.contentToken; const { contentToken, ...display } = result; this.setData({ preview: display }); } catch (e) { this._previewToken = ''; this.setData({ preview: null }); showError(e); } },

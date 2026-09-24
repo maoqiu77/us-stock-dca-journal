@@ -11,8 +11,58 @@ test('wrong exchange, future time and unavailable instrument cannot create obser
  for(const override of [{f13:106},{f124:9999999999},{f2:0}]){const[r]=await provider({...q,...override}).quotes(['US:XNAS:NVDA']);assert.equal(r.status,'unavailable');assert.equal(r.price,null);assert.equal(r.change,null);}
  const[r]=await provider(q).quotes(['US:XNAS:NOTREAL']);assert.equal(r.status,'unavailable');
 });
+test('quote refresh falls back to Tencent when the primary public endpoint is unreachable', async () => {
+ const fields=Array(74).fill('');Object.assign(fields,{0:'200',1:'Nvidia',2:'NVDA.OQ',3:'222.63',4:'222.27',30:'2026-09-18 10:09:41',31:'0.36',32:'0.16',35:'USD',36:'19139285'});
+ const p=new EastmoneyUSProvider({now:()=> '2026-09-18T14:10:00Z',fetch:(async url=>{if(String(url).includes('eastmoney'))throw Error('primary unavailable');return new Response(`v_usNVDA="${fields.join('~')}";`);}) as typeof fetch});
+ const [result]=await p.quotes(['US:XNAS:NVDA']);
+ assert.equal(result.status,'available');assert.equal(result.price,'222.63');assert.equal(result.previous_close,'222.27');assert.equal(result.as_of,'2026-09-18T14:09:41.000Z');assert.equal(result.provider,'腾讯财经');
+});
+test('fast public sources run together and the newer verified observation wins', async () => {
+ const fields=Array(74).fill('');Object.assign(fields,{0:'200',2:'NVDA.OQ',3:'222.63',4:'222.27',30:'2026-09-18 10:09:41',31:'0.36',32:'0.16',35:'USD'});
+ const eastmoney={data:{diff:[{...q,f124:Date.parse('2026-09-18T14:09:40Z')/1000}]}};
+ const calls:string[]=[];
+ const p=new EastmoneyUSProvider({now:()=> '2026-09-18T14:10:00Z',fetch:(async url=>{calls.push(String(url));return new Response(String(url).includes('gtimg.cn')?`v_usNVDA="${fields.join('~')}";`:JSON.stringify(eastmoney));}) as typeof fetch});
+ assert.equal((await p.quotes(['US:XNAS:NVDA']))[0].provider,'腾讯财经');
+ eastmoney.data.diff[0].f124=Date.parse('2026-09-18T14:09:42Z')/1000;
+ assert.equal((await p.quotes(['US:XNAS:NVDA']))[0].provider,'东方财富公开接口');
+ assert.equal(calls.some(url=>url.includes('yahoo.com')||url.includes('nasdaq.com')),false);
+});
+test('Yahoo chart quote fills an unavailable public quote with verified exchange and timestamp', async () => {
+ const p = new EastmoneyUSProvider({now:()=> '2026-09-18T14:10:00Z',fetch:(async url => {
+  if (String(url).includes('eastmoney')) throw Error('primary unavailable');
+  return new Response(JSON.stringify({chart:{result:[{meta:{symbol:'NVDA',currency:'USD',exchangeName:'NMS',regularMarketPrice:222.63,previousClose:222.27,regularMarketTime:1789740581,regularMarketVolume:19139285}}]}}));
+ }) as typeof fetch});
+ const [quote] = await p.quotes(['US:XNAS:NVDA']);
+ assert.equal(quote.provider,'Yahoo Finance');assert.equal(quote.price,'222.63');assert.equal(quote.status,'available');
+});
+test('Nasdaq quote is used before Tencent and rejects a mismatched listing', async () => {
+ const data = {data:{symbol:'NVDA',exchange:'NASDAQ-GS',assetClass:'STOCKS',primaryData:{lastSalePrice:'$222.63',netChange:'+0.36',percentageChange:'+0.16%',lastTradeTimestamp:'Sep 18, 2026 10:09 AM ET',volume:'19,139,285'}}};
+ const p = new EastmoneyUSProvider({now:()=> '2026-09-18T14:10:00Z',fetch:(async url => {
+  if (String(url).includes('eastmoney') || String(url).includes('yahoo')) throw Error('unavailable');
+  return new Response(JSON.stringify(data));
+ }) as typeof fetch});
+ const [quote] = await p.quotes(['US:XNAS:NVDA']);
+ assert.equal(quote.provider,'Nasdaq');assert.equal(quote.price,'222.63');assert.equal(quote.previous_close,'222.27');
+ data.data.exchange='NYSE';
+ assert.equal((await p.quotes(['US:XNAS:NVDA']))[0].status,'unavailable');
+});
+test('Tencent quote fallback rejects a mismatched exchange identity', async () => {
+ const fields=Array(74).fill('');Object.assign(fields,{0:'200',2:'NVDA.N',3:'222.63',4:'222.27',30:'2026-09-18 10:09:41',31:'0.36',32:'0.16',35:'USD'});
+ const p=new EastmoneyUSProvider({now:()=> '2026-09-18T14:10:00Z',fetch:(async url=>{if(String(url).includes('eastmoney'))throw Error('primary unavailable');return new Response(`v_usNVDA="${fields.join('~')}";`);}) as typeof fetch});
+ assert.equal((await p.quotes(['US:XNAS:NVDA']))[0].status,'unavailable');
+});
 test('public search uses curated exchange identities and rejects malformed history',async()=>{
  const p=provider(q);assert.equal((await p.search('标普500',10))[0].mic,'ARCX');assert.equal((await p.search('unknown',10)).length,0);await assert.rejects(p.bars('US:XNAS:NVDA','1M','1day'), /PUBLIC_HISTORY_INVALID/);
+});
+test('curated QQQM identity can be quoted when catalog search is unavailable', async () => {
+ const p = new EastmoneyUSProvider({ now, fetch: (async url => {
+   if (String(url).includes('suggest')) throw Error('search unavailable');
+   return new Response(JSON.stringify({ data: { diff: [{ ...q, f12: 'QQQM', f13: 105 }] } }));
+ }) as typeof fetch });
+ const [quote] = await p.quotes(['US:XNAS:QQQM']);
+ assert.equal(quote.status, 'available');
+ assert.equal(quote.symbol, 'QQQM');
+ assert.equal(quote.price, '222.27');
 });
 test('a non-default stock can be searched, quoted and restored in a fresh server instance', async () => {
  const record = { Code:'ORCL',Name:'甲骨文',JYS:'NYSE',MktNum:'106',QuoteID:'106.ORCL',TypeUS:'1',Classify:'UsStock' };

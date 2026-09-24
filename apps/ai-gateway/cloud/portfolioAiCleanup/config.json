@@ -1,1 +1,14 @@
-{"permissions":{"openapi":[]},"timeout":60,"envVariables":{}}
+{
+  "permissions": {
+    "openapi": []
+  },
+  "timeout": 60,
+  "envVariables": {},
+  "triggers": [
+    {
+      "name": "portfolioAiCleanupHourly",
+      "type": "timer",
+      "config": "0 0 * * * * *"
+    }
+  ]
+}

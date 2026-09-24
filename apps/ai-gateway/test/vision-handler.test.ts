@@ -168,6 +168,14 @@ test('daily holding P&L percentage stays raw instead of becoming price change', 
   assert.deepEqual(result.data.rows[0].originalFields, row.originalFields);
 });
 
+test('English Day Chg in a holdings table is not relabeled as instrument daily price change', async () => {
+  const row = { name: 'QQQM', code: 'QQQM', quantityText: '0.9145', unitCostText: null, costBasis: 'unknown', currency: 'USD', accountLabel: null, dailyChangeRateText: '+2.21%', originalFields: [{ label: 'Day Chg', value: '+$6.01 (+2.21%)' }] };
+  const f = fixture({ rows: [row], truncated: false }), task = await f.create();
+  const result: any = await f.handler({ action: 'recognizeHoldings', requestId: 'recognize_english_day_change', uploadTaskId: task.uploadTaskId }, context);
+  assert.equal(result.data.rows[0].dailyChangeRateText, null);
+  assert.deepEqual(result.data.rows[0].originalFields, row.originalFields);
+});
+
 
 test('an unselected margin tab without margin metrics cannot establish a margin account', async () => {
   const document = { pageType: 'holdings', platform: null, accountType: 'margin', accountLabel: '普通账户', currency: 'CNY', observedAtText: null, coverage: 'partial', fields: [{ label: '总资产', value: '100' }], groups: [] };

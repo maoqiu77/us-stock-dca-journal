@@ -1,5 +1,5 @@
-import { researchSelectionSchema, type ResearchSelection, type ResearchSeries } from '@portfolio/market-data/research';
-import type { DomesticBoard } from '@portfolio/market-data/domestic';
+import { researchSelectionSchema, researchSeriesSchema, type ResearchSelection, type ResearchSeries } from '@portfolio/market-data/research';
+import { domesticFundHoldingsSchema, domesticHoldingQuoteSchema, domesticSearchResultSchema, type DomesticBoard, type DomesticFundHoldings, type DomesticHoldingQuote, type DomesticSearchResult } from '@portfolio/market-data/domestic';
 import { barsV1Schema, canonicalInstrumentSchema, instrumentKeySchema, marketCapabilitiesSchema, quoteV1Schema, type CanonicalInstrument, type MarketCapabilities, type QuoteV1 } from '@portfolio/market-data';
 import type { MarketBudgetPort, MarketProvider } from './ports.ts';
 import { MarketProviderError } from './twelve-data-provider.ts';
@@ -8,7 +8,7 @@ import type { MarketReceiptStore } from './receipt-store.ts';
 export type MarketTrustedContext = { appId: string; openId: string; source: 'wechat-miniprogram' };
 export type MarketConfig = MarketCapabilities & { expected_app_id: string };
 export type MarketAccessPort = { allowed(owner: string): Promise<boolean> };
-type Deps = { research?: { load(input: ResearchSelection): Promise<ResearchSeries[]> }; domestic?: { load(segment: 'etf' | 'fund'): Promise<DomesticBoard> }; config: MarketConfig; access: MarketAccessPort; provider?: MarketProvider; receipts?: MarketReceiptStore; now(): string; id?(): string; userRate?: { budget: MarketBudgetPort; perMinute: number } };
+type Deps = { research?: { load(input: ResearchSelection): Promise<ResearchSeries[]> }; domestic?: { load(segment: 'etf' | 'fund', symbols?: string[]): Promise<DomesticBoard>; search?(query: string, segment: 'etf' | 'fund'): Promise<DomesticSearchResult[]>; holdings?(code: string): Promise<DomesticFundHoldings> }; domesticHoldings?: { quotes(symbols: string[]): Promise<DomesticHoldingQuote[]> }; config: MarketConfig; access: MarketAccessPort; provider?: MarketProvider; receipts?: MarketReceiptStore; now(): string; id?(): string; userRate?: { budget: MarketBudgetPort; perMinute: number } };
 const ok = (data: unknown) => ({ ok: true as const, data });
 const fail = (code: string, message: string) => ({ ok: false as const, error: { code, message, outcome_unknown: false } });
 const providerFailure = (error: unknown) => error instanceof MarketProviderError ? fail(error.code, error.code === 'PROVIDER_RATE_LIMIT' ? '行情供应商限频，请稍后重试。' : error.code === 'PROVIDER_AUTH' ? '行情供应商授权失败。' : error.code === 'PROVIDER_TIMEOUT' ? '行情供应商请求超时。' : '行情供应商暂不可用。') : fail('PROVIDER_UNAVAILABLE', '行情供应商暂不可用。');
@@ -24,7 +24,7 @@ export function createPortfolioMarketHandler(deps: Deps) {
     if (context.source !== 'wechat-miniprogram' || context.appId !== deps.config.expected_app_id || !context.openId) return fail('UNAUTHORIZED_SOURCE', '调用来源未通过验证。');
     const action = event?.action;
     if (action === 'capabilities') return ok({ ...publicCapabilities, authorized: await deps.access.allowed(context.openId) });
-    if (!['search', 'quotes', 'bars', 'prepareAnalysisSnapshot', 'domesticBoard', 'researchSnapshot'].includes(action)) return fail('UNKNOWN_ACTION', '不支持的行情 action。');
+    if (!['search', 'quotes', 'bars', 'prepareAnalysisSnapshot', 'domesticBoard', 'domesticSearch', 'domesticFundHoldings', 'domesticHoldingQuotes', 'researchSnapshot'].includes(action)) return fail('UNKNOWN_ACTION', '不支持的行情 action。');
     if (!await deps.access.allowed(context.openId)) return fail('ACCESS_DENIED', '当前用户无行情访问权限。');
     const withinUserRate = async () => !deps.userRate || await deps.userRate.budget.reserve(`market-user:${context.openId}:${deps.now().slice(0, 16)}`, 1, deps.userRate.perMinute, deps.now());
     if (action === 'researchSnapshot') {
@@ -41,22 +41,59 @@ export function createPortfolioMarketHandler(deps: Deps) {
     }
     if (action === 'domesticBoard') {
       if (event.segment !== 'etf' && event.segment !== 'fund') return fail('INVALID_SEGMENT', '无效的基金分类。');
+      const symbols = event.symbols;
+      if (symbols !== undefined && (!Array.isArray(symbols) || symbols.length > 30 || new Set(symbols).size !== symbols.length || symbols.some((item: unknown) => typeof item !== 'string' || !/^\d{6}$/.test(item)))) return fail('INVALID_CN_SYMBOLS', '基金代码列表无效。');
       if (!await withinUserRate()) return fail('USER_RATE_LIMIT', '行情请求过于频繁，请稍后重试。');
-      return ok(deps.domestic ? await deps.domestic.load(event.segment) : { segment: event.segment, status: 'unavailable', reason: '国内基金行情尚未配置', rows: [] });
+      return ok(deps.domestic ? await deps.domestic.load(event.segment, symbols) : { segment: event.segment, status: 'unavailable', reason: '国内基金行情尚未配置', rows: [] });
+    }
+    if (action === 'domesticSearch') {
+      if ((event.segment !== 'etf' && event.segment !== 'fund') || typeof event.query !== 'string' || !event.query.trim() || event.query.length > 80) return fail('INVALID_SEARCH', '搜索条件无效。');
+      if (!await withinUserRate()) return fail('USER_RATE_LIMIT', '请求过于频繁，请稍后重试。');
+      try { return ok(domesticSearchResultSchema.array().max(20).parse(await deps.domestic?.search?.(event.query, event.segment) ?? [])); }
+      catch { return fail('CN_SEARCH_UNAVAILABLE', '基金搜索暂不可用。'); }
+    }
+    if (action === 'domesticFundHoldings') {
+      if (typeof event.code !== 'string' || !/^\d{6}$/.test(event.code)) return fail('INVALID_FUND_CODE', '基金代码无效。');
+      if (!await withinUserRate()) return fail('USER_RATE_LIMIT', '请求过于频繁，请稍后重试。');
+      if (!deps.domestic?.holdings) return fail('CN_HOLDINGS_NOT_CONFIGURED', '基金持仓披露暂未配置。');
+      return ok(domesticFundHoldingsSchema.parse(await deps.domestic.holdings(event.code)));
+    }
+    if (action === 'domesticHoldingQuotes') {
+      const symbols = event.symbols;
+      if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length > 30 || new Set(symbols).size !== symbols.length || symbols.some((symbol: unknown) => typeof symbol !== 'string' || !/^(?:0|1|3|5|6)\d{5}$/.test(symbol))) return fail('INVALID_CN_SYMBOLS', '国内持仓代码无效。');
+      if (!deps.domesticHoldings) return fail('CN_QUOTES_NOT_CONFIGURED', '国内持仓行情尚未配置。');
+      if (!await withinUserRate()) return fail('USER_RATE_LIMIT', '行情请求过于频繁，请稍后重试。');
+      try {
+        const quotes = domesticHoldingQuoteSchema.array().parse(await deps.domesticHoldings.quotes(symbols));
+        if (quotes.length !== symbols.length || quotes.some((quote, index) => quote.symbol !== symbols[index])) throw Error('CN_QUOTE_IDENTITY_MISMATCH');
+        return ok(quotes);
+      } catch { return fail('CN_QUOTES_UNAVAILABLE', '国内持仓行情暂不可用，已保留上次报价。'); }
     }
     if (action === 'prepareAnalysisSnapshot') {
       const parsed: Array<ReturnType<typeof instrumentKeySchema.safeParse>> = Array.isArray(event.instrument_keys) ? event.instrument_keys.map((key: unknown) => instrumentKeySchema.safeParse(key)) : [];
       const purpose = event.purpose;
-      if (!parsed.length || parsed.length > deps.config.limits.quote_batch || parsed.some(item => !item.success) || !['portfolio_review', 'instrument_research', 'daily_review', 'follow_up'].includes(purpose)) return fail('INVALID_SNAPSHOT_REQUEST', '分析行情范围无效。');
-      if (!deps.config.enabled || !deps.config.quote_access || !deps.config.ai_source_access || !deps.config.archive_access) return fail('ENTITLEMENT_DENIED', '当前行情授权不允许 AI 来源归档。');
-      if (!deps.provider || !deps.receipts || !deps.id) return fail('SERVICE_NOT_CONFIGURED', '行情凭据服务尚未配置。');
+      const rawSelections = event.research_selections ?? [];
+      const selections = Array.isArray(rawSelections) ? rawSelections.map((item: unknown) => researchSelectionSchema.safeParse(item)) : [];
+      if (!Array.isArray(rawSelections) || selections.length > 8 || selections.some(item => !item.success || item.data.period !== '1day' || item.data.auxiliary.some(period => period !== '60min')) || new Set(selections.map(item => item.success ? `${item.data.market}:${item.data.symbol}` : '')).size !== selections.length) return fail('INVALID_SNAPSHOT_REQUEST', '持仓 K 线范围无效。');
+      if ((!parsed.length && !selections.length) || parsed.length > deps.config.limits.quote_batch || parsed.some(item => !item.success) || !['portfolio_review', 'instrument_research', 'daily_review', 'follow_up'].includes(purpose)) return fail('INVALID_SNAPSHOT_REQUEST', '分析行情范围无效。');
+      if (selections.length && (!['portfolio_review', 'follow_up'].includes(purpose) || !deps.research || !deps.config.bars_access)) return fail('RESEARCH_NOT_CONFIGURED', '持仓 K 线服务暂不可用。');
+      const quotesAllowed = deps.config.quote_access && deps.config.ai_source_access && deps.config.archive_access;
+      if (!deps.config.enabled || !quotesAllowed && !selections.length) return fail('ENTITLEMENT_DENIED', '当前行情授权不允许 AI 来源归档。');
+      if (quotesAllowed && parsed.length && !deps.provider || !deps.receipts || !deps.id) return fail('SERVICE_NOT_CONFIGURED', '行情凭据服务尚未配置。');
       if (!await withinUserRate()) return fail('USER_RATE_LIMIT', '行情请求过于频繁，请稍后重试。');
-      const keys: string[] = parsed.map(item => item.success ? item.data : '');
+      const keys: string[] = quotesAllowed ? parsed.map(item => item.success ? item.data : '') : [];
       try {
-        const received = new Map((await deps.provider.quotes(keys)).map(item => [item.instrument_key, quoteV1Schema.parse(item)]));
-        const quotes = keys.map(key => received.get(key) ?? unavailable(key, deps.now(), 'PROVIDER_NO_RESULT', deps.config));
-        const createdAt = deps.now(), receipt = await deps.receipts.create({ owner: context.openId, id: deps.id(), purpose, instrumentKeys: keys, quotes, provider: deps.config.provider ?? 'unconfigured', feed: deps.config.feed ?? 'none', entitlementVersion: 'market-v1', createdAt, expiresAt: new Date(Date.parse(createdAt) + 10 * 60_000).toISOString() });
-        return ok({ receipt_id: receipt.id, receipt_digest: receipt.digest, created_at: receipt.createdAt, expires_at: receipt.expiresAt, provider: receipt.provider, feed: receipt.feed, attribution: deps.config.attribution, quotes: receipt.quotes });
+        let quoteFailure = false;
+        const observed = keys.length ? await deps.provider!.quotes(keys).catch(() => { quoteFailure = true; return []; }) : [];
+        const received = new Map(observed.map(item => [item.instrument_key, quoteV1Schema.parse(item)]));
+        const quotes = keys.map(key => received.get(key) ?? unavailable(key, deps.now(), quoteFailure ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_NO_RESULT', deps.config));
+        const series = (await Promise.all(selections.map(async item => {
+          const row = researchSeriesSchema.parse((await deps.research!.load(item.data!))[0]);
+          if (row.market !== item.data!.market || row.symbol !== item.data!.symbol || row.period !== '1day') throw Error('RESEARCH_IDENTITY_MISMATCH');
+          return researchSeriesSchema.parse({ ...row, bars: row.bars.slice(-60) });
+        })));
+        const createdAt = deps.now(), receipt = await deps.receipts.create({ owner: context.openId, id: deps.id(), purpose, instrumentKeys: keys, quotes, ...(selections.length ? { portfolioSeries: series } : {}), provider: deps.config.provider ?? 'unconfigured', feed: deps.config.feed ?? 'none', entitlementVersion: 'market-v1', createdAt, expiresAt: new Date(Date.parse(createdAt) + 10 * 60_000).toISOString() });
+        return ok({ receipt_id: receipt.id, receipt_digest: receipt.digest, created_at: receipt.createdAt, expires_at: receipt.expiresAt, provider: receipt.provider, feed: receipt.feed, attribution: deps.config.attribution, quotes: receipt.quotes, series });
       } catch (error) { return providerFailure(error); }
     }
     if (action === 'search') {

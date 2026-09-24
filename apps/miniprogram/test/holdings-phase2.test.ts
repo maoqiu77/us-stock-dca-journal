@@ -101,6 +101,8 @@ test('screenshot performance survives persistence and backup without becoming a 
   assert.deepEqual(f.service.snapshot().holding_checkpoints[0].screenshot_metrics, screenshotMetrics);
   const detail = f.service.positionDetail('012345');
   assert.deepEqual(detail.screenshotMetrics, screenshotMetrics);
+  assert.equal(detail.pnlPercent, '2.0%');
+  assert.equal(f.service.overview().displayPnlPercent, '2.0%');
   assert.equal(detail.realized, null); assert.equal(detail.marketPrice, null);
   assert.equal(f.service.overview().marketValue, null);
   assert.equal(f.service.records().length, 0);
@@ -110,6 +112,32 @@ test('screenshot performance survives persistence and backup without becoming a 
   const restored = setup();
   restored.service.restoreCompleteBackup(backup);
   assert.deepEqual(restored.service.positionDetail('012345').screenshotMetrics, screenshotMetrics);
+});
+
+test('unknown US cost can be estimated only from matching screenshot value, PnL and quantity', () => {
+  const f = setup();
+  f.service.saveHoldingImport({ batchId: 'cost_suggestion_1', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'qqq', instrument: asset('QQQ'), quantity: '2', unitCost: '', screenshotMetrics: { marketValueText: '210.00', holdingPnlText: '+10.00' } }] });
+  const id = f.service.overview().positions[0].id;
+  const suggestion = f.service.suggestHoldingCost(id);
+  assert.equal(suggestion?.totalCost, '200.00');
+  assert.equal(suggestion?.unitCost, '100');
+  assert.equal(f.service.positionDetail(id).cost, null);
+  f.service.saveHolding({ batchId: 'fill_cost_001', expectedRevision: 1, observedAt: '2026-09-20T04:00:00.000Z', instrument: asset('QQQ'), quantity: '2', unitCost: suggestion!.unitCost, replaceApproved: true });
+  assert.equal(f.service.positionDetail(id).cost, '200.00');
+  assert.equal(f.service.suggestHoldingCost(id), null);
+  const g = setup();
+  g.service.saveHoldingImport({ batchId: 'cost_suggestion_2', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'spy', instrument: asset('SPY'), quantity: '2', screenshotMetrics: { holdingPnlText: '+10.00' } }] });
+  assert.equal(g.service.suggestHoldingCost(g.service.overview().positions[0].id), null);
+});
+
+test('holding loss percentage uses remaining cost and omits unknown or zero cost', () => {
+  const f = setup();
+  f.service.saveHoldingImport({ batchId: 'loss_percent_1', expectedRevision: 0, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'loss', instrument: asset('LOSS'), quantity: '2', unitCost: '50', screenshotMetrics: { marketValueText: '80.00', holdingPnlText: '-20.00' } }] });
+  assert.equal(f.service.overview().positions[0].pnlPercent, '-20.0%');
+  assert.equal(f.service.overview().displayPnlPercent, '-20.0%');
+  f.service.saveHoldingImport({ batchId: 'zero_cost_1', expectedRevision: 1, observedAt: '2026-09-20T04:00:00.000Z', rows: [{ rowId: 'zero', instrument: asset('ZERO'), quantity: '1', unitCost: '0', screenshotMetrics: { marketValueText: '10.00', holdingPnlText: '+10.00' } }] });
+  assert.equal(f.service.overview().positions.find(row => row.symbol === 'ZERO')?.pnlPercent, null);
+  assert.equal(f.service.overview().displayPnlPercent, null);
 });
 
 test('invalid screenshot percentages are rejected before writing and zero is preserved', () => {

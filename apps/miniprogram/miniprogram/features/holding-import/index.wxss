@@ -1,5 +1,7 @@
+.container { padding-top: 26rpx; }
+.title { color: #102d23; }
 .preview-image { width: 100%; height: 420rpx; background: #f3f6f0; border-radius: 16rpx; }
-.compact { align-items: flex-start; }
+.compact { align-items: flex-start; flex-wrap: wrap; }
 .half { flex: 1; min-width: 0; }
 .compact-error { padding: 14rpx 18rpx; margin: 10rpx 0; font-size: 23rpx; }
 .sticky-actions { position: sticky; bottom: 18rpx; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 20rpx; background: rgba(255,255,255,.96); border: 1rpx solid #e5eae3; border-radius: 20rpx; padding: 18rpx 22rpx; }
@@ -14,3 +16,13 @@
 .row > button.small { width: auto; flex-shrink: 0; margin: 0; }
 .select-state { color: #17674d; font-size: 25rpx; }
 .link { color: #17674d; padding: 12rpx 0; }
+.container > .card { box-shadow: 0 4rpx 18rpx rgba(31, 70, 48, .04); }
+.container .field input { background: #fff; border-color: #dfe7df; }
+.container .label { overflow-wrap: anywhere; }
+.container .row.compact .half { min-width: 0; }
+@media (max-width: 360px) {
+  .container { padding-left: 24rpx; padding-right: 24rpx; }
+  .preview-image { height: 320rpx; }
+  .row.compact .half { flex-basis: 100%; width: 100%; }
+  .sticky-actions { padding: 14rpx 16rpx; gap: 12rpx; }
+}

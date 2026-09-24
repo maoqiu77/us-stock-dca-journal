@@ -18,8 +18,8 @@ export const portfolioSchema = z.strictObject({
 
 export const instrumentSchema = z.strictObject({
   id: idSchema, symbol: z.string().regex(/^[A-Z0-9][A-Z0-9.-]{0,14}$/),
-  exchange: z.string().min(1).max(32), market: z.literal("US"),
-  quote_currency: z.literal("USD"), asset_type: z.enum(["STOCK", "ETF"]), confirmed_at: timestampSchema,
+  exchange: z.string().min(1).max(32), market: z.enum(["US", "CN"]),
+  quote_currency: z.enum(["USD", "CNY"]), asset_type: z.enum(["STOCK", "ETF", "FUND"]), confirmed_at: timestampSchema,
 });
 
 const eventFields = {

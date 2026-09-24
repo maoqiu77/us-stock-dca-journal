@@ -1,4 +1,5 @@
 import { researchSelectionSchema, researchSnapshotSchema, type ResearchSelection } from '@portfolio/market-data/research';
+import { domesticHoldingQuoteSchema, type DomesticHoldingQuote } from '@portfolio/market-data/domestic';
 import { decimal, decimalText, dateSchema, ledgerEventSchema, projectLedger, valuePortfolio, type LedgerEvent } from '@portfolio/domain';
 import { createRestoreStorage } from './workspace/restore-transaction.ts';
 import { createRepository, type StoragePort } from './repository.ts';
@@ -19,9 +20,9 @@ export class ServiceError extends Error {
   readonly code: string;
   constructor(code: string, message: string) { super(message); this.name = 'ServiceError'; this.code = code; }
 }
-type AssetType = 'STOCK' | 'ETF';
+type AssetType = 'STOCK' | 'ETF' | 'FUND';
 type Guard = { recordId?: string; expectedRevision?: string; contentToken?: string };
-export type TradeInput = Guard & { kind: 'buy' | 'sell'; symbol: string; assetType?: AssetType; date: string; quantity: string; price: string; fee?: string; note?: string; position?: number };
+export type TradeInput = Guard & { kind: 'buy' | 'sell'; symbol: string; assetType?: AssetType; currency?: 'USD' | 'CNY'; date: string; quantity: string; price: string; fee?: string; note?: string; position?: number };
 export type OpeningInput = Guard & { date: string; symbol: string; assetType?: AssetType; quantity: string; totalCost: string; note?: string };
 type Position = { quantity: string; cost: string; realized: string };
 export type MutationPreview = { amount: string; fee: string; net: string; availableQuantity: string; before: Position; after: Position; deltas: Position; order: { date: string; position: number; maxPosition: number }; contentToken: string; affectedPositions: Array<{ symbol: string; before: Position; after: Position }> };
@@ -59,6 +60,12 @@ function numberText(value: string, places = 12, positive = true) {
 }
 const calculated = (value: string) => decimal('0').plus(value);
 const money = (value: string) => calculated(value).toFixed(2);
+const returnPercent = (pnl: string | null, cost: string | null) => {
+  if (pnl === null || cost === null || !calculated(cost).gt(0)) return null;
+  const normalized = pnl.trim().replaceAll(',', '').replace(/^\+/, '');
+  if (!/^-?\d+(?:\.\d+)?$/.test(normalized)) return null;
+  return `${calculated(normalized).div(cost).times(100).toFixed(1)}%`;
+};
 const preciseMoney = (value: string) => { const n = calculated(value); return n.toFixed(Math.max(2, n.decimalPlaces())); };
 function normalizeSymbol(value: string) {
   const symbol = String(value ?? '').trim().toUpperCase();
@@ -88,6 +95,9 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
   let aiEngine: ReturnType<typeof createAiEngine> | undefined;
   const marketClient = createMarketClient(storage, options.marketTransport, { now: runtime.now });
   const marketDiscovery = createMarketDiscovery(storage, options.marketTransport, { now: runtime.now, defaults: options.seedPopularStocks ? popularUS : undefined, workspaceId: () => workspace.read().instance_id });
+  const cnQuoteKey = 'portfolio.wechat.cn-holding-quotes.v1';
+  const cnQuotes = new Map<string, DomesticHoldingQuote>();
+  try { const saved = JSON.parse(storage.get(cnQuoteKey) || '[]'); if (Array.isArray(saved)) for (const raw of saved) { const parsed = domesticHoldingQuoteSchema.safeParse(raw); if (parsed.success && parsed.data.status === 'available') cnQuotes.set(parsed.data.symbol, parsed.data); } } catch { /* Bad public cache never changes the ledger. */ }
   // Exact content plus replacement generation: never rely on a short hash for stale edits.
   function snapshotToken(data: Snapshot) { return `${repo.generation()}:${JSON.stringify(data)}`; }
   function fail(code: string, message: string): never { throw new ServiceError(code, message); }
@@ -120,12 +130,17 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     try { return validateSnapshot(candidate, runtime); }
     catch (error) { throw new ServiceError('HISTORY_INVALID', error instanceof Error ? error.message : String(error)); }
   }
-  function instrumentFor(data: Snapshot, rawSymbol: string, rawType: AssetType | undefined) {
-    const symbol = normalizeSymbol(rawSymbol), existing = data.instruments.find(item => item.symbol === symbol);
-    if (existing && rawType && existing.asset_type !== rawType) fail('INVALID_INPUT', '此标的已有不同资产类型，请保持一致。');
-    if (!existing && !rawType) fail('INVALID_INPUT', '请选择资产类型。');
+  function instrumentFor(data: Snapshot, rawSymbol: string, rawType: AssetType | undefined, rawCurrency: 'USD' | 'CNY' = 'USD') {
+    if (rawCurrency !== 'USD' && rawCurrency !== 'CNY') fail('INVALID_INPUT', '请选择 USD 或 CNY 币种。');
+    const symbol = normalizeSymbol(rawSymbol), currency = rawCurrency, market = currency === 'CNY' ? 'CN' as const : 'US' as const;
+    const candidates = data.instruments.filter(item => item.symbol === symbol);
+    const existing = candidates.find(item => item.quote_currency === currency && (!rawType || item.asset_type === rawType));
     if (existing) return { instrument: existing, instruments: data.instruments };
-    const instrument = { id: uniqueId(data), symbol, exchange: 'UNSPECIFIED', market: 'US' as const, quote_currency: 'USD' as const, asset_type: rawType!, confirmed_at: runtime.now() };
+    if (candidates.some(item => item.quote_currency === currency) && rawType) fail('INVALID_INPUT', '此标的已有不同资产类型，请保持一致。');
+    if (!rawType) fail('INVALID_INPUT', '请选择资产类型。');
+    const held = data.holding_assets.find(item => item.symbol === symbol && item.market === market && item.currency === currency);
+    if (held && held.asset_type !== rawType) fail('INVALID_INPUT', '此标的已有不同资产类型，请保持一致。');
+    const instrument = { id: held?.id ?? uniqueId(data), symbol, exchange: 'UNSPECIFIED', market, quote_currency: currency, asset_type: rawType, confirmed_at: runtime.now() };
     return { instrument, instruments: [...data.instruments, instrument] };
   }
   function base(data: Snapshot, old?: LedgerEvent, additional: string[] = []) {
@@ -138,7 +153,9 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     const ledgerById = new Map(ledger.positions.map(item => [item.instrument_id, item]));
     const visibleHeads = new Set(ledger.input_head.map(item => item.revision_id));
     const activeRows = active(data).filter(item => !item.voided && visibleHeads.has(item.revision_id));
-    const activeByRecord = new Map(activeRows.map(item => [item.record_id, item]));
+    // A calibration can include a trade that is later voided. Keep the voided
+    // head for ancestry checks so the calibration remains usable.
+    const activeByRecord = new Map(active(data).map(item => [item.record_id, item]));
     const checkpoints = new Map<string, Snapshot['holding_checkpoints'][number]>();
     for (const item of data.holding_checkpoints.filter(item => Date.parse(item.observed_at) <= Date.parse(ledger.known_at))) {
       const old = checkpoints.get(item.instrument_id);
@@ -149,7 +166,10 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
       const base = ledgerById.get(instrumentId), checkpoint = checkpoints.get(instrumentId);
       if (!checkpoint) return { instrumentId, quantity: base?.quantity ?? '0', remainingCost: base?.remaining_cost ?? '0', unitCost: base?.unit_cost ?? null, realized: base?.realized_pnl ?? '0', checkpoint: null, checkpointConflict: false };
       const included = new Map(checkpoint.baseline_heads.map(item => [item.record_id, item.revision_id]));
-      const checkpointConflict = [...included].some(([recordId, revisionId]) => activeByRecord.get(recordId)?.revision_id !== revisionId);
+      const checkpointConflict = [...included].some(([recordId, revisionId]) => {
+        const current = activeByRecord.get(recordId);
+        return current?.revision_id !== revisionId && !(current?.voided && current.parent_revision === revisionId);
+      });
       let quantity = decimal(checkpoint.quantity);
       let cost = checkpoint.unit_cost === null ? null : quantity.times(decimal(checkpoint.unit_cost));
       const after = activeRows.filter(item => 'instrument_id' in item && item.instrument_id === instrumentId && !included.has(item.record_id) && (item.kind === 'buy' || item.kind === 'sell'));
@@ -197,7 +217,8 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     const old = head(data, input.recordId); guard(data, input, old);
     if (old && data.holding_checkpoints.some(item => item.baseline_heads.some(head => head.record_id === old.record_id))) fail('CHECKPOINT_CONFLICT', '该交易已包含在持仓校准中；请新建校准，不能静默改写校准前流水。');
     if (old && old.kind !== 'buy' && old.kind !== 'sell') fail('INVALID_INPUT', '记录类型不匹配。');
-    const { instrument, instruments } = instrumentFor(data, input.symbol, input.assetType);
+    const originalInstrument = old && 'instrument_id' in old ? data.instruments.find(item => item.id === old.instrument_id) : undefined;
+    const { instrument, instruments } = instrumentFor(data, input.symbol, input.assetType, input.currency ?? originalInstrument?.quote_currency);
     const quantity = numberText(input.quantity), price = numberText(input.price), fee = numberText(input.fee || '0', 4, false);
     const amount = decimalText(decimal(quantity).times(price), 4);
     const draft = parseEvent({ ...base({ ...data, instruments }, old), kind: input.kind, instrument_id: instrument.id, trade_date: input.date, sequence: old?.sequence ?? 0,
@@ -235,9 +256,9 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
       .map(({ symbol, before, after }) => ({ symbol, before, after }));
     return { amount: preciseMoney(amount), fee: preciseMoney(fee), net: preciseMoney(net), availableQuantity, before, after, deltas: difference(before, after), order, affectedPositions, contentToken: snapshotToken(data) };
   }
-  function availableQuantity(query: { symbol: string; date: string; position?: number; excludeRecordId?: string }) {
+  function availableQuantity(query: { symbol: string; currency?: 'USD' | 'CNY'; date: string; position?: number; excludeRecordId?: string }) {
     const data = repo.read(); checkDate(data, query.date);
-    const instrument = data.instruments.find(item => item.symbol === normalizeSymbol(query.symbol)); if (!instrument) return '0';
+    const instrument = data.instruments.find(item => item.symbol === normalizeSymbol(query.symbol) && item.quote_currency === (query.currency ?? 'USD')); if (!instrument) return '0';
     const sameDay = active(data).filter(item => !item.voided && item.trade_date === query.date && item.record_id !== query.excludeRecordId).sort((a, b) => a.sequence - b.sequence);
     const position = query.position ?? sameDay.length;
     if (!Number.isInteger(position) || position < 0 || position > sameDay.length) fail('INVALID_INPUT', '请选择有效的同日记录位置。');
@@ -250,18 +271,18 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
   function row(data: Snapshot, event: LedgerEvent) {
     const instrument = 'instrument_id' in event ? data.instruments.find(item => item.id === event.instrument_id) : undefined;
     return { id: event.record_id, revisionId: event.revision_id, parentRevision: event.parent_revision, recordedAt: event.recorded_at, date: event.trade_date, sequence: event.sequence, voided: event.voided,
-      kind: event.kind, label: event.kind === 'buy' ? '买入' : event.kind === 'sell' ? '卖出' : '期初持仓', symbol: instrument?.symbol ?? '', assetType: instrument?.asset_type ?? null,
+      kind: event.kind, label: event.kind === 'buy' ? '买入' : event.kind === 'sell' ? '卖出' : '期初持仓', symbol: instrument?.symbol ?? '', assetType: instrument?.asset_type ?? null, currency: instrument?.quote_currency ?? 'USD',
       quantity: 'quantity' in event ? event.quantity : '', price: 'price' in event ? event.price : '', fee: 'fee' in event ? event.fee : '',
       amount: 'amount' in event ? money(event.amount) : event.kind === 'opening_position' ? money(event.total_cost) : '', totalCost: event.kind === 'opening_position' ? event.total_cost : '', note: event.note, isOpening: event.kind === 'opening_position' };
   }
-  function records() { const data = repo.read(); return active(data).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence).map(item => row(data, item)); }
+  function records(includeVoided = true) { const data = repo.read(); return active(data).filter(item => includeVoided || !item.voided).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence).map(item => row(data, item)); }
 
   function holdingAsset(data: Snapshot, input: HoldingInput) {
     const symbol = normalizeSymbol(input.instrument.symbol), market = String(input.instrument.market ?? '').trim().toUpperCase(), currency = String(input.instrument.currency ?? '').trim().toUpperCase();
     const name = String(input.instrument.name ?? '').trim();
     if (!name || name.length > 120 || !/^[A-Z]{3}$/.test(currency) || !market || market.length > 32) fail('INVALID_INPUT', '请填写有效的名称、市场和三位币种代码。');
     const metadata = data.holding_assets.find(item => item.symbol === symbol && item.market === market && item.currency === currency);
-    const legacy = data.instruments.find(item => item.symbol === symbol && market === 'US' && currency === 'USD');
+    const legacy = data.instruments.find(item => item.symbol === symbol && item.market === market && item.quote_currency === currency);
     const id = metadata?.id ?? legacy?.id ?? uniqueId(data);
     const catalog = input.instrument.instrumentKey ? [...marketDiscovery.view().results, ...marketDiscovery.view().watchlist, ...marketDiscovery.domesticRows().map(row => row.instrument)].find(item => item.instrument_key === input.instrument.instrumentKey && item.symbol === symbol && item.name === name && item.market === market && item.currency === currency && item.asset_type === input.instrument.assetType) : undefined;
     const trustedExisting = legacy || metadata?.status === 'verified' && metadata.name === name && metadata.asset_type === input.instrument.assetType;
@@ -363,16 +384,33 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     const data = repo.read(), projected = cutoff ? projection(data, runtime, { through_date: cutoff.throughDate, known_at: cutoff.knownAt }) : projection(data, runtime), state = clockState(data, runtime);
     const current = currentPositions(data, projected).filter(item => calculated(item.quantity).gt(0));
     const assetById = new Map(data.holding_assets.map(item => [item.id, item]));
-    const currencyOf = (id: string) => assetById.get(id)?.currency ?? 'USD';
+    const currencyOf = (id: string) => assetById.get(id)?.currency ?? data.instruments.find(item => item.id === id)?.quote_currency ?? 'USD';
     const currencies = [...new Set(current.map(item => currencyOf(item.instrumentId)))].sort();
     const selectedCurrency = requestedCurrency && currencies.includes(requestedCurrency) ? requestedCurrency : currencies.includes('CNY') ? 'CNY' : currencies[0] ?? data.portfolio.base_currency;
     const held = current.filter(item => currencyOf(item.instrumentId) === selectedCurrency);
     const instruments = held.map(item => data.instruments.find(candidate => candidate.id === item.instrumentId)).filter((item): item is Snapshot['instruments'][number] => !!item);
-    const market = marketClient.snapshot(instruments), { observations: _marketObservations, ...marketView } = market;
+    const market = marketClient.snapshot(instruments.filter(item => item.asset_type !== 'FUND' && item.market === 'US')), { observations: _marketObservations, ...marketView } = market;
     const valuation = valuePortfolio(projected, data.mode === 'demo' ? [] : market.observations, { as_of: projected.known_at, max_age_ms: 20 * 60 * 1000 });
     const valued = new Map(valuation.positions.map(item => [item.instrument_id, item]));
     const observations = new Map(market.observations.map(item => [item.instrument_id, item]));
-    const positions = held.map(item => { const legacy = data.instruments.find(candidate => candidate.id === item.instrumentId), asset = assetById.get(item.instrumentId), value = valued.get(item.instrumentId), observation = observations.get(item.instrumentId), marketRow = market.instruments.find(candidate => candidate.id === item.instrumentId); const marketPrice = value?.quote?.price ?? observation?.price ?? null; const marketValue = marketPrice ? money(decimal(item.quantity).times(marketPrice).toString()) : null; const unrealized = marketValue !== null && item.remainingCost !== null ? money(calculated(marketValue).minus(item.remainingCost).toString()) : null; return { id: item.instrumentId, name: asset?.name ?? legacy?.symbol ?? '', symbol: asset?.symbol ?? legacy?.symbol ?? '', market: asset?.market ?? 'US', currency: asset?.currency ?? 'USD', status: asset?.status ?? 'verified', assetType: asset?.asset_type ?? legacy?.asset_type ?? 'ETF', quantity: item.quantity, cost: item.remainingCost === null ? null : money(item.remainingCost), unitCost: item.unitCost ? calculated(item.unitCost).toFixed(4) : null, realized: item.realized === null ? null : money(item.realized), marketPrice, marketValue, unrealized, weightExCash: value?.position_weight_ex_cash ? `${calculated(value.position_weight_ex_cash).times(100).toFixed(2)}%` : null, quoteAsOf: value?.quote?.as_of ?? observation?.as_of ?? null, quoteFreshness: marketRow?.stale ? 'stale' : marketPrice ? 'current' : 'unavailable', mappingStatus: marketRow?.mapping ?? 'not_found', attribution: marketRow?.quote?.attribution ?? '', screenshotMetrics: item.checkpoint?.screenshot_metrics ?? null, screenshotImportedAt: item.checkpoint?.screenshot_metrics ? item.checkpoint.observed_at : null, checkpoint: !!item.checkpoint, checkpointConflict: item.checkpointConflict }; });
+    const fundRows = new Map(marketDiscovery.domesticRows().filter(row => row.instrument.asset_type === 'FUND').map(row => [row.instrument.symbol, row]));
+    const positions = held.map(item => {
+      const legacy = data.instruments.find(candidate => candidate.id === item.instrumentId), asset = assetById.get(item.instrumentId), value = valued.get(item.instrumentId), observation = observations.get(item.instrumentId), marketRow = market.instruments.find(candidate => candidate.id === item.instrumentId);
+      const marketName = asset?.market ?? legacy?.market ?? 'US', currency = asset?.currency ?? legacy?.quote_currency ?? 'USD', assetType = asset?.asset_type ?? legacy?.asset_type ?? 'ETF';
+      const cn = marketName === 'CN' && currency === 'CNY' && assetType !== 'FUND' ? cnQuotes.get(asset?.symbol ?? legacy?.symbol ?? '') : undefined;
+      const validCn = cn?.status === 'available' && Date.parse(cn.asOf!) <= Date.parse(runtime.now()) && Date.parse(runtime.now()) - Date.parse(cn.asOf!) < 7 * 86_400_000 ? cn : undefined;
+      const fund = assetType === 'FUND' ? fundRows.get(asset?.symbol ?? legacy?.symbol ?? '') : undefined;
+      const validFund = fund?.nav && fund.navDate && fund.navDate <= runtime.today() && Date.parse(fund.fetchedAt) <= Date.parse(runtime.now()) ? fund : undefined;
+      const publicQuote = marketRow?.quote?.status === 'available' && marketRow.quote.price ? marketRow.quote : null;
+      const marketPrice = validFund?.nav ?? validCn?.price ?? value?.quote?.price ?? observation?.price ?? publicQuote?.price ?? null;
+      const marketValue = marketPrice ? money(decimal(item.quantity).times(marketPrice).toString()) : null;
+      const unrealized = marketValue !== null && item.remainingCost !== null ? money(calculated(marketValue).minus(item.remainingCost).toString()) : null;
+      const dailyPercent = publicQuote?.change_percent !== null && publicQuote?.change_percent !== undefined ? Number(publicQuote.change_percent) : validFund?.changePct ?? null;
+      const dailyPnl = marketValue !== null && dailyPercent !== null && Number.isFinite(dailyPercent) ? money(calculated(marketValue).times(String(dailyPercent)).div(100).toString()) : null;
+      const screenshotPnl = item.checkpoint?.source === 'screenshot' && item.checkpoint.quantity === item.quantity && item.checkpoint.unit_cost !== null && item.remainingCost !== null && calculated(item.remainingCost).eq(calculated(item.quantity).times(item.checkpoint.unit_cost)) ? item.checkpoint.screenshot_metrics?.holdingPnlText ?? null : null;
+      const pnlPercent = returnPercent(unrealized ?? screenshotPnl, item.remainingCost);
+      return { id: item.instrumentId, name: asset?.name ?? legacy?.symbol ?? '', symbol: asset?.symbol ?? legacy?.symbol ?? '', market: marketName, currency, status: asset?.status ?? 'verified', assetType, quantity: item.quantity, cost: item.remainingCost === null ? null : money(item.remainingCost), unitCost: item.unitCost ? calculated(item.unitCost).toFixed(4) : null, realized: item.realized === null ? null : money(item.realized), marketPrice, marketValue, unrealized, pnlPercent, dailyPnl, dailyPnlPercent: dailyPercent !== null && Number.isFinite(dailyPercent) ? `${dailyPercent.toFixed(2)}%` : null, weightExCash: value?.position_weight_ex_cash ? `${calculated(value.position_weight_ex_cash).times(100).toFixed(2)}%` : null, quoteAsOf: validFund?.navDate ?? validCn?.asOf ?? value?.quote?.as_of ?? observation?.as_of ?? publicQuote?.as_of ?? null, quoteFreshness: validFund ? 'official_nav' : validCn ? Date.parse(runtime.now()) - Date.parse(validCn.asOf!) > 20 * 60_000 ? 'stale' : 'current' : marketRow?.stale ? 'stale' : publicQuote?.freshness ?? (marketPrice ? 'current' : 'unavailable'), mappingStatus: validFund || validCn ? 'verified' : marketRow?.mapping ?? 'not_found', attribution: validFund?.source ?? validCn?.source ?? publicQuote?.attribution ?? '', screenshotMetrics: item.checkpoint?.screenshot_metrics ?? null, screenshotImportedAt: item.checkpoint?.screenshot_metrics ? item.checkpoint.observed_at : null, checkpoint: !!item.checkpoint, checkpointConflict: item.checkpointConflict };
+    });
     // Display totals use the same quote-first, screenshot-second values as holding cards.
     // Keep market valuation fields separate: screenshot observations are not live quotes.
     const displayTotal = (live: 'marketValue' | 'unrealized', saved: 'marketValueText' | 'holdingPnlText') => {
@@ -389,22 +427,37 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     };
     const displayAmount = displayTotal('marketValue', 'marketValueText');
     const displayPnl = displayTotal('unrealized', 'holdingPnlText');
+    const displayPnlPercent = positions.length && positions.every(item => item.pnlPercent !== null) ? returnPercent(displayPnl.value, held.reduce((sum, item) => sum.plus(item.remainingCost!), decimal('0')).toString()) : null;
     const completeMarket = positions.length > 0 && positions.every(item => item.marketValue !== null);
     const marketValue = completeMarket ? money(positions.reduce((sum, item) => sum.plus(item.marketValue!), decimal('0')).toString()) : null;
     const completePnl = completeMarket && positions.every(item => item.unrealized !== null);
     const unrealizedPnl = completePnl ? money(positions.reduce((sum, item) => sum.plus(item.unrealized!), decimal('0')).toString()) : null;
     return { mode: data.mode, positions, currencies, selectedCurrency, totalCost: money(held.reduce((sum, item) => item.remainingCost === null ? sum : sum.plus(item.remainingCost), decimal('0')).toString()), realized: money(projected.realized_pnl), cash: projected.cash, unrealizedPnl,
-      displayAmount, displayPnl, displayIncludesScreenshots: displayAmount.screenshots > 0 || displayPnl.screenshots > 0, marketValue, coveredMarketValue: positions.some(item => item.marketValue !== null) ? money(positions.reduce((sum, item) => item.marketValue === null ? sum : sum.plus(item.marketValue), decimal('0')).toString()) : null, netValue: null, market: { ...marketView, total: positions.length, covered: positions.filter(item => item.marketValue !== null).length }, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
+      displayAmount, displayPnl, displayPnlPercent, displayIncludesScreenshots: displayAmount.screenshots > 0 || displayPnl.screenshots > 0, marketValue, coveredMarketValue: positions.some(item => item.marketValue !== null) ? money(positions.reduce((sum, item) => item.marketValue === null ? sum : sum.plus(item.marketValue), decimal('0')).toString()) : null, netValue: null, market: { ...marketView, total: positions.length, covered: positions.filter(item => item.marketValue !== null).length }, tradeCount: projected.input_head.filter(item => !item.voided && data.events.some(event => event.revision_id === item.revision_id && (event.kind === 'buy' || event.kind === 'sell'))).length, reviewCount: data.reviews.filter(item => item.date <= projected.through_date && Date.parse(item.updated_at) <= Date.parse(projected.known_at)).length,
       clockAnomaly: state.clock_anomaly, throughDate: projected.through_date, knownAt: projected.known_at };
   }
   function positionDetail(idOrSymbol: string) {
     const data = repo.read(), normalized = idOrSymbol.trim().toUpperCase();
     const asset = data.holding_assets.find(item => item.id === idOrSymbol || item.symbol === normalized), instrument = data.instruments.find(item => item.id === (asset?.id ?? idOrSymbol) || item.symbol === normalized);
     if (!asset && !instrument) return fail('NOT_FOUND', '标的不存在。');
-    const id = asset?.id ?? instrument!.id, projected = currentPositions(data).find(item => item.instrumentId === id), related = active(data).filter(item => 'instrument_id' in item && item.instrument_id === id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position' && !item.voided);
+    const id = asset?.id ?? instrument!.id, projected = currentPositions(data).find(item => item.instrumentId === id), related = active(data).filter(item => !item.voided && 'instrument_id' in item && item.instrument_id === id).sort((a, b) => b.trade_date.localeCompare(a.trade_date) || b.sequence - a.sequence), opening = related.find(item => item.kind === 'opening_position');
     const time = clockState(data, runtime);
-    const currency = asset?.currency ?? 'USD', priced = overview(undefined, currency).positions.find(item => item.id === id), marketIdentity = instrument ? marketClient.snapshot([instrument]).instruments[0]?.canonicalInstrument ?? null : null;
-    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id, name: asset?.name ?? instrument!.symbol, symbol: asset?.symbol ?? instrument!.symbol, currency, market: asset?.market ?? 'US', status: asset?.status ?? 'verified', assetType: asset?.asset_type ?? instrument!.asset_type, quantity: projected?.quantity ?? '0', cost: projected?.remainingCost === null ? null : money(projected?.remainingCost ?? '0'), unitCost: projected?.unitCost ? calculated(projected.unitCost).toFixed(4) : null, realized: projected?.realized === null ? null : money(projected?.realized ?? '0'), marketPrice: priced?.marketPrice ?? null, marketValue: priced?.marketValue ?? null, unrealized: priced?.unrealized ?? null, weightExCash: priced?.weightExCash ?? null, quoteAsOf: priced?.quoteAsOf ?? null, quoteFreshness: priced?.quoteFreshness ?? 'unavailable', mappingStatus: priced?.mappingStatus ?? 'not_found', attribution: priced?.attribution ?? '', screenshotMetrics: priced?.screenshotMetrics ?? null, screenshotImportedAt: priced?.screenshotImportedAt ?? null, marketIdentity, opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean), checkpoint: !!projected?.checkpoint, checkpointConflict: projected?.checkpointConflict ?? false };
+    const currency = asset?.currency ?? instrument?.quote_currency ?? 'USD', priced = overview(undefined, currency).positions.find(item => item.id === id);
+    const mapped = instrument ? marketClient.snapshot([instrument]).instruments[0]?.canonicalInstrument : null;
+    const matches = instrument ? marketDiscovery.view().watchlist.filter(item => item.symbol === instrument.symbol && item.asset_type === instrument.asset_type) : [];
+    const marketIdentity = mapped ?? (matches.length === 1 ? matches[0] : null);
+    return { clockAnomaly: time.clock_anomaly, throughDate: time.through_date, knownAt: time.known_at, id, name: asset?.name ?? instrument!.symbol, symbol: asset?.symbol ?? instrument!.symbol, currency, market: asset?.market ?? 'US', status: asset?.status ?? 'verified', assetType: asset?.asset_type ?? instrument!.asset_type, quantity: projected?.quantity ?? '0', cost: projected?.remainingCost === null ? null : money(projected?.remainingCost ?? '0'), unitCost: projected?.unitCost ? calculated(projected.unitCost).toFixed(4) : null, realized: projected?.realized === null ? null : money(projected?.realized ?? '0'), marketPrice: priced?.marketPrice ?? null, marketValue: priced?.marketValue ?? null, unrealized: priced?.unrealized ?? null, pnlPercent: priced?.pnlPercent ?? null, weightExCash: priced?.weightExCash ?? null, quoteAsOf: priced?.quoteAsOf ?? null, quoteFreshness: priced?.quoteFreshness ?? 'unavailable', mappingStatus: priced?.mappingStatus ?? 'not_found', attribution: priced?.attribution ?? '', screenshotMetrics: priced?.screenshotMetrics ?? null, screenshotImportedAt: priced?.screenshotImportedAt ?? null, marketIdentity, opening: opening ? row(data, opening) : null, records: related.map(item => row(data, item)), reasons: related.map(item => item.note).filter(Boolean), checkpoint: !!projected?.checkpoint, checkpointConflict: projected?.checkpointConflict ?? false };
+  }
+  function suggestHoldingCost(id: string) {
+    const data = repo.read(), position = currentPositions(data).find(item => item.instrumentId === id);
+    const checkpoint = position?.checkpoint, metrics = checkpoint?.screenshot_metrics;
+    if (!position || position.unitCost !== null || checkpoint?.source !== 'screenshot' || !metrics || position.quantity !== checkpoint.quantity) return null;
+    const amountText = String(metrics.marketValueText ?? '').trim().replaceAll(',', '');
+    const pnlText = String(metrics.holdingPnlText ?? '').trim().replaceAll(',', '');
+    if (!/^\d+(?:\.\d+)?$/.test(amountText) || !/^[+-]?\d+(?:\.\d+)?$/.test(pnlText)) return null;
+    const quantity = calculated(position.quantity), totalCost = calculated(amountText).minus(pnlText);
+    if (!quantity.gt(0) || !totalCost.gt(0)) return null;
+    return { quantity: position.quantity, marketValue: amountText, holdingPnl: pnlText, totalCost: money(totalCost.toString()), unitCost: holdingDecimal(totalCost.div(quantity).toFixed(12))!, observedAt: checkpoint.observed_at };
   }
   function journalTimeline(date: string) {
     const state = workspace.read(), runs = new Map(state.runs.map(item => [item.id, item]));
@@ -416,19 +469,30 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     return [...journal, ...trades].sort((a, b) => b.time.localeCompare(a.time) || b.id.localeCompare(a.id));
   }
 
+  function addImportedWatchlist(instruments: HoldingInput['instrument'][]) {
+    const catalog = [...marketDiscovery.view().results, ...marketDiscovery.view().watchlist];
+    for (const instrument of instruments) {
+      if (instrument.market !== 'US' || instrument.currency !== 'USD' || !instrument.instrumentKey) continue;
+      const match = catalog.find(item => item.instrument_key === instrument.instrumentKey && item.symbol === normalizeSymbol(instrument.symbol) && item.asset_type === instrument.assetType);
+      if (match) marketDiscovery.add(match);
+    }
+  }
+
   const service = {
     pendingSave: repo.pendingSave, pendingIdentity: repo.pendingIdentity, verifyPending: repo.verifyPending, retryPending: repo.retryPending,
     snapshot: repo.read, generation: repo.generation, records, availableQuantity,
     journal: () => workspace,
     workspacePending: workspace.pendingSave, verifyWorkspacePending: workspace.verifyPending, retryWorkspacePending: workspace.retryPending,
-    journalTimeline,
-    async refreshMarket() { const data = repo.read(), heldIds = new Set(currentPositions(data).filter(item => calculated(item.quantity).gt(0)).map(item => item.instrumentId)); await marketClient.refresh(data.instruments.filter(item => heldIds.has(item.id))); },
+    journalTimeline, suggestHoldingCost,
+    async refreshMarket() { const data = repo.read(), heldIds = new Set(currentPositions(data).filter(item => calculated(item.quantity).gt(0)).map(item => item.instrumentId)); const usInstruments = data.instruments.filter(item => heldIds.has(item.id) && item.market === 'US' && item.asset_type !== 'FUND'); await marketClient.refresh(usInstruments); for (const row of marketClient.snapshot(usInstruments).instruments) if (row.canonicalInstrument) marketDiscovery.add(row.canonicalInstrument); const fundSymbols = [...new Set([...data.holding_assets.filter(item => heldIds.has(item.id) && item.market === 'CN' && item.currency === 'CNY' && item.asset_type === 'FUND' && /^\d{6}$/.test(item.symbol)).map(item => item.symbol), ...data.instruments.filter(item => heldIds.has(item.id) && item.market === 'CN' && item.quote_currency === 'CNY' && item.asset_type === 'FUND' && /^\d{6}$/.test(item.symbol)).map(item => item.symbol)])].slice(0, 30); if (fundSymbols.length) await marketDiscovery.domesticBoard('fund', fundSymbols); const symbols = [...new Set([...data.holding_assets.filter(item => heldIds.has(item.id) && item.market === 'CN' && item.currency === 'CNY' && item.asset_type !== 'FUND' && /^(?:0|1|3|5|6)\d{5}$/.test(item.symbol)).map(item => item.symbol), ...data.instruments.filter(item => heldIds.has(item.id) && item.market === 'CN' && item.quote_currency === 'CNY' && item.asset_type !== 'FUND' && /^(?:0|1|3|5|6)\d{5}$/.test(item.symbol)).map(item => item.symbol)])].slice(0, 30); if (symbols.length && options.marketTransport?.domesticHoldingQuotes) { try { const received = await options.marketTransport.domesticHoldingQuotes(symbols); if (received.length !== symbols.length || received.some((quote, index) => quote.symbol !== symbols[index])) throw Error('CN_QUOTE_IDENTITY_MISMATCH'); for (const raw of received) { const quote = domesticHoldingQuoteSchema.parse(raw); if (quote.status === 'available') cnQuotes.set(quote.symbol, quote); } storage.set(cnQuoteKey, JSON.stringify([...cnQuotes.values()].slice(-100))); } catch { /* Preserve last verified public quote, never replace it with a failed refresh. */ } } },
     invalidateMarketRequest: marketClient.invalidate,
     clearMarketCache: marketClient.clear,
     searchMarket: marketDiscovery.search,
     cancelMarketSearch: marketDiscovery.cancelSearch,
     marketDiscovery() { const view = marketDiscovery.view(); return { ...view, domestic: marketDiscovery.domesticRows() }; },
     domesticBoard: marketDiscovery.domesticBoard,
+    domesticSearch: marketDiscovery.domesticSearch,
+    domesticFundHoldings: marketDiscovery.domesticFundHoldings,
     addWatchlist: marketDiscovery.add,
     removeWatchlist: marketDiscovery.remove,
     moveWatchlist: marketDiscovery.move,
@@ -443,11 +507,20 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     boardQuote: marketDiscovery.quoteView,
     refreshDetailQuote: marketDiscovery.refreshDetailQuote,
     vision: () => options.visionTransport,
-    async prepareAnalysisMarket(mode: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up', symbol?: string) {
+    async prepareAnalysisMarket(mode: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up', symbol?: string, holdingId?: string) {
       if (!options.marketTransport?.prepareAnalysisSnapshot) return null;
       const data = repo.read();
-      const heldIds = new Set(currentPositions(data).filter(item => calculated(item.quantity).gt(0)).map(item => item.instrumentId));
+      const allHeldIds = new Set(currentPositions(data).filter(item => calculated(item.quantity).gt(0)).map(item => item.instrumentId));
+      if (holdingId && !allHeldIds.has(holdingId)) throw Error('当前工作区已不存在这项持仓。');
+      const heldIds = holdingId ? new Set([holdingId]) : allHeldIds;
       const ledger = data.instruments.filter(item => heldIds.has(item.id)), mapped = marketClient.snapshot(ledger).instruments;
+      const assets = [...data.holding_assets.filter(item => heldIds.has(item.id)), ...ledger.filter(item => !data.holding_assets.some(asset => asset.id === item.id))];
+      const eligibleSelections = [...new Map(assets.flatMap(item => { if (item.asset_type === 'FUND') return []; const parsed = researchSelectionSchema.safeParse({ market: item.market, symbol: item.symbol, period: '1day', auxiliary: mode === 'follow_up' ? ['60min'] : [] }); return parsed.success ? [[`${parsed.data.market}:${parsed.data.symbol}`, parsed.data] as const] : []; })).values()];
+      if (mode === 'follow_up' && symbol && !eligibleSelections.some(item => item.symbol === symbol.toUpperCase())) {
+        const parsed = researchSelectionSchema.safeParse({ market: 'US', symbol, period: '1day', auxiliary: ['60min'] });
+        if (parsed.success) eligibleSelections.push(parsed.data);
+      }
+      const selections = eligibleSelections.slice(0, 8);
       let keys = mapped.map(item => item.instrumentKey).filter((key): key is string => !!key);
       if (symbol) {
         const normalized = symbol.trim().toUpperCase();
@@ -455,14 +528,15 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
         keys = selected ? [selected.instrument_key] : mapped.filter(item => item.symbol === normalized).map(item => item.instrumentKey).filter((key): key is string => !!key);
       }
       keys = [...new Set(keys)];
-      if (!keys.length) return null;
-      return options.marketTransport.prepareAnalysisSnapshot(keys, mode);
+      if (!keys.length && !selections.length) return null;
+      const result = await options.marketTransport.prepareAnalysisSnapshot(keys, mode, mode === 'portfolio_review' || mode === 'follow_up' ? selections : []);
+      return { ...result, omittedSeriesCount: mode === 'portfolio_review' || mode === 'follow_up' ? Math.max(0, assets.length - selections.length) : 0 };
     },
     ai: () => aiEngine ??= createAiEngine(workspace, { snapshot: repo.read, overview, records, positionDetail }, runtime, options.aiTransport, options.fakeProvider),
     firstUse() { const data = repo.read(), events = active(data).filter(item => !item.voided); const hasOpeningPositions = events.some(item => item.kind === 'opening_position'); return { isEmpty: events.length === 0, openingDate: hasOpeningPositions ? data.portfolio.opening_date : null, hasOpeningPositions }; },
     previewTrade(input: TradeInput) {
       repo.assertWritable(); const data = repo.read(), built = buildTrade(data, input);
-      const available = availableQuantity({ symbol: built.instrument.symbol, date: input.date, position: built.order.position, excludeRecordId: input.recordId });
+      const available = availableQuantity({ symbol: built.instrument.symbol, currency: built.instrument.quote_currency, date: input.date, position: built.order.position, excludeRecordId: input.recordId });
       const net = input.kind === 'buy' ? decimal(built.amount).plus(built.fee).negated() : decimal(built.amount).minus(built.fee);
       return preview(data, built.candidate, built.instrument.id, built.order, built.amount, built.fee, net.toString(), available);
     },
@@ -470,9 +544,9 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     previewOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(), built = buildOpening(data, input); return preview(data, built.candidate, built.instrument.id, built.order, built.totalCost, '0', decimal(built.totalCost).negated().toString(), '0'); },
     saveOpening(input: OpeningInput) { repo.assertWritable(); const data = repo.read(); repo.write(buildOpening(data, input).candidate); },
     previewHolding(input: HoldingInput) { repo.assertWritable(); const data = repo.read(), built = buildHolding(data, input); if (built.kind === 'already_applied') { const row = currentPositions(data).find(item => data.import_receipts.some(receipt => receipt.batch_id === input.batchId) && data.holding_checkpoints.some(checkpoint => checkpoint.batch_id === input.batchId && checkpoint.instrument_id === item.instrumentId)); return { before: { quantity: row?.quantity ?? '0', unitCost: row?.unitCost ?? null }, after: { quantity: row?.quantity ?? '0', unitCost: row?.unitCost ?? null }, createsTrade: false, alreadyApplied: true, contentToken: built.contentToken }; } const next = currentPositions(built.candidate).find(item => built.candidate.holding_checkpoints.at(-1)?.instrument_id === item.instrumentId)!; const prior = currentPositions(data).find(item => item.instrumentId === next.instrumentId); return { before: { quantity: prior?.quantity ?? '0', unitCost: prior?.unitCost ?? null }, after: { quantity: next.quantity, unitCost: next.unitCost }, createsTrade: false, alreadyApplied: false, contentToken: built.contentToken }; },
-    saveHolding(input: HoldingInput) { repo.assertWritable(); const data = repo.read(), built = buildHolding(data, input); if (built.kind === 'already_applied') return { kind: 'already_applied' as const, revision: built.receipt.resulting_revision }; repo.write(built.candidate); return { kind: 'committed' as const, revision: built.receipt.resulting_revision }; },
+    saveHolding(input: HoldingInput) { repo.assertWritable(); const data = repo.read(), built = buildHolding(data, input); if (built.kind === 'already_applied') return { kind: 'already_applied' as const, revision: built.receipt.resulting_revision }; repo.write(built.candidate); try { addImportedWatchlist([input.instrument]); } catch { /* A watchlist write must not turn a committed holding into an uncertain save. */ } return { kind: 'committed' as const, revision: built.receipt.resulting_revision }; },
     previewHoldingImport(input: HoldingImportInput) { repo.assertWritable(); const built = buildHoldingImport(repo.read(), input); return { rows: built.rows, createsTrade: false, alreadyApplied: built.kind === 'already_applied', contentToken: built.contentToken }; },
-    saveHoldingImport(input: HoldingImportInput) { repo.assertWritable(); const built = buildHoldingImport(repo.read(), input); if (built.kind === 'already_applied') return { kind: 'already_applied' as const, revision: built.receipt.resulting_revision, imported: built.rows.length }; repo.write(built.candidate); return { kind: 'committed' as const, revision: built.receipt.resulting_revision, imported: built.rows.length }; },
+    saveHoldingImport(input: HoldingImportInput) { repo.assertWritable(); const built = buildHoldingImport(repo.read(), input); if (built.kind === 'already_applied') return { kind: 'already_applied' as const, revision: built.receipt.resulting_revision, imported: built.rows.length }; repo.write(built.candidate); try { addImportedWatchlist(input.rows.map(row => row.instrument)); } catch { /* The committed batch remains authoritative; refresh can restore its watchlist entries. */ } return { kind: 'committed' as const, revision: built.receipt.resulting_revision, imported: built.rows.length }; },
     overview,
     revisionHistory(id: string) {
       const data = repo.read(), latest = head(data, id);
@@ -486,7 +560,6 @@ export function createService(storage: StoragePort, runtime: Runtime, options: S
     positionDetail,
     voidTrade(id: string, expectedRevision?: string) {
       const data = repo.read(); checkDate(data, runtime.today()); const event = head(data, id); if (!event || event.voided) fail('NOT_FOUND', '记录不存在或已经作废。'); if (expectedRevision && expectedRevision !== event.revision_id) fail('STALE_REVISION', '该记录已被更正，请刷新后重试。');
-      if (data.holding_checkpoints.some(item => item.baseline_heads.some(head => head.record_id === id))) fail('CHECKPOINT_CONFLICT', '该交易已包含在持仓校准中；请先重新校准当前持仓，不能静默改写。');
       const revised = parseEvent({ ...event, revision_id: uniqueId(data), parent_revision: event.revision_id, recorded_at: runtime.now(), provenance: { ...event.provenance, confirmed_at: runtime.now() }, voided: true }); repo.write(validateCandidate({ ...data, events: [...data.events, revised], revision: data.revision + 1 }));
     },
     saveReview(date: string, text: string) { const data = repo.read(); checkDate(data, date); const trimmed = text.trim(); if (!trimmed || trimmed.length > 4000) fail('INVALID_INPUT', '请填写 1–4000 字的复盘内容。'); repo.write({ ...data, reviews: [...data.reviews.filter(item => item.date !== date), { date, text: trimmed, updated_at: runtime.now() }].sort((a, b) => b.date.localeCompare(a.date)) }); },

@@ -1,1 +1,34 @@
-/* Shared visual tokens are defined in app.wxss. */
+page { background: #f4f8f4; }
+.entry-page { padding-top: 26rpx; }
+.entry-page .page-header { margin-bottom: 20rpx; }
+.entry-title { display: flex; align-items: center; gap: 14rpx; min-width: 0; }
+.entry-title .title { min-width: 0; overflow-wrap: anywhere; }
+.entry-plus { color: #102d23; font-size: 56rpx; line-height: 1; font-weight: 300; }
+.entry-form-card { padding: 28rpx; }
+.entry-form-card .field { margin-bottom: 26rpx; }
+.entry-form-card .label { color: #172a23; font-size: 28rpx; margin-bottom: 12rpx; }
+.entry-form-card input, .entry-form-card .picker { background: #fff; border: 1rpx solid #dfe5df; border-radius: 16rpx; height: 88rpx; padding: 20rpx 22rpx; }
+.entry-form-card input::placeholder { color: #8a918d; }
+.picker { display: flex; align-items: center; justify-content: space-between; }
+.picker-arrow { color: #69756d; font-size: 34rpx; line-height: 1; }
+.choice-row { display: flex; flex-wrap: nowrap; gap: 10rpx; }
+.choice-button { flex: 1 1 0; min-width: 0; height: 68rpx; padding: 0 10rpx; line-height: 66rpx; border: 1rpx solid #dfe5df; border-radius: 16rpx; color: #24392f; background: #fff; font-size: 25rpx; white-space: nowrap; }
+.choice-button.choice-selected, .choice-button.buy-selected { color: #146345; background: #eaf5ed; border-color: #afd0bb; }
+.choice-button.sell-selected { color: #b2483c; background: #fff0ed; border-color: #e8bcb5; }
+.choice-button.observe-button { color: #24392f; }
+.observe-mark { font-size: 22rpx; }
+.action-row .choice-button { min-width: 0; }
+.entry-form-card .note { margin: -6rpx 0 22rpx; font-size: 23rpx; }
+.entry-form-card textarea { background: #fff; border-color: #dfe5df; border-radius: 16rpx; }
+.entry-form-card > button.secondary { width: 100%; margin-top: 10rpx; border: 1rpx solid #c8d9cc; background: #edf5ee; color: #1b6046; }
+.entry-page > .muted { padding: 0 6rpx; font-size: 22rpx; line-height: 1.7; }
+.pending-card { margin: 24rpx 32rpx 0; border-color: #ecd9ad; background: #fffaf0; }
+.pending-card button { width: 100%; margin-top: 14rpx; }
+.entry-page .card .card { padding: 20rpx; margin-top: 18rpx; }
+@media (max-width: 360px) {
+  .container.entry-page { padding-left: 24rpx; padding-right: 24rpx; }
+  .entry-form-card { padding: 22rpx; }
+  .entry-form-card .label { font-size: 27rpx; }
+  .choice-button { padding: 0 4rpx; font-size: 22rpx; }
+  .action-row .choice-button { font-size: 20rpx; }
+}

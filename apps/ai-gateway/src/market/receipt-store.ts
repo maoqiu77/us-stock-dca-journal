@@ -7,6 +7,7 @@ export type MarketReceipt = {
   owner: string; id: string; digest: string; purpose: 'portfolio_review' | 'instrument_research' | 'daily_review' | 'follow_up';
   instrumentKeys: string[]; quotes: QuoteV1[]; provider: string; feed: string; entitlementVersion: string; createdAt: string; expiresAt: string;
   research?: { selection: ResearchSelection; series: ResearchSeries[] };
+  portfolioSeries?: ResearchSeries[];
   acceptedRequestId?: string; requestDocumentId?: string; retainedUntil?: string;
 };
 export type CreateMarketReceipt = Omit<MarketReceipt, 'digest' | 'acceptedRequestId' | 'retainedUntil'>;
@@ -19,8 +20,9 @@ export interface MarketReceiptStore {
 }
 function seal(input: CreateMarketReceipt) {
   const research = input.research ? { selection: researchSelectionSchema.parse(input.research.selection), series: input.research.series.map(item => researchSeriesSchema.parse(item)) } : undefined;
-  const body = { ...(research ? { research } : {}), id: input.id, purpose: input.purpose, instrument_keys: [...input.instrumentKeys].sort(), quotes: input.quotes.map(item => quoteV1Schema.parse(item)), provider: input.provider, feed: input.feed, entitlement_version: input.entitlementVersion, created_at: input.createdAt, expires_at: input.expiresAt };
-  return { ...input, ...(research ? { research } : {}), instrumentKeys: body.instrument_keys, quotes: body.quotes, digest: payloadDigest(body) } satisfies MarketReceipt;
+  const portfolioSeries = input.portfolioSeries?.map(item => researchSeriesSchema.parse(item));
+  const body = { ...(research ? { research } : {}), ...(portfolioSeries ? { portfolioSeries } : {}), id: input.id, purpose: input.purpose, instrument_keys: [...input.instrumentKeys].sort(), quotes: input.quotes.map(item => quoteV1Schema.parse(item)), provider: input.provider, feed: input.feed, entitlement_version: input.entitlementVersion, created_at: input.createdAt, expires_at: input.expiresAt };
+  return { ...input, ...(research ? { research } : {}), ...(portfolioSeries ? { portfolioSeries } : {}), instrumentKeys: body.instrument_keys, quotes: body.quotes, digest: payloadDigest(body) } satisfies MarketReceipt;
 }
 export function createMemoryMarketReceiptStore(): MarketReceiptStore {
   const rows = new Map<string, MarketReceipt>(), key = (owner: string, id: string) => `${owner}:${id}`;

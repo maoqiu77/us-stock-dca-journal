@@ -8,4 +8,5 @@ export * from './tushare-provider.ts';
 export * from './domestic-board.ts';
 export * from './eastmoney-provider.ts';
 export * from './eastmoney-us.ts';
+export * from './cn-holding-quotes.ts';
 export * from './research-provider.ts';

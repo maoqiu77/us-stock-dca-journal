@@ -22,6 +22,21 @@ test('market client resolves ledger identity, persists only separate clearable c
   client.clear(); assert.equal(saved.values.get(MARKET_STORAGE_KEY), '');
 });
 
+test('known US ETF still resolves and requests a quote when catalog search is unavailable', async () => {
+  const saved = storage(); let requested: string[] = [];
+  const transport: MarketTransport = {
+    capabilities: async () => capabilities,
+    search: async () => [],
+    quotes: async keys => { requested = keys; return keys.map(key => quote(key.split(':')[2], '295.10')); },
+  };
+  const client = createMarketClient(saved.port, transport, { now: () => '2026-09-14T14:31:06.000Z' });
+  await client.refresh([ledger('QQQM', 'ETF')]);
+  const view = client.snapshot([ledger('QQQM', 'ETF')]);
+  assert.deepEqual(requested, ['US:XNAS:QQQM']);
+  assert.equal(view.instruments[0].mapping, 'verified');
+  assert.equal(view.instruments[0].quote?.price, '295.10');
+});
+
 test('late response from an old instrument selection cannot overwrite newer quotes', async () => {
   const saved = storage(); let releaseA!: () => void;
   const transport: MarketTransport = { capabilities: async () => capabilities, search: async query => [instrument(query)], quotes: async keys => {

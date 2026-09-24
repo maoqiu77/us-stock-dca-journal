@@ -1,10 +1,11 @@
 import { canonicalInstrumentSchema, quoteV1Schema, resolveLedgerInstrument, type CanonicalInstrument, type MarketCapabilities, type QuoteV1 } from '@portfolio/market-data';
+import { popularUS } from '@portfolio/market-data/popular';
 import type { MarketObservation } from '@portfolio/domain';
 import type { StoragePort } from '../repository.ts';
 import type { MarketTransport } from './transport.ts';
 
 export const MARKET_STORAGE_KEY = 'portfolio.wechat.market.v1';
-type LedgerInstrument = { id: string; symbol: string; asset_type: 'STOCK' | 'ETF'; exchange?: string };
+type LedgerInstrument = { id: string; symbol: string; asset_type: 'STOCK' | 'ETF' | 'FUND'; exchange?: string };
 type MappingLabel = 'verified' | 'ambiguous' | 'not_found' | 'inactive' | 'type_conflict' | 'invalid_symbol';
 type Stored = { version: 1; mappings: Record<string, CanonicalInstrument>; mappingStates: Record<string, MappingLabel>; mappingCheckedAt: Record<string, string>; quotes: Record<string, QuoteV1>; updatedAt: string };
 const empty = (): Stored => ({ version: 1, mappings: {}, mappingStates: {}, mappingCheckedAt: {}, quotes: {}, updatedAt: '' });
@@ -41,12 +42,18 @@ export function createMarketClient(storage: Pick<StoragePort, 'get' | 'set'>, tr
       if (!caps.enabled || !caps.provider_configured || !caps.authorized || !caps.quote_access) { lastError = !caps.enabled ? '行情服务已关闭' : !caps.authorized ? '尚未获得行情访问授权' : '行情供应商或报价权限尚未配置'; demoteQuotes(); return; }
       const mappings: Record<string, CanonicalInstrument> = {}, mappingStates: Record<string, MappingLabel> = {}, mappingCheckedAt: Record<string, string> = {}, now = options.now();
       for (const instrument of instruments) {
+        if (instrument.asset_type === 'FUND') { mappingStates[instrument.id] = 'not_found'; mappingCheckedAt[instrument.id] = now; continue; }
         const stored = state.mappings[instrument.id], checked = state.mappingCheckedAt[instrument.id];
         if (stored && checked && Date.parse(now) - Date.parse(checked) < 86_400_000 && stored.symbol === instrument.symbol && stored.asset_type === instrument.asset_type) { mappings[instrument.id] = stored; mappingStates[instrument.id] = 'verified'; mappingCheckedAt[instrument.id] = checked; continue; }
         if (!caps.search_access) { mappingStates[instrument.id] = 'not_found'; continue; }
-        const candidates = await transport.search(instrument.symbol, caps.limits.search_results);
+        let candidates: CanonicalInstrument[] = [];
+        try { candidates = await transport.search(instrument.symbol, caps.limits.search_results); } catch { /* A known local identity can still be quoted when search is unavailable. */ }
+        const localCandidates = popularUS.filter(item => item.symbol === instrument.symbol && item.asset_type === instrument.asset_type);
+        if (localCandidates.length) {
+          candidates = [...new Map([...candidates, ...localCandidates].map(item => [item.instrument_key, item])).values()];
+        }
         if (request !== sequence) return;
-        const resolution = resolveLedgerInstrument(instrument, candidates);
+        const resolution = resolveLedgerInstrument(instrument as { id: string; symbol: string; asset_type: 'STOCK' | 'ETF'; exchange?: string }, candidates);
         if (resolution.kind === 'matched') { mappings[instrument.id] = resolution.instrument; mappingStates[instrument.id] = 'verified'; }
         else mappingStates[instrument.id] = resolution.kind === 'ambiguous' ? 'ambiguous' : resolution.reason;
         mappingCheckedAt[instrument.id] = now;

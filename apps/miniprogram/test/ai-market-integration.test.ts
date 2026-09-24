@@ -13,6 +13,7 @@ const caps = { schema_version: 1 as const, enabled: true, provider_configured: t
 
 test('client seals receipt into V2, archives exact external source, and old analysis survives market cache clearing', async () => {
   let response: ResearchTurnResponseV2 | undefined;
+  let requestedSelections: unknown;
   const ai: AiTransport = {
     capabilities: async () => ({ schemaVersion: 1, enabled: true, authorized: true, enrolled: true, consented: true, accessMode: 'public', principalHash: 'a'.repeat(64), providerConfigured: true, credentialMode: 'sponsored', byokEnabled: false, consentVersion: 1, usage: { date: '2026-09-13', used: 0, inflight: 0, timezone: 'UTC' }, limits: { dailyRequests: 10, globalDailyRequests: 100, maxInflight: 1, maxInputBytes: 200000, maxOutputTokens: 1000 } }),
     async analyze(value) {
@@ -22,10 +23,14 @@ test('client seals receipt into V2, archives exact external source, and old anal
       return { requestId: envelope.request.request_id, status: 'succeeded', responseDigest: response.response_digest };
     }, status: async requestId => ({ requestId, status: 'succeeded', responseDigest: response?.response_digest }), result: async () => response!, ack: async () => {},
   };
-  const market: MarketTransport = { capabilities: async () => caps, search: async () => [instrument], quotes: async () => [quote], bars: async () => { throw Error('unused'); }, prepareAnalysisSnapshot: async () => ({ receipt_id: id(80), receipt_digest: sha256('receipt'), created_at: at, expires_at: '2026-09-13T10:10:00.000Z', provider: 'Twelve Data', feed: 'licensed', attribution: 'Twelve Data', quotes: [quote] }) };
+  const market: MarketTransport = { capabilities: async () => caps, search: async () => [instrument], quotes: async () => [quote], bars: async () => { throw Error('unused'); }, prepareAnalysisSnapshot: async (_keys, _purpose, selections) => { requestedSelections = selections; return { receipt_id: id(80), receipt_digest: sha256('receipt'), created_at: at, expires_at: '2026-09-13T10:10:00.000Z', provider: 'Twelve Data', feed: 'licensed', attribution: 'Twelve Data', quotes: [quote] }; } };
   const values = new Map<string, string>(); let counter = 0; const service = createService({ get: key => values.get(key) ?? '', set: (key, value) => values.set(key, value), info: () => ({ currentSize: 0, limitSize: 10240 }) }, { today: () => '2026-09-13', now: () => at, id: () => id(++counter) }, { aiTransport: ai, marketTransport: market });
   service.saveTrade({ kind: 'buy', symbol: 'AAPL', assetType: 'STOCK', date: '2026-09-13', quantity: '1', price: '200' }); await service.refreshMarket();
   const input = { origin: 'portfolio' as const, mode: 'portfolio_review' as const, journalDate: '2026-09-13', question: '分析持仓' }, local = service.ai().previewContext(input), marketReceipt = await service.prepareAnalysisMarket(input.mode);
+  assert.deepEqual(requestedSelections, [{ market: 'US', symbol: 'AAPL', period: '1day', auxiliary: [] }]);
+  const holdingId = service.overview().positions[0].id;
+  await service.prepareAnalysisMarket(input.mode, undefined, holdingId);
+  assert.deepEqual(requestedSelections, [{ market: 'US', symbol: 'AAPL', period: '1day', auxiliary: [] }]);
   const prepared = service.ai().prepare(input, { ...local, marketReceipt: marketReceipt! }); assert.equal(prepared.envelope.transport_version, 2);
   await service.ai().submitPrepared(prepared); service.clearMarketCache();
   const state = service.journal().read(), archived = state.sources.find(source => source.type === 'quote');

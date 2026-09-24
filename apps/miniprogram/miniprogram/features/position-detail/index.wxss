@@ -1,1 +1,26 @@
-/* Shared visual tokens are defined in app.wxss. */
+.position-market .section { margin-top: 32rpx; }
+.quote-panel .price { font-size: 56rpx; font-weight: 650; line-height: 1.2; }
+.quote-panel .change { margin: 10rpx 0 16rpx; font-size: 27rpx; }
+.up { color: #17674d; }
+.down { color: #b33a3a; }
+.chart-heading, .date-axis { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
+.chart-heading { font-weight: 600; }
+.ranges { display: flex; gap: 8rpx; }
+.range { padding: 8rpx 16rpx; font-size: 23rpx; color: #6a766e; }
+.range.active { background: #e8f0eb; color: #17674d; border-radius: 8rpx; }
+.averages { display: flex; flex-wrap: wrap; gap: 16rpx; margin: 22rpx 0 10rpx; font-size: 21rpx; }
+.ma5 { color: #a67422; }.ma20 { color: #328ba0; }.ma60 { color: #8950a8; }
+.date-axis, .chart-note { color: #7a847d; font-size: 22rpx; }
+.empty-chart { padding: 75rpx 0; color: #7a847d; text-align: center; }
+.market-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24rpx; }
+.market-stats > view { min-width: 0; }
+.position-summary .row { min-height: 56rpx; font-size: 27rpx; }
+.position-summary .row .number { margin-top: 0; font-size: 29rpx; }
+.position-summary .reference-row { margin-top: 18rpx; padding-top: 18rpx; border-top: 1rpx solid #edf0ea; font-weight: 600; }
+.position-source { margin-top: 8rpx; }
+.data-origin { color: #78867b; font-size: 22rpx; }
+.quote-meta { margin-top: 14rpx; }
+.import-history { margin: 18rpx 0 28rpx; border-top: 1rpx solid #dde7de; border-bottom: 1rpx solid #dde7de; }
+.history-toggle { width: 100%; display: flex; justify-content: space-between; align-items: center; background: transparent; color: #345547; padding: 0; text-align: left; font-size: 26rpx; }
+.history-toggle text { color: #617b6b; font-size: 23rpx; }
+.history-content { padding: 0 0 20rpx; color: #526557; font-size: 24rpx; line-height: 1.75; overflow-wrap: anywhere; }

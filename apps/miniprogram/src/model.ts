@@ -98,7 +98,8 @@ export function validateSnapshot(input: unknown, runtime: Runtime, options: Vali
   const ids = new Set(data.instruments.map(i => i.id)); const dangling = data.events.find(e => 'instrument_id' in e && !ids.has(e.instrument_id));
   if (dangling) throw Error(`记录引用的标的不存在；记录 ${dangling.record_id}，日期 ${dangling.trade_date}。`);
   if (data.portfolio.cash_state !== 'unknown' || data.portfolio.history_complete || data.portfolio.timezone !== 'Asia/Shanghai') throw Error('当前测试版仅支持现金未知、历史不完整的本地账本。');
-  if (new Set(data.instruments.map(i => i.symbol)).size !== data.instruments.length) throw Error('备份存在重复标的代码。');
+  const instrumentKeys = data.instruments.map(i => `${i.symbol}|${i.market}|${i.quote_currency}`);
+  if (new Set(instrumentKeys).size !== data.instruments.length) throw Error('备份存在重复标的代码和市场币种组合。');
   const assetIds = new Set([...data.instruments.map(item => item.id), ...data.holding_assets.map(item => item.id)]);
   if (new Set(data.holding_assets.map(item => item.id)).size !== data.holding_assets.length) throw Error('备份存在重复持仓资产。');
   if (data.holding_checkpoints.some(item => !assetIds.has(item.instrument_id))) throw Error('持仓校准引用的标的不存在。');

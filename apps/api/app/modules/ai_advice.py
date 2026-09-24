@@ -120,6 +120,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
     watchlist = get_effective_watchlist()
     quotes = get_quotes(watchlist)
     intraday_context = build_intraday_market_context(watchlist)
+    timeframe_context = build_timeframe_market_context(watchlist)
     prompt = build_external_advice_prompt(
         brief=brief,
         summary=summary,
@@ -128,6 +129,7 @@ def create_external_ai_advice(brief: str = "") -> dict[str, Any]:
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
+        timeframe_context=timeframe_context,
         context=context,
     )
     content = call_ai_response(
@@ -187,6 +189,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
     watchlist = get_effective_watchlist()
     quotes = get_quotes(watchlist)
     intraday_context = build_intraday_market_context(watchlist)
+    timeframe_context = build_timeframe_market_context(watchlist)
     user_message = {
         "role": "user",
         "content": clean_prompt,
@@ -211,6 +214,7 @@ def create_ai_chat_reply(prompt: str) -> dict[str, Any]:
                     quotes=quotes,
                     signals=signals,
                     intraday_context=intraday_context,
+                    timeframe_context=timeframe_context,
                     context=context,
                 ),
             },
@@ -353,6 +357,7 @@ def build_ai_context_v3(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
+    timeframe_context: list[dict[str, Any]] | None = None,
     context: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -379,7 +384,9 @@ def build_ai_context_v3(
         },
         "positions": build_context_positions(positions),
         "trade_context": build_trade_context(state.get("trades", [])),
-        "market_observations": build_market_observations(quotes, signals, intraday_context),
+        "market_observations": build_market_observations(
+            quotes, signals, intraday_context, timeframe_context or []
+        ),
     }
 
 
@@ -451,16 +458,19 @@ def build_market_observations(
     quotes: list[dict[str, Any]],
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
+    timeframe_context: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     quote_map = context_row_map(quotes)
     signal_map = context_row_map(signals)
     intraday_map = context_row_map(intraday_context)
-    tickers = sorted(set(quote_map) | set(signal_map) | set(intraday_map))
+    timeframe_map = context_row_map(timeframe_context or [])
+    tickers = sorted(set(quote_map) | set(signal_map) | set(intraday_map) | set(timeframe_map))
     decisions = []
     for ticker in tickers:
         quote = quote_map.get(ticker, {})
         signal = signal_map.get(ticker, {})
         intraday = intraday_map.get(ticker, {})
+        timeframes = timeframe_map.get(ticker, {})
         sources = {str(row.get("source", "")).lower() for row in (quote, signal, intraday) if row}
         is_sample = "sample" in sources
         decisions.append(
@@ -507,6 +517,7 @@ def build_market_observations(
                     ),
                     **source_text_fields(signal),
                 },
+                "timeframes": compact_fields(timeframes, ("daily", "sixty_minute")),
             }
         )
     return decisions
@@ -548,6 +559,7 @@ def build_external_advice_prompt(
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
     context: dict[str, Any],
+    timeframe_context: list[dict[str, Any]] | None = None,
 ) -> str:
     ai_context = build_ai_context_v3(
         summary=summary,
@@ -556,6 +568,7 @@ def build_external_advice_prompt(
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
+        timeframe_context=timeframe_context,
         context=context,
     )
     extra_question = brief.strip() or "none"
@@ -603,6 +616,7 @@ def build_chat_context_prompt(
     signals: list[dict[str, Any]],
     intraday_context: list[dict[str, Any]],
     context: dict[str, Any],
+    timeframe_context: list[dict[str, Any]] | None = None,
 ) -> str:
     ai_context = build_ai_context_v3(
         summary=summary,
@@ -611,10 +625,13 @@ def build_chat_context_prompt(
         quotes=quotes,
         signals=signals,
         intraday_context=intraday_context,
+        timeframe_context=timeframe_context,
         context=context,
     )
     return f"""Use the current {AI_CONTEXT_VERSION} below to answer only the user's latest question.
-Respond in Simplified Chinese and keep the answer under 300 Chinese characters. Answer directly and do not repeat the full daily report.
+Respond in Simplified Chinese and keep the answer under 300 Chinese characters. Answer directly in a natural conversational form; do not reuse the first report's template or repeat the full daily report.
+Do not automatically add sections or labels such as 判断依据、需要留意、后续观察、分析范围、条件假设 or 基于已观察数据. Include only the facts and explanation needed to answer the latest question.
+The context includes the same daily and 60-minute K-line ranges used by the first analysis. Use them when relevant and never claim those ranges are missing unless the corresponding context field is actually empty.
 Treat estimated cash as non-broker-reported. Use holdings, trades, and current market observations as evidence.
 Do not expose internal English keys, JSON paths, enum values, or source-text labels. Translate all user-facing labels into natural Chinese.
 When precise prices are not allowed, omit them instead of explaining the internal flag.
@@ -662,6 +679,66 @@ def build_intraday_market_context(watchlist: list[dict[str, Any]]) -> list[dict[
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         rows = list(executor.map(build_intraday_row, tickers))
     return [row for row in rows if row]
+
+
+def build_timeframe_market_context(watchlist: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Provide compact daily and 60-minute ranges to both initial analysis and follow-ups."""
+    tickers = sorted({
+        str(item.get("ticker", "")).upper().strip()
+        for item in watchlist
+        if str(item.get("ticker", "")).strip()
+    })
+    if not tickers:
+        return []
+
+    def load(ticker: str) -> dict[str, Any]:
+        try:
+            daily = get_chart(ticker, "1y", "1d")
+        except Exception:
+            daily = {"range": "1y", "interval": "1d", "source": "unavailable", "bars": []}
+        try:
+            sixty_minute = get_chart(ticker, "1mo", "60m")
+        except Exception:
+            sixty_minute = {"range": "1mo", "interval": "60m", "source": "unavailable", "bars": []}
+        return {
+            "ticker": ticker,
+            "daily": summarize_timeframe_chart(daily),
+            "sixty_minute": summarize_timeframe_chart(sixty_minute),
+        }
+
+    with ThreadPoolExecutor(max_workers=min(len(tickers), 6)) as executor:
+        rows = list(executor.map(load, tickers))
+    return rows
+
+
+def summarize_timeframe_chart(chart: dict[str, Any]) -> dict[str, Any]:
+    bars = chart.get("bars", []) if isinstance(chart, dict) else []
+    bars = [bar for bar in bars if isinstance(bar, dict) and number(bar.get("close")) > 0]
+    closes = [number(bar.get("close")) for bar in bars]
+    highs = [number(bar.get("high")) for bar in bars]
+    lows = [number(bar.get("low")) for bar in bars]
+    if not closes:
+        return {"range": chart.get("range"), "interval": chart.get("interval"), "source": chart.get("source"), "bar_count": 0}
+
+    def average(period: int) -> float | None:
+        return round(sum(closes[-period:]) / min(period, len(closes)), 4) if closes else None
+
+    recent = closes[-20:]
+    return {
+        "range": chart.get("range"),
+        "interval": chart.get("interval"),
+        "source": chart.get("source"),
+        "bar_count": len(closes),
+        "latest": round(closes[-1], 4),
+        "ma5": average(5),
+        "ma20": average(20),
+        "ma60": average(60),
+        "recent20_high": round(max(recent), 4),
+        "recent20_low": round(min(recent), 4),
+        "last_bar_time": str(bars[-1].get("time", "")),
+        "overall_high": round(max(highs), 4) if highs else None,
+        "overall_low": round(min(lows), 4) if lows else None,
+    }
 
 
 def build_intraday_row(ticker: str) -> dict[str, Any] | None:

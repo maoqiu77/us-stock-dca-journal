@@ -1,15 +1,15 @@
 const { service } = require('../../lib/core');
 Page({
- data: { instrument: null, quote: null, error: '', bars: [], range: '3M', loading: false, chartError: '', stats: [], averages: [] },
+ data: { instrument: null, quote: null, error: '', bars: [], range: '3M', loading: false, chartError: '', stats: [], averages: [], holdingsLoading: false, holdingsError: '', holdingsNotice: '', fundHoldings: null, allocationRows: [] },
  onLoad(options = {}) {
    try { this.key = decodeURIComponent(options.key || ''); } catch (_) { this.key = ''; }
    const view = service.marketDiscovery();
    const domestic = (view.domestic || []).find(row => row.instrument.instrument_key === this.key);
    const instrument = [...(domestic ? [domestic.instrument] : []), ...view.results, ...view.watchlist].find(item => item.instrument_key === this.key);
    this.setData({ instrument: instrument || null, domestic: domestic || null, error: instrument ? '' : '标的身份已失效，请重新搜索。' });
-   if (instrument) { this.present(); if (instrument.market === 'US') this.loadChart(); }
+   if (instrument) { this.present(); if (instrument.market === 'US') this.loadChart(); if (domestic && instrument.asset_type === 'FUND') this.loadFundHoldings(); }
  },
- onUnload() { this._request = (this._request || 0) + 1; },
+ onUnload() { this._request = (this._request || 0) + 1; this._holdingsRequest = (this._holdingsRequest || 0) + 1; },
  present() {
    const item = this.data.instrument, row = this.data.domestic;
    const compact = value => value == null ? '--' : Number(value) >= 1e8 ? (Number(value) / 1e8).toFixed(2) + '亿' : Number(value) >= 1e4 ? (Number(value) / 1e4).toFixed(2) + '万' : String(value);
@@ -18,6 +18,7 @@ Page({
    if (row) {
      quote = { priceText: item.asset_type === 'ETF' ? row.price || '--' : row.nav || '--', changeText: row.changePct == null ? '--' : (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%', direction: row.changePct > 0 ? 'up' : row.changePct < 0 ? 'down' : 'flat', asOf: row.tradeDate || row.navDate || '', qualityLabel: row.quality === 'stale' ? '缓存已过期' : item.asset_type === 'ETF' ? '参考行情 · 非实时' : '正式单位净值', source: row.source };
      stats = [stat('单位净值', row.nav, row.navDate || '')];
+     if (item.asset_type === 'FUND') stats.push(stat('日涨幅', row.changePct == null ? null : (row.changePct > 0 ? '+' : '') + row.changePct.toFixed(2) + '%', row.navDate || ''), stat('单日参考限额', row.dailyLimit ? '¥' + Number(row.dailyLimit.amount).toLocaleString('zh-CN') : null, row.dailyLimit ? '东方财富销售页' : '额度待核实'));
      if (item.asset_type === 'ETF') stats.push(stat('参考折溢价', row.metrics?.quotedPremiumPct == null ? null : row.metrics.quotedPremiumPct.toFixed(2) + '%', row.metrics?.label || ''), stat('基金份额', compact(row.metrics?.shares), row.metrics?.sharesDate || ''), stat('交易所', item.exchange === 'XSHG' ? '上交所' : '深交所'));
    } else {
      quote = service.boardQuote(item);
@@ -38,6 +39,21 @@ Page({
      this.updateChart(); this.present();
    } catch (_) { if (request === this._request) this.setData({ chartError: '日 K 数据暂不可用，请稍后重试' }); }
    finally { if (request === this._request) this.setData({ loading: false }); }
+ },
+ async loadFundHoldings() {
+   const code = this.data.instrument?.symbol;
+   if (!code || this.data.instrument?.asset_type !== 'FUND') return;
+   const request = this._holdingsRequest = (this._holdingsRequest || 0) + 1;
+   this.setData({ holdingsLoading: true, holdingsError: '' });
+   try {
+     const result = await service.domesticFundHoldings(code);
+     if (request !== this._holdingsRequest) return;
+     const allocation = result.allocation;
+     const allocationRows = allocation ? [['股票', allocation.stocksPct], ['债券', allocation.bondsPct], ['现金', allocation.cashPct]].filter(item => item[1] != null).map(item => ({ label: item[0], value: Number(item[1]).toFixed(2) + '%' })) : [];
+     const old = result.asOf && Date.now() - Date.parse(result.asOf) > 370 * 86400000;
+     this.setData({ fundHoldings: result.status === 'available' ? result : null, allocationRows, holdingsError: result.status === 'available' ? '' : result.reason || '暂无可核实的持仓披露。', holdingsNotice: old ? '该基金最近可取得的重仓披露已超过一年，仅供历史参考。' : '季度披露，持仓可能已变化。' });
+   } catch { if (request === this._holdingsRequest) this.setData({ holdingsError: '基金持仓披露暂不可用，请稍后重试。' }); }
+   finally { if (request === this._holdingsRequest) this.setData({ holdingsLoading: false }); }
  },
  changeRange(event) { this.setData({ range: event.currentTarget.dataset.range }); this.updateChart(); },
  updateChart() {

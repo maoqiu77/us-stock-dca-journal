@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 const now = '2026-09-13T12:00:00.000Z';
-function fixture(retention = '86400000', context: Record<string, string | undefined> = {}, timerName = 'portfolioAiCleanupHourly') {
+function fixture(retention = '86400000', context: Record<string, string | undefined> = {}, timerName = 'portfolioAiCleanupHourly', triggerSource?: string) {
   const rows = new Map<string, any>([
     ['ai_requests/old', { _id: 'old', owner: 'synthetic-a', state: 'succeeded', createdAt: '2026-09-12T11:00:00.000Z', envelope: { question: 'private fixture' }, response: { response_digest: 'digest', result: 'private fixture' } }],
     ['ai_payloads/old', { _id: 'old', expiresAt: '2026-09-12T11:10:00.000Z', envelope: 'private fixture' }],
@@ -54,15 +54,17 @@ function fixture(retention = '86400000', context: Record<string, string | undefi
     async runTransaction<T>(fn: (tx: any) => Promise<T>) { return fn(db); },
   };
   const exports: any = {};
+  const authWarnings: unknown[][] = [];
   class Clock extends Date { static now() { return Date.parse(now); } }
   runInNewContext(readFileSync(new URL('../cloud/portfolioAiCleanup/index.js', import.meta.url), 'utf8'), {
     exports, require: (name: string) => {
       if (name === './gateway.cjs') return { createCloudbaseVisionTaskStore: () => ({}), cleanupExpiredVisionTasks: async () => ({ inspected: 0, removed: 0, pending: 0 }) };
       assert.equal(name, 'wx-server-sdk'); return { init() {}, DYNAMIC_CURRENT_ENV: 'test', database: () => db, getWXContext: () => context };
     },
-    process: { env: { CLEANUP_JOB_TOKEN: 'synthetic-test-token', AI_PAYLOAD_RETENTION_MS: retention, CLEANUP_TIMER_NAME: timerName } }, Date: Clock,
+    process: { env: { CLEANUP_JOB_TOKEN: 'synthetic-test-token', AI_PAYLOAD_RETENTION_MS: retention, CLEANUP_TIMER_NAME: timerName, TRIGGER_SRC: triggerSource } }, Date: Clock,
+    console: { warn: (...args: unknown[]) => authWarnings.push(args) },
   });
-  return { main: exports.main, rows, reads: () => reads };
+  return { main: exports.main, rows, reads: () => reads, authWarnings };
 }
 
 test('cleanup accepts authenticated timer Message and purges both body copies, including legacy ACK input', async () => {
@@ -97,6 +99,19 @@ test('cleanup rejects missing/forged timer credentials before any database acces
   }
 });
 
+test('auth rejection logs only bounded provenance labels and flags', async () => {
+  const f = fixture('86400000', { SOURCE: 'wx_client' }, 'portfolioAiCleanupHourly', 'timer');
+  await assert.rejects(() => f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly', token: 'private-attempt' }), /UNAUTHORIZED_CLEANUP/);
+  assert.equal(f.authWarnings.length, 1);
+  const [label, details] = f.authWarnings[0] as [string, Record<string, unknown>];
+  assert.equal(label, 'CLEANUP_AUTH_REJECTED');
+  assert.deepEqual(JSON.parse(JSON.stringify(details)), {
+    source: 'wx_client', triggerSource: 'timer', timerEvent: true, triggerNameMatches: true,
+    hasPrincipal: false, tokenConfigured: true,
+  });
+  assert.equal(JSON.stringify(f.authWarnings).includes('private-attempt'), false);
+});
+
 test('invalid retention cannot cause premature deletion', async () => {
   for (const retention of ['0', '-1', 'NaN', 'Infinity', '1.5']) {
     const f = fixture(retention), before = JSON.stringify([...f.rows]);
@@ -108,10 +123,31 @@ test('invalid retention cannot cause premature deletion', async () => {
 
 test('configured timer authenticates against trusted platform context without a custom Message', async () => {
   const f = fixture('86400000', { SOURCE: 'wx_trigger' });
-  await f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' });
+  await f.main({ TriggerName: 'portfolioAiCleanupHourly' });
   assert.equal(f.rows.get('ai_requests/old').envelope, null);
   assert.equal(f.rows.has('ai_payloads/old'), false);
   assert.equal(f.rows.get('ai_requests/running').envelope, 'keep');
+});
+
+test('platform timer source authenticates when WeChat context omits SOURCE', async () => {
+  const f = fixture('86400000', {}, 'portfolioAiCleanupHourly', 'timer');
+  await f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' });
+  assert.equal(f.rows.get('ai_requests/old').envelope, null);
+  assert.equal(f.rows.has('ai_payloads/old'), false);
+});
+
+test('platform timer source still rejects user and chained callers', async () => {
+  for (const context of [{ SOURCE: 'wx_client' }, { SOURCE: 'wx_client,scf' }, { OPENID: 'synthetic-user' }, { FROM_OPENID: 'synthetic-user' }]) {
+    const f = fixture('86400000', context, 'portfolioAiCleanupHourly', 'timer');
+    await assert.rejects(() => f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' }), /UNAUTHORIZED_CLEANUP/);
+    assert.equal(f.reads(), 0);
+  }
+});
+
+test('fallback timer source still requires a timer event', async () => {
+  const f = fixture('86400000', {}, 'portfolioAiCleanupHourly', 'timer');
+  await assert.rejects(() => f.main({ TriggerName: 'portfolioAiCleanupHourly' }), /UNAUTHORIZED_CLEANUP/);
+  assert.equal(f.reads(), 0);
 });
 
 test('forged timer events, chained callers and mismatched timer configuration cannot authorize cleanup', async () => {
@@ -120,7 +156,7 @@ test('forged timer events, chained callers and mismatched timer configuration ca
     await assert.rejects(() => f.main({ Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly', SOURCE: 'wx_trigger', context: { SOURCE: 'wx_trigger' } }), /UNAUTHORIZED_CLEANUP/);
     assert.equal(f.reads(), 0);
   }
-  for (const [timerName, event] of [['', { Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' }], ['portfolioAiCleanupHourly', { Type: 'Timer', TriggerName: 'wrong' }], ['portfolioAiCleanupHourly', { TriggerName: 'portfolioAiCleanupHourly' }]] as const) {
+  for (const [timerName, event] of [['', { Type: 'Timer', TriggerName: 'portfolioAiCleanupHourly' }], ['portfolioAiCleanupHourly', { Type: 'Timer', TriggerName: 'wrong' }], ['portfolioAiCleanupHourly', { Type: 'Timer' }]] as const) {
     const f = fixture('86400000', { SOURCE: 'wx_trigger' }, timerName);
     await assert.rejects(() => f.main(event), /UNAUTHORIZED_CLEANUP/);
     assert.equal(f.reads(), 0);

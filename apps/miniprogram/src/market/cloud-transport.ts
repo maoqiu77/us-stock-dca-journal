@@ -1,5 +1,5 @@
-import { researchSnapshotSchema } from '@portfolio/market-data/research';
-import { domesticBoardSchema } from '@portfolio/market-data/domestic';
+import { researchSnapshotSchema, researchSeriesSchema } from '@portfolio/market-data/research';
+import { domesticBoardSchema, domesticFundHoldingsSchema, domesticHoldingQuoteSchema, domesticSearchResultSchema } from '@portfolio/market-data/domestic';
 import { barsV1Schema, canonicalInstrumentSchema, marketCapabilitiesSchema, quoteV1Schema } from '@portfolio/market-data';
 import { MarketTransportError, type MarketTransport } from './transport.ts';
 export { MarketTransportError } from './transport.ts';
@@ -20,7 +20,10 @@ export function createCloudMarketTransport(callFunction: CloudCall, functionName
   }
   return {
     researchSnapshot: async selection => researchSnapshotSchema.parse(await call({ action: 'researchSnapshot', selection })),
-    domesticBoard: async segment => { const result = domesticBoardSchema.parse(await call({ action: 'domesticBoard', segment })); if (result.segment !== segment) throw Error('国内行情分类不匹配'); return result; },
+    domesticBoard: async (segment, symbols) => { const result = domesticBoardSchema.parse(await call(symbols ? { action: 'domesticBoard', segment, symbols } : { action: 'domesticBoard', segment })); if (result.segment !== segment) throw Error('国内行情分类不匹配'); return result; },
+    domesticSearch: async (query, segment) => domesticSearchResultSchema.array().parse(await call({ action: 'domesticSearch', query, segment })),
+    domesticFundHoldings: async code => { const result = domesticFundHoldingsSchema.parse(await call({ action: 'domesticFundHoldings', code })); if (result.symbol !== code) throw Error('基金持仓代码不匹配'); return result; },
+    domesticHoldingQuotes: async symbols => { const result = domesticHoldingQuoteSchema.array().parse(await call({ action: 'domesticHoldingQuotes', symbols })); if (result.length !== symbols.length || result.some((item, index) => item.symbol !== symbols[index])) throw Error('国内持仓行情标的与请求不符'); return result; },
     capabilities: async () => marketCapabilitiesSchema.parse(await call({ action: 'capabilities' })),
     search: async (query, limit) => {
       const data = await call({ action: 'search', query, limit }) as any;
@@ -31,9 +34,9 @@ export function createCloudMarketTransport(callFunction: CloudCall, functionName
       return quoteV1Schema.array().parse(data?.quotes);
     },
     bars: async (instrumentKey, range, interval) => barsV1Schema.parse(await call({ action: 'bars', instrument_key: instrumentKey, range, interval })),
-    prepareAnalysisSnapshot: async (instrumentKeys, purpose) => {
-      const data = await call({ action: 'prepareAnalysisSnapshot', instrument_keys: instrumentKeys, purpose }) as any;
-      return { ...data, quotes: quoteV1Schema.array().parse(data?.quotes) };
+    prepareAnalysisSnapshot: async (instrumentKeys, purpose, selections = []) => {
+      const data = await call({ action: 'prepareAnalysisSnapshot', instrument_keys: instrumentKeys, purpose, research_selections: selections }) as any;
+      return { ...data, quotes: quoteV1Schema.array().parse(data?.quotes), series: researchSeriesSchema.array().parse(data?.series) };
     },
   };
 }

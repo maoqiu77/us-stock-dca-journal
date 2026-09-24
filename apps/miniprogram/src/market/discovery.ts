@@ -15,6 +15,19 @@ function decode(text: string): State {
 function unavailable(instrument: CanonicalInstrument, range: '1M' | '3M' | '1Y', now: string): BarsV1 {
   return barsV1Schema.parse({ schema_version: 1, instrument_key: instrument.instrument_key, currency: 'USD', interval: '1day', range, adjustment: 'unadjusted', provider: 'unconfigured', feed: 'none', coverage: 'unknown', timezone: 'America/New_York', as_of: null, received_at: now, served_at: now, status: 'unavailable', reason: 'MARKET_NOT_CONFIGURED', bars: [] });
 }
+function usSessionLabel(asOf: string | null, now: string) {
+  if (!asOf) return '';
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(now)).map(part => [part.type, part.value]));
+  if (parts.weekday === 'Sat' || parts.weekday === 'Sun') return '休市';
+  const date = `${parts.year}-${parts.month}-${parts.day}`;
+  const quoteDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(asOf));
+  const minutes = Number(parts.hour) * 60 + Number(parts.minute);
+  if (minutes < 240 || minutes >= 1200) return '休市';
+  if (quoteDate !== date || Date.parse(now) - Date.parse(asOf) > 10 * 60_000) return '时段待确认';
+  if (minutes < 570) return '盘前';
+  if (minutes < 960) return '常规交易';
+  return '盘后';
+}
 export function createMarketDiscovery(storage: Pick<StoragePort, 'get' | 'set'>, transport: MarketTransport | undefined, options: { now(): string; searchTtlMs?: number; workspaceId?(): string; defaults?: CanonicalInstrument[] }) {
   let scope: string | null = null, key = WATCHLIST_STORAGE_KEY;
   let state = decode(storage.get(key)), results: CanonicalInstrument[] = [], query = '', error = '', sequence = 0;
@@ -74,8 +87,7 @@ export function createMarketDiscovery(storage: Pick<StoragePort, 'get' | 'set'>,
   }
   function quoteView(instrument: CanonicalInstrument) {
     const quote = quotes.get(instrument.instrument_key), stale = quote && (!transport || quote.freshness === 'stale' || Date.parse(options.now()) - Date.parse(quote.served_at) > 60_000);
-    const session = { regular: '常规交易', pre: '盘前', post: '盘后', closed: '收盘', unknown: '时段未知' };
-    return { ...instrument, previousClose: quote?.previous_close ?? null, volume: quote?.volume ?? null, marketCap: quote?.market_cap ?? null, logo: (options.defaults ?? []).some(item => item.symbol === instrument.symbol) ? `/assets/stocks/${instrument.symbol}.png` : `https://financialmodelingprep.com/image-stock/${encodeURIComponent(instrument.symbol)}.png`, priceText: quote?.price ?? '--', changeAmountText: quote?.change == null ? '--' : `${Number(quote.change) > 0 ? '+' : ''}${Number(quote.change).toFixed(3)}`, direction: quote?.change == null ? 'flat' : Number(quote.change) > 0 ? 'up' : Number(quote.change) < 0 ? 'down' : 'flat', changeText: quote?.change_percent == null ? '--' : `${Number(quote.change_percent).toFixed(2)}%`, asOf: quote?.as_of ?? '', source: quote ? `${quote.provider} / ${quote.feed}` : '', sessionLabel: quote ? session[quote.session] : '', qualityLabel: !quote ? '暂无行情' : stale ? '缓存已过期' : quote.timeliness === 'delayed' ? `延迟 ${quote.delay_seconds ?? '?'} 秒` : quote.timeliness === 'eod' ? '日终数据' : quote.timeliness === 'realtime' ? '实时' : '延迟未知' };
+    return { ...instrument, previousClose: quote?.previous_close ?? null, volume: quote?.volume ?? null, marketCap: quote?.market_cap ?? null, logo: (options.defaults ?? []).some(item => item.symbol === instrument.symbol) ? `/assets/stocks/${instrument.symbol}.png` : `https://financialmodelingprep.com/image-stock/${encodeURIComponent(instrument.symbol)}.png`, priceText: quote?.price ?? '--', changeAmountText: quote?.change == null ? '--' : `${Number(quote.change) > 0 ? '+' : ''}${Number(quote.change).toFixed(3)}`, direction: quote?.change == null ? 'flat' : Number(quote.change) > 0 ? 'up' : Number(quote.change) < 0 ? 'down' : 'flat', changeText: quote?.change_percent == null ? '--' : `${Number(quote.change_percent).toFixed(2)}%`, asOf: quote?.as_of ?? '', source: quote ? `${quote.provider} / ${quote.feed}` : '', sessionLabel: usSessionLabel(quote?.as_of ?? null, options.now()), qualityLabel: !quote ? '暂无行情' : stale ? '缓存已过期' : quote.timeliness === 'delayed' ? `延迟 ${quote.delay_seconds ?? '?'} 秒` : quote.timeliness === 'eod' ? '日终数据' : quote.timeliness === 'realtime' ? '实时' : '延迟未知' };
   }
   async function search(input: string) {
     sync(); const normalized = input.trim().toUpperCase(), request = ++sequence; query = normalized; error = '';
@@ -104,11 +116,13 @@ export function createMarketDiscovery(storage: Pick<StoragePort, 'get' | 'set'>,
     } catch (cause) { const value = unavailable(instrument, range, options.now()); return { ...value, reason: cause instanceof Error ? cause.message : 'BARS_UNAVAILABLE', line: [], candles: [] }; }
   }
   return {
-    async domesticBoard(segment: 'etf' | 'fund') {
+    async domesticBoard(segment: 'etf' | 'fund', symbols?: string[]) {
       sync();
-      try { const result = transport?.domesticBoard ? domesticBoardSchema.parse(await transport.domesticBoard(segment)) : { segment, status: 'unavailable' as const, reason: '国内基金行情尚未配置', rows: [] }; domestic.set(segment, result); return result; }
+      try { const result = transport?.domesticBoard ? domesticBoardSchema.parse(await transport.domesticBoard(segment, symbols)) : { segment, status: 'unavailable' as const, reason: '国内基金行情尚未配置', rows: [] }; domestic.set(segment, result); return result; }
       catch { const result: DomesticBoard = { segment, status: 'unavailable', reason: '国内行情暂不可用，请稍后重试。', rows: [] }; domestic.set(segment, result); return result; }
     },
+    domesticSearch(query: string, segment: 'etf' | 'fund') { return transport?.domesticSearch?.(query, segment) ?? Promise.resolve([]); },
+    domesticFundHoldings(code: string) { return transport?.domesticFundHoldings?.(code) ?? Promise.resolve({ symbol: code, status: 'unavailable' as const, reason: '基金持仓披露暂未配置。', asOf: null, fetchedAt: options.now(), source: '天天基金公开基金档案', allocation: null, stocks: [] }); },
     domesticRows() { return [...domestic.values()].flatMap(value => value.rows); },
     async refreshDetailQuote(instrument: CanonicalInstrument) {
       if (!transport) return;

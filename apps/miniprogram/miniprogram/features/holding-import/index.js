@@ -1,6 +1,34 @@
 const { service, showError, normalizeScreenshotMetrics, normalizeScreenshotDocument } = require('../../lib/core');
 const requestId = prefix => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 const decimalLike = value => /^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?$/.test(String(value || '').trim());
+const moneyText = value => {
+  const text = String(value || '').trim().replace(/\s/g, '');
+  const match = /^([+-]?)(?:[$¥]|(?:USD|CNY))?((?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?)$/i.exec(text);
+  return match ? `${match[1]}${match[2].replace(/,/g, '')}` : '';
+};
+const percentText = value => {
+  const text = String(value || '').trim().replace(/\s/g, '');
+  return /^[+-]?\d+(?:\.\d+)?%$/.test(text) ? text : '';
+};
+function reviewRow(row) {
+  const metrics = normalizeScreenshotMetrics({ ...(row.screenshotMetrics || {}) });
+  const gain = (metrics.originalFields || []).find(field => /^(?:Gain\s*\/\s*Loss|持有盈亏|持仓盈亏|浮动盈亏)$/i.test(field.label));
+  const parts = /^([+-]?(?:[$¥]|(?:USD|CNY))?\s*[\d,]+(?:\.\d+)?)\s*\(([+-]?\d+(?:\.\d+)?%)\)$/.exec(String(metrics.holdingPnlText || gain?.value || '').trim());
+  if (parts) metrics.holdingPnlText = parts[1];
+  if (parts && !metrics.holdingReturnRateText) metrics.holdingReturnRateText = parts[2];
+  for (const field of ['marketValueText', 'holdingPnlText', 'navText']) {
+    const value = metrics[field]; if (value) metrics[field] = moneyText(value) || value;
+  }
+  for (const field of ['holdingReturnRateText', 'dailyChangeRateText']) {
+    const value = metrics[field]; if (value) metrics[field] = percentText(value) || value;
+  }
+  const quantity = Number(String(row.quantity || '').replace(/,/g, ''));
+  const marketValue = Number(metrics.marketValueText), pnl = Number(metrics.holdingPnlText);
+  const estimate = !row.unitCost && quantity > 0 && Number.isFinite(marketValue) && Number.isFinite(pnl) && marketValue > 0 && marketValue - pnl > 0 && metrics.holdingPnlText
+    ? `截图未显示平均成本；按市值和持有盈亏估算约 ${row.currency === 'CNY' ? '¥' : '$'}${((marketValue - pnl) / quantity).toFixed(4)} / 份。若要记入账本，请自行核对并填写。`
+    : row.unitCost ? '' : '截图未显示平均成本；可留空，账本成本将记为未知。';
+  return { ...row, screenshotMetrics: metrics, estimatedCostText: estimate };
+}
 function allPositions() {
   const seen = new Map();
   for (const currency of ['CNY', 'USD']) {
@@ -16,7 +44,7 @@ Page({
   onUnload() { this.persistDraft(); },
   async onLoad() {
     this._ownerKey = this.draftKey();
-    try { const draft = JSON.parse(wx.getStorageSync(this.draftKey()) || 'null'); if (draft?.version === 1 && Array.isArray(draft.rows) && draft.revision === service.snapshot().revision) { this._drafts = draft.drafts || []; this._batchId = draft.batchId; this._observedAt = draft.observedAt; this.setData({ rows: draft.rows.map(row => ({ ...row, screenshotMetrics: normalizeScreenshotMetrics({ ...(row.screenshotMetrics || {}), ...(row.screenshotMetrics?.source ? { source: normalizeScreenshotDocument(row.screenshotMetrics.source) } : {}) }) })), documents: (draft.documents || []).map(normalizeScreenshotDocument), document: draft.document || null, stage: 'review', selectedCount: draft.rows.filter(r => r.selected).length }); } } catch (_) { /* Invalid or expired local draft never modifies holdings. */ }
+    try { const draft = JSON.parse(wx.getStorageSync(this.draftKey()) || 'null'); if (draft?.version === 1 && Array.isArray(draft.rows) && draft.revision === service.snapshot().revision) { this._drafts = draft.drafts || []; this._batchId = draft.batchId; this._observedAt = draft.observedAt; this.setData({ rows: draft.rows.map(row => reviewRow({ ...row, screenshotMetrics: { ...(row.screenshotMetrics || {}), ...(row.screenshotMetrics?.source ? { source: normalizeScreenshotDocument(row.screenshotMetrics.source) } : {}) } })), documents: (draft.documents || []).map(normalizeScreenshotDocument), document: draft.document || null, stage: 'review', selectedCount: draft.rows.filter(r => r.selected).length }); } } catch (_) { /* Invalid or expired local draft never modifies holdings. */ }
     try { const vision = service.vision(); this.setData({ expectedRevision: service.snapshot().revision, capability: vision ? await vision.capabilities() : { enabled: false, providerConfigured: false, maxBytes: 4194304, maxRows: 20 } }); }
     catch (_) { this.setData({ capability: { enabled: false, providerConfigured: false, maxBytes: 4194304, maxRows: 20 } }); }
   },
@@ -78,7 +106,7 @@ Page({
       if (raw.costBasis === 'average_cost' && raw.unitCostText && !decimalLike(raw.unitCostText)) issues.push('成本需要确认');
       if (!match) issues.push('需要确认标的');
 
-      rows.push({ screenshotMetrics: { marketValueText: raw.marketValueText || '', holdingPnlText: raw.holdingPnlText || '', holdingReturnRateText: raw.holdingReturnRateText || '', dailyChangeRateText: raw.dailyChangeRateText || '', navText: raw.navText || '', navDateText: raw.navDateText || '', originalFields: raw.originalFields || [], ...(raw.source ? { source: raw.source } : {}) }, unsupported, observationIssues: raw.issues || [], rowId: raw.sourceImage ? `image_${raw.sourceImage}_row_${raw.sourceRow}` : `row_${index + 1}`, sourceImage: raw.sourceImage || 1, editing: false, ...instrument, name: instrument.name || name, symbol: instrument.symbol || code, quantity: raw.quantityText || '', unitCost: raw.costBasis === 'average_cost' ? raw.unitCostText || '' : '', costBasis: raw.costBasis, accountLabel: raw.accountLabel || raw.source?.accountLabel || '', selected: issues.length === 0 && !unsupported && accountLabels.size <= 1, replaceApproved: false, costRemovalApproved: false, existing, issues, candidates });
+      rows.push(reviewRow({ screenshotMetrics: { marketValueText: raw.marketValueText || '', holdingPnlText: raw.holdingPnlText || '', holdingReturnRateText: raw.holdingReturnRateText || '', dailyChangeRateText: raw.dailyChangeRateText || '', navText: raw.navText || '', navDateText: raw.navDateText || '', originalFields: raw.originalFields || [], ...(raw.source ? { source: raw.source } : {}) }, unsupported, observationIssues: raw.issues || [], rowId: raw.sourceImage ? `image_${raw.sourceImage}_row_${raw.sourceRow}` : `row_${index + 1}`, sourceImage: raw.sourceImage || 1, editing: false, ...instrument, name: instrument.name || name, symbol: instrument.symbol || code, quantity: raw.quantityText || '', unitCost: raw.costBasis === 'average_cost' ? raw.unitCostText || '' : '', costBasis: raw.costBasis, accountLabel: raw.accountLabel || raw.source?.accountLabel || '', selected: issues.length === 0 && !unsupported && accountLabels.size <= 1, replaceApproved: false, costRemovalApproved: false, existing, issues, candidates }));
     }
     const seen = new Set();
     for (const row of rows) {
@@ -88,7 +116,7 @@ Page({
     }
     return rows;
   },
-  updateRows(rows) { this._token = ''; this.setData({ rows, previewData: null, selectedCount: rows.filter(item => item.selected).length, error: '' }); this.persistDraft(); },
+  updateRows(rows) { this._token = ''; rows = rows.map(reviewRow); this.setData({ rows, previewData: null, selectedCount: rows.filter(item => item.selected).length, error: '' }); this.persistDraft(); },
   onMetric(event) { if (this.data.busy) return; const index = Number(event.currentTarget.dataset.index), field = event.currentTarget.dataset.field, rows = this.data.rows.slice(); if (!rows[index] || !["marketValueText", "holdingPnlText", "holdingReturnRateText", "dailyChangeRateText", "navText", "navDateText"].includes(field)) return; rows[index] = { ...rows[index], screenshotMetrics: { ...rows[index].screenshotMetrics, [field]: event.detail.value } }; this.updateRows(rows); },
   toggleDocuments() { this.setData({ showDocuments: !this.data.showDocuments }); },
   toggleEdit(event) { const rows = this.data.rows.slice(), index = Number(event.currentTarget.dataset.index); if (!rows[index]) return; rows[index] = { ...rows[index], editing: !rows[index].editing }; this.setData({ rows }); this.persistDraft(); },

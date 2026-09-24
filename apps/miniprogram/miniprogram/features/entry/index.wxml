@@ -1,29 +1,35 @@
-<view wx:if="{{pendingSave}}" class="card">
+<view wx:if="{{pendingSave}}" class="card pending-card">
   <view>有一笔提交待核验。请勿重新录入；重启后仍需先核验原提交。</view>
   <button bindtap="verifySave">核验保存结果</button>
   <button wx:if="{{retryable}}" bindtap="retrySave">已确认未写入，安全重试原提交</button>
 </view>
-<view class="container">
-  <view class="title">{{recordId ? '更正交易' : '记一笔交易'}}</view><view class="subtitle">按实际成交填写 · USD · 支持碎股</view>
-  <view class="card">
+<view class="container entry-page">
+  <view class="page-header">
+    <view class="eyebrow">TRADE ENTRY</view>
+    <view class="entry-title"><text class="entry-plus">＋</text><text class="title">{{recordId ? '更正交易' : '手动录入交易'}}</text></view>
+    <view class="subtitle">买卖会写入交易流水；仅观察只把标的加入总览</view>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view class="card entry-form-card">
     <view wx:if="{{recordId}}" class="note">更正会追加新版本并回放全部后续记录；原版本仍保留。若记录已更新，本次保存会被拒绝。</view>
-    <view class="field"><view class="label">交易方向</view><view class="actions"><button class="{{kind === 'buy' ? 'primary' : 'secondary'}}" data-kind="buy" bindtap="onKind">买入</button><button class="{{kind === 'sell' ? 'primary' : 'secondary'}}" data-kind="sell" bindtap="onKind">卖出</button></view></view>
-    <view class="field"><label class="label">股票代码</label><input value="{{symbol}}" placeholder="例如 QQQ、AAPL" maxlength="15" data-field="symbol" bindinput="onField"/></view>
-    <view class="field"><view class="label">资产类型</view><view class="actions"><button class="{{assetType === 'ETF' ? 'primary' : 'secondary'}}" data-type="ETF" bindtap="onType">ETF</button><button class="{{assetType === 'STOCK' ? 'primary' : 'secondary'}}" data-type="STOCK" bindtap="onType">股票</button></view></view>
-    <view class="field"><view class="label">交易日期</view><picker mode="date" value="{{date}}" start="1970-01-01" end="{{today}}" bindchange="onDate"><view class="picker">{{date}}　⌄</view></picker></view>
-    <view class="field"><view class="label">当日位置</view><picker mode="selector" range="{{orderChoices}}" value="{{position}}" bindchange="onOrder"><view class="picker">{{orderChoices[position]}}　⌄</view></picker><view class="muted">同日记录按这里的明确顺序回放。</view></view>
-    <view wx:if="{{kind === 'sell'}}" class="note">在所选日期与位置之前可卖：{{availableQuantity}} 股</view>
-    <view class="field"><label class="label">成交数量（股）</label><input type="digit" value="{{quantity}}" placeholder="例如 2 或 0.5" maxlength="31" data-field="quantity" bindinput="onField"/></view>
-    <view class="field"><label class="label">每股成交价（USD）</label><input type="digit" value="{{price}}" placeholder="0.00" maxlength="31" data-field="price" bindinput="onField"/></view>
-    <view class="field"><label class="label">手续费（USD）</label><input type="digit" value="{{fee}}" maxlength="23" data-field="fee" bindinput="onField"/></view>
+    <view class="field"><view class="label">日期</view><picker mode="date" value="{{date}}" start="1970-01-01" end="{{today}}" bindchange="onDate"><view class="picker">{{date}}<text class="picker-arrow">⌄</text></view></picker></view>
+    <view class="field"><label class="label">标的</label><input value="{{symbol}}" placeholder="例如 NVDA" maxlength="15" data-field="symbol" bindinput="onField"/></view>
+    <view class="field"><view class="label">类型</view><view class="choice-row type-row"><button class="choice-button {{assetType === 'STOCK' ? 'choice-selected' : ''}}" data-type="STOCK" bindtap="onType">股票</button><button class="choice-button {{assetType === 'ETF' ? 'choice-selected' : ''}}" data-type="ETF" bindtap="onType">ETF</button><button class="choice-button {{assetType === 'FUND' ? 'choice-selected' : ''}}" data-type="FUND" bindtap="onType">基金</button></view></view>
+    <view class="field"><view class="label">动作</view><view class="choice-row action-row"><button class="choice-button {{kind === 'buy' ? 'buy-selected' : ''}}" data-kind="buy" bindtap="onKind">买入</button><button class="choice-button {{kind === 'sell' ? 'sell-selected' : ''}}" data-kind="sell" bindtap="onKind">卖出</button><button wx:if="{{!recordId}}" class="choice-button observe-button" data-kind="observe" bindtap="onKind" aria-label="仅观察"><text class="observe-mark">◉</text> 观察</button></view></view>
+    <view class="field"><view class="label">币种</view><view class="choice-row currency-row"><button class="choice-button {{currency === 'USD' ? 'choice-selected' : ''}}" data-currency="USD" bindtap="onCurrency">USD</button><button class="choice-button {{currency === 'CNY' ? 'choice-selected' : ''}}" data-currency="CNY" bindtap="onCurrency">CNY</button></view></view>
+    <view wx:if="{{kind === 'sell'}}" class="note">按所选日期计算可卖：{{availableQuantity}} 股</view>
+    <view class="field"><label class="label">交易金额（{{currency}}）</label><input type="digit" value="{{amount}}" placeholder="例如 278" maxlength="31" data-field="amount" bindinput="onField"/></view>
+    <view class="field"><label class="label">单支成本（{{currency}}）</label><input type="digit" value="{{price}}" placeholder="例如 278.00" maxlength="31" data-field="price" bindinput="onField"/></view>
+    <view class="field"><label class="label">股数</label><input type="digit" value="{{quantity}}" placeholder="例如 1 或 0.5" maxlength="31" data-field="quantity" bindinput="onField"/></view>
+    <view class="field"><label class="label">手续费（选填，{{currency}}）</label><input type="digit" value="{{fee}}" placeholder="不填按 0 计算" maxlength="23" data-field="fee" bindinput="onField"/></view>
     <view class="field"><label class="label">交易理由（选填）</label><textarea value="{{note}}" placeholder="为什么买入或卖出？" maxlength="2000" data-field="note" bindinput="onField"/></view>
-    <button class="secondary" disabled="{{saving || pendingSave}}" bindtap="preview">预览回放结果</button>
+    <button class="secondary" disabled="{{saving || pendingSave}}" bindtap="preview">检查金额和持仓变化</button>
   </view>
   <view wx:if="{{preview}}" class="card"><view class="symbol">保存前核对</view><view class="divider"/>
-    <view class="row"><text>成交金额</text><text>${{preview.amount}}</text></view><view class="row"><text>手续费</text><text>${{preview.fee}}</text></view><view class="row"><text>{{kind === 'buy' ? '买入支出' : '卖出净收入'}}</text><text>${{preview.net}}</text></view><view class="muted">这不是已核实的现金余额。</view><view class="divider"/>
-    <view>回放全部后续记录后</view><view class="row"><text>数量</text><text>{{preview.before.quantity}} → {{preview.after.quantity}}（{{preview.deltas.quantity}}）</text></view><view class="row"><text>剩余成本</text><text>${{preview.before.cost}} → ${{preview.after.cost}}</text></view><view class="row"><text>已实现盈亏</text><text>${{preview.before.realized}} → ${{preview.after.realized}}</text></view>
-    <view wx:if="{{preview.affectedPositions.length > 1}}" class="card"><view class="label">更正影响的全部标的</view><view wx:for="{{preview.affectedPositions}}" wx:key="symbol"><view>{{item.symbol}}：{{item.before.quantity}} → {{item.after.quantity}} 股</view><view>剩余成本 ${{item.before.cost}} → ${{item.after.cost}}；已实现盈亏 ${{item.before.realized}} → ${{item.after.realized}}</view></view></view>
-    <button class="primary" loading="{{saving}}" disabled="{{saving || pendingSave}}" bindtap="submit">确认保存</button>
+    <view class="row"><text>成交金额</text><text>{{preview.amount}}</text></view><view class="row"><text>手续费</text><text>{{preview.fee}}</text></view><view class="row"><text>{{kind === 'buy' ? '买入支出' : '卖出净收入'}}</text><text>{{preview.net}}</text></view><view class="muted">这不是已核实的现金余额。</view><view class="divider"/>
+    <view>回放全部后续记录后</view><view class="row"><text>数量</text><text>{{preview.before.quantity}} → {{preview.after.quantity}}（{{preview.deltas.quantity}}）</text></view><view class="row"><text>剩余成本</text><text>{{preview.before.cost}} → {{preview.after.cost}}</text></view><view class="row"><text>已实现盈亏</text><text>{{preview.before.realized}} → {{preview.after.realized}}</text></view>
+    <view wx:if="{{preview.affectedPositions.length > 1}}" class="card"><view class="label">更正影响的全部标的</view><view wx:for="{{preview.affectedPositions}}" wx:key="symbol"><view>{{item.symbol}}：{{item.before.quantity}} → {{item.after.quantity}} 股</view><view>剩余成本 {{item.before.cost}} → {{item.after.cost}}；已实现盈亏 {{item.before.realized}} → {{item.after.realized}}</view></view></view>
+    <button class="primary" loading="{{saving}}" disabled="{{saving || pendingSave}}" bindtap="submit">＋ 添加流水</button>
   </view><view class="muted">改动任意字段后必须重新预览。仅记录已完成交易，不执行下单。</view>
 </view>
 

@@ -40,6 +40,44 @@ test('research snapshot accepts only validated server data and isolates receipt 
  const value=r.data as any;assert.equal(value.series[0].bars[0].close,10);assert.equal((await receipts.get('owner-a',value.receipt_id))?.research?.selection.market,'HK');assert.equal(await receipts.get('owner-b',value.receipt_id),undefined);
 });
 
+test('portfolio snapshot seals held daily K series and rejects mismatched history', async () => {
+  const receipts = createMemoryMarketReceiptStore();
+  const selection = { market: 'US' as const, symbol: 'AAPL', period: '1day' as const, auxiliary: [] };
+  const series = { market: 'US' as const, symbol: 'AAPL', name: 'Apple', currency: 'USD' as const, period: '1day' as const, provider: 'test', adjustment: 'unadjusted' as const, timezone: 'America/New_York', fetchedAt: at, status: 'available' as const, reason: '', bars: [{ time: '2026-09-11T00:00:00.000Z', open: 220, high: 222, low: 219, close: 221, volume: 100 }] };
+  const provider = { search: async () => [], quotes: async () => [quote], bars: async () => { throw Error('unused'); } };
+  const handler = createPortfolioMarketHandler({ config, access: { allowed: async () => true }, provider, receipts, now: () => at, id: () => id(101), research: { load: async () => [series] } });
+  const event = { action: 'prepareAnalysisSnapshot', instrument_keys: ['US:XNAS:AAPL'], purpose: 'portfolio_review', research_selections: [selection], series: [{ close: 999999 }] };
+  const result = await handler(event, context('owner-a'));
+  assert.equal(result.ok, true); if (!result.ok) return;
+  const data = result.data as any;
+  assert.equal(data.series[0].bars[0].close, 221);
+  assert.equal((await receipts.get('owner-a', data.receipt_id))?.portfolioSeries?.[0].bars[0].close, 221);
+  assert.equal((await receipts.get('owner-a', data.receipt_id))?.digest, data.receipt_digest);
+  const noQuote = createPortfolioMarketHandler({ config, access: { allowed: async () => true }, provider: { ...provider, quotes: async () => { throw Error('quote feed down'); } }, receipts, now: () => at, id: () => id(103), research: { load: async () => [series] } });
+  const historyOnly = await noQuote(event, context('owner-a'));
+  assert.equal(historyOnly.ok, true);
+  if (historyOnly.ok) { assert.equal((historyOnly.data as any).quotes[0].status, 'unavailable'); assert.equal((historyOnly.data as any).series[0].bars[0].close, 221); }
+  const invalid = createPortfolioMarketHandler({ config, access: { allowed: async () => true }, provider, receipts, now: () => at, id: () => id(102), research: { load: async () => [{ ...series, symbol: 'TSLA' }] } });
+  assert.equal((await invalid(event, context('owner-a'))).ok, false);
+});
+
+test('public research daily K works without licensed AI quote archival', async () => {
+  const receipts = createMemoryMarketReceiptStore();
+  const publicConfig = { ...config, ai_source_access: false, archive_access: false };
+  const daily = { market: 'US' as const, symbol: 'AAPL', name: 'Apple', currency: 'USD' as const, period: '1day' as const, provider: 'public-research', adjustment: 'unadjusted' as const, timezone: 'America/New_York', fetchedAt: at, status: 'available' as const, reason: '', bars: [{ time: '2026-09-11T00:00:00.000Z', open: 220, high: 222, low: 219, close: 221, volume: 100 }] };
+  const handler = createPortfolioMarketHandler({ config: publicConfig, access: { allowed: async () => true }, receipts, now: () => at, id: () => id(104), research: { load: async () => [daily] } });
+  const event = { action: 'prepareAnalysisSnapshot', instrument_keys: ['US:XNAS:AAPL'], purpose: 'portfolio_review', research_selections: [{ market: 'US', symbol: 'AAPL', period: '1day', auxiliary: [] }] };
+  const result = await handler(event, context('owner-a'));
+  assert.equal(result.ok, true); if (!result.ok) return;
+  const data = result.data as any;
+  assert.deepEqual(data.quotes, []);
+  assert.equal(data.series[0].bars[0].close, 221);
+  assert.deepEqual((await receipts.get('owner-a', data.receipt_id))?.instrumentKeys, []);
+  const followUp = await handler({ ...event, purpose: 'follow_up' }, context('owner-a'));
+  assert.equal(followUp.ok, true);
+  assert.equal((await handler({ ...event, research_selections: [] }, context('owner-a'))).ok, false);
+});
+
 
 test('CloudBase receipt binding excludes immutable database id from writes',async()=>{
  let row:any;

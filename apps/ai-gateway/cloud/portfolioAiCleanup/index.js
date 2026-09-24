@@ -13,17 +13,27 @@ async function optionalDocument(ref) {
   }
 }
 exports.main = async event => {
-  // SOURCE comes from the platform, never from caller-controlled event fields.
-  // Exact matching also rejects client -> function -> function call chains.
+  // Both provenance fields are set by the platform, never by the event payload.
+  // A timer may omit WeChat SOURCE; any non-timer caller chain still fails closed.
   const context = cloud.getWXContext();
-  const trustedTimer = context.SOURCE === 'wx_trigger' && !context.OPENID && !context.FROM_OPENID
-    && event?.Type === 'Timer' && !!process.env.CLEANUP_TIMER_NAME
+  const timerSource = context.SOURCE === 'wx_trigger'
+    || (process.env.TRIGGER_SRC === 'timer' && !context.SOURCE && event?.Type === 'Timer');
+  const trustedTimer = timerSource && !context.OPENID && !context.FROM_OPENID
+    && !!process.env.CLEANUP_TIMER_NAME
     && event.TriggerName === process.env.CLEANUP_TIMER_NAME;
   let token = event?.token;
   if (event?.Type === 'Timer' && typeof event.Message === 'string') {
     try { token = JSON.parse(event.Message)?.token; } catch { token = undefined; }
   }
-  if (!process.env.CLEANUP_JOB_TOKEN || (!trustedTimer && (typeof token !== 'string' || token !== process.env.CLEANUP_JOB_TOKEN))) throw Error('UNAUTHORIZED_CLEANUP');
+  if (!process.env.CLEANUP_JOB_TOKEN || (!trustedTimer && (typeof token !== 'string' || token !== process.env.CLEANUP_JOB_TOKEN))) {
+    const sourceLabel = value => typeof value === 'string' && /^[a-z_,]{1,80}$/.test(value) ? value : value == null ? 'missing' : 'other';
+    console.warn('CLEANUP_AUTH_REJECTED', {
+      source: sourceLabel(context.SOURCE), triggerSource: sourceLabel(process.env.TRIGGER_SRC),
+      timerEvent: event?.Type === 'Timer', triggerNameMatches: !!process.env.CLEANUP_TIMER_NAME && event?.TriggerName === process.env.CLEANUP_TIMER_NAME,
+      hasPrincipal: !!(context.OPENID || context.FROM_OPENID), tokenConfigured: !!process.env.CLEANUP_JOB_TOKEN,
+    });
+    throw Error('UNAUTHORIZED_CLEANUP');
+  }
   const retention = Number(process.env.AI_PAYLOAD_RETENTION_MS ?? 86400000);
   if (!Number.isSafeInteger(retention) || retention <= 0 || !Number.isFinite(new Date(Date.now() - retention).getTime())) throw Error('INVALID_AI_PAYLOAD_RETENTION_MS');
   const db = cloud.database(), now = new Date(Date.now()).toISOString(), before = new Date(Date.now() - retention).toISOString();

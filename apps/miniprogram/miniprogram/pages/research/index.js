@@ -112,8 +112,8 @@ Page({
     try {
       this._confirmedInput=null;this._confirmedPreview=null;this._previewRevision=null;
       const input=this.input(), local=service.ai().previewContext(input);
-      this.setData({previewData:null,error:'',marketPreparing:input.mode==='instrument_research'});
-      let marketReceipt=null, researchRows=[];
+      this.setData({previewData:null,error:'',marketPreparing:input.mode==='instrument_research'||input.mode==='portfolio_review'});
+      let marketReceipt=null, researchRows=[], marketError='';
       if(input.mode==='instrument_research'){
         const selection={market:this.data.market,symbol:input.instrument.symbol,period:this.data.period,auxiliary:this.data.auxiliary};
         const result=await service.researchSnapshot(selection);
@@ -121,13 +121,18 @@ Page({
         researchRows=result.series.map(row=>({period:PERIODS.find(p=>p.id===row.period)?.label||row.period,provider:row.provider,status:row.status,reason:row.reason,count:row.bars.length,asOf:row.bars.slice(-1)[0]?.time||'',adjustment:row.adjustment==='forward_adjusted'?'前复权':row.adjustment==='split_adjusted'?'拆股调整':'不复权'}));
         if(result.series[0]?.status!=='available') {this.setData({previewData:{...local,researchRows,missingText:local.missingInformation.join('、')},error:'主周期行情不可用，请稍后重新获取。'});return;}
         marketReceipt={...result,quotes:[]};
-      } else if(service.prepareAnalysisMarket && input.includePositions && !input.holdingId && !input.domesticInstrument){
+      } else if(service.prepareAnalysisMarket && input.includePositions && !input.domesticInstrument){
         // Public quotes may be unavailable for AI; the local holding/plan preview stays useful.
-        try{marketReceipt=await service.prepareAnalysisMarket(input.mode,input.instrument?.symbol);}catch(_){}
+        try{
+          marketReceipt=await service.prepareAnalysisMarket(input.mode,input.instrument?.symbol,input.holdingId);
+          researchRows=(marketReceipt?.series||[]).map(row=>({period:`${row.market}:${row.symbol} · 日线`,provider:row.provider,status:row.status,reason:row.reason,count:row.bars.length,asOf:row.bars.slice(-1)[0]?.time||'',adjustment:row.adjustment==='forward_adjusted'?'前复权':row.adjustment==='split_adjusted'?'拆股调整':'不复权'}));
+          if(!marketReceipt)marketError='当前持仓暂无可用于日 K 分析的股票或 ETF。';
+        }catch(e){marketError=e.message||'持仓 K 线暂不可用';}
       }
       if(revision!==(this._draftRevision||0))return;
       const preview={...local,...(marketReceipt?{marketReceipt}:{})};this._confirmedInput=input;this._confirmedPreview=preview;this._previewRevision=revision;
-      this.setData({previewData:{...preview,researchRows,missingText:local.missingInformation.join('、'),marketQuotes:marketReceipt?.quotes||[],marketExpiresAt:marketReceipt?.expires_at||''},error:''});
+      const noHistory = input.mode==='portfolio_review' && marketReceipt?.series?.length && !marketReceipt.series.some(row=>row.status==='available' && row.bars.length);
+      this.setData({previewData:{...preview,researchRows,marketError,omittedSeriesCount:marketReceipt?.omittedSeriesCount||0,missingText:local.missingInformation.join('、'),marketQuotes:marketReceipt?.quotes||[],marketExpiresAt:marketReceipt?.expires_at||''},error:noHistory?'持仓日 K 暂不可用，请稍后重新获取。':marketError&&marketError!=='当前持仓暂无可用于日 K 分析的股票或 ETF。'?marketError:''});
     }catch(e){if(revision===(this._draftRevision||0))this.setData({error:e.message});}
     finally{if(revision===(this._draftRevision||0))this.setData({marketPreparing:false});}
   },

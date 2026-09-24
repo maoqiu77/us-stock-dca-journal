@@ -134,3 +134,47 @@ test('explicit deletion clears active data, recovery points and workspace partit
   assert.equal([...f.values.values()].some(value => value.includes('private note') || value.includes('长期记录')), false);
   assert.equal(f.values.get('portfolio.wechat.v1.previous'), ''); assert.equal(f.values.get('portfolio.wechat.workspace.v2.previous'), '');
 });
+
+test('fund trades support CNY records and keep USD totals separate', () => {
+  const f = fixture();
+  f.service.saveTrade({ kind: 'buy', symbol: '017730', assetType: 'FUND', currency: 'CNY', date: '2026-09-09', quantity: '10', price: '3.45', fee: '0.02' });
+  f.service.saveTrade({ kind: 'sell', symbol: '017730', assetType: 'FUND', currency: 'CNY', date: '2026-09-10', quantity: '2', price: '3.60', fee: '0.01' });
+  f.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', currency: 'USD', date: '2026-09-10', quantity: '1', price: '10', fee: '0' });
+  const records = f.service.records();
+  const fundRecord = records.find(record => record.assetType === 'FUND');
+  assert.equal(fundRecord?.currency, 'CNY');
+  assert.equal(fundRecord?.assetType, 'FUND');
+  assert.equal(f.service.overview(undefined, 'USD').positions[0].symbol, 'QQQ');
+  const cny = f.service.overview(undefined, 'CNY');
+  assert.equal(cny.positions[0].quantity, '8');
+  assert.equal(cny.positions[0].cost, '27.62');
+});
+
+test('fund trades reuse an imported CNY holding identity', () => {
+  const f = fixture();
+  f.service.saveHolding({
+    batchId: 'fund_import_01', expectedRevision: 0, observedAt: f.runtime.now(),
+    instrument: { symbol: '017730', name: '嘉实全球产业升级', market: 'CN', currency: 'CNY', assetType: 'FUND', status: 'unverified' },
+    quantity: '100', unitCost: '3.45',
+  });
+  f.service.saveTrade({ kind: 'buy', symbol: '017730', assetType: 'FUND', currency: 'CNY', date: '2026-09-10', quantity: '10', price: '3.50', fee: '0' });
+  const position = f.service.overview(undefined, 'CNY').positions[0];
+  assert.equal(position.id, f.service.snapshot().holding_assets[0].id);
+  assert.equal(position.quantity, '110');
+});
+
+test('voiding a calibrated historical trade keeps the calibration usable', () => {
+  const f = fixture();
+  f.service.saveTrade({ kind: 'buy', symbol: 'QQQ', assetType: 'ETF', currency: 'USD', date: '2026-09-09', quantity: '2', price: '10', fee: '0' });
+  const record = f.service.records()[0];
+  f.service.saveHolding({
+    batchId: 'calibration_01', expectedRevision: f.service.snapshot().revision, observedAt: f.runtime.now(), replaceApproved: true,
+    instrument: { symbol: 'QQQ', name: 'QQQ', market: 'US', currency: 'USD', assetType: 'ETF', status: 'unverified' },
+    quantity: '2', unitCost: '10',
+  });
+  f.service.voidTrade(record.id, record.revisionId);
+  const position = f.service.overview(undefined, 'USD').positions[0];
+  assert.equal(position.quantity, '2');
+  assert.equal(position.checkpointConflict, false);
+  assert.equal(f.service.records()[0].voided, true);
+});

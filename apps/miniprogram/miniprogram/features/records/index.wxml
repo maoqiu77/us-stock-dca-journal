@@ -1,16 +1,30 @@
-<view class="container">
-  <view class="eyebrow">TRANSACTIONS</view><view class="row"><view class="title">交易记录</view><button class="primary small" bindtap="addTrade">＋ 记一笔</button></view>
-  <view class="subtitle">记录事实，也记录每次交易的理由。</view>
+<view class="container records-page">
+  <view class="page-header">
+    <view class="eyebrow">TRANSACTIONS</view>
+    <view class="header-line"><view class="title">交易流水</view><button class="primary small header-action" bindtap="addTrade">＋ 记一笔</button></view>
+    <view class="subtitle">所有持仓数量与成本均由这里的买卖记录计算</view>
+  </view>
   <view wx:if="{{mode === 'demo'}}" class="demo">示例账本 · 全部为虚构数据</view>
   <view wx:if="{{error}}" class="error">{{error}}</view>
-  <view class="muted">历史可能不完整 · 现金余额未知 · 期初持仓不计入买卖笔数</view>
+  <view class="records-meta muted">历史可能不完整 · 现金余额未知 · 期初持仓不计入买卖笔数</view>
   <view wx:if="{{!records.length && !error}}" class="card empty"><view class="symbol">还没有记录</view><view class="muted">可以添加交易，或从持仓页录入期初持仓。</view></view>
-  <view wx:for="{{records}}" wx:key="id" class="card {{item.voided ? 'voided' : ''}}">
-    <view class="row"><view data-symbol="{{item.symbol}}" bindtap="showPosition"><text class="symbol">{{item.symbol}}</text> <text class="badge">{{item.voided ? '已作废' : item.label}}</text></view><text class="muted">{{item.date}} · 顺序 {{item.sequence + 1}}</text></view>
-    <view class="divider"/><view class="row"><text wx:if="{{item.isOpening}}">{{item.quantity}} 股 · 期初</text><text wx:else>{{item.quantity}} 股 × ${{item.price}}</text><text class="number">${{item.amount}}</text></view>
-    <view class="muted">{{item.isOpening ? '确认总成本（非成交金额）' : '成交金额 · 手续费另计'}} {{item.isOpening ? '$' + item.amount : '$' + item.fee}}</view>
-    <view wx:if="{{item.note}}" class="note">{{item.note}}</view>
-    <view class="actions"><button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" data-opening="{{item.isOpening}}" bindtap="editRecord">更正</button><button class="link" data-id="{{item.id}}" bindtap="showHistory">版本历史</button><button wx:if="{{!item.voided}}" class="link" data-id="{{item.id}}" data-revision="{{item.revisionId}}" bindtap="voidTrade">作废</button></view>
+  <view class="records-list">
+    <view wx:for="{{records}}" wx:key="id" class="card trade-card {{item.voided ? 'voided' : ''}}">
+      <view class="trade-heading">
+        <view class="trade-identity" data-symbol="{{item.symbol}}" bindtap="showPosition"><text class="symbol">{{item.symbol || '期初持仓'}}</text><text class="badge {{item.label === '买入' ? 'badge-buy' : item.label === '卖出' ? 'badge-sell' : 'badge-opening'}}">{{item.voided ? '已作废' : item.label}}</text></view>
+        <text class="trade-date">{{item.date}} · 第 {{item.sequence + 1}} 笔</text>
+      </view>
+      <view class="trade-values">
+        <view class="trade-value"><text class="muted">股数</text><text>{{item.quantity || '--'}}{{item.isOpening ? ' 股 · 期初' : ' 股'}}</text></view>
+        <view class="trade-value"><text class="muted">单支成本</text><text>{{item.isOpening ? '总成本' : item.price}}</text></view>
+        <view class="trade-value trade-amount"><text class="muted">{{item.isOpening ? '确认总成本' : '成交金额'}}</text><text class="number">{{item.amount || '--'}}</text></view>
+      </view>
+      <view class="trade-fee-row">
+        <view class="trade-fee muted">{{item.isOpening ? '期初持仓不计入买卖笔数' : '手续费另计 · ' + (item.fee || '0')}}</view>
+        <view wx:if="{{!item.voided}}" class="trade-actions"><button class="icon-action edit-action" data-id="{{item.id}}" data-opening="{{item.isOpening}}" bindtap="editRecord" aria-label="编辑流水" title="编辑流水"><image src="/assets/conversation/edit.png" mode="aspectFit" /></button><button class="icon-action delete-action" data-id="{{item.id}}" data-revision="{{item.revisionId}}" bindtap="deleteRecord" aria-label="删除流水" title="删除流水"><text class="delete-icon" aria-hidden="true"></text></button></view>
+      </view>
+      <view wx:if="{{item.note}}" class="note trade-note">{{item.note}}</view>
+    </view>
   </view>
 </view>
 

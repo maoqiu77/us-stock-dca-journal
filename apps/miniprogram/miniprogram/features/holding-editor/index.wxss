@@ -1,4 +1,21 @@
 /* Shared visual tokens are defined in app.wxss. */
-.choice { display: flex; gap: 16rpx; flex-wrap: wrap; }
+.choice { display: flex; gap: 10rpx; flex-wrap: nowrap; }
+.choice button { flex: 1 1 0; min-width: 0; padding: 0 10rpx; font-size: 25rpx; }
+.picker { box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 84rpx; padding: 20rpx; background: #f3f6f0; border: 1rpx solid #e2e8de; border-radius: 12rpx; }
+.paired-fields { display: flex; gap: 12rpx; align-items: flex-start; }
+.paired-fields .half { flex: 1; min-width: 0; }
+.pnl-input { display: flex; gap: 8rpx; min-width: 0; }
+.pnl-input picker { flex: 0 0 118rpx; min-width: 0; }
+.pnl-mode { box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; height: 88rpx; padding: 0 14rpx; background: #f3f6f0; border: 1rpx solid #e2e8de; border-radius: 12rpx; white-space: nowrap; }
+.pnl-input input { min-width: 0; flex: 1; }
+.price-hint { margin: -8rpx 0 18rpx; color: #6e7d73; font-size: 23rpx; line-height: 1.65; overflow-wrap: anywhere; }
+.cost-suggestion { margin-top: 16rpx; padding: 18rpx; background: #f1f6f2; border-radius: 8rpx; line-height: 1.7; overflow-wrap: anywhere; }
+.cost-suggestion .muted { margin: 8rpx 0 12rpx; }
+.cost-suggestion button { width: 100%; }
 
 .delete-holding { margin-top: 36rpx; background: #fff1ef; color: #b43e36; border: 1rpx solid #edc8c3; }
+@media (max-width: 360px) {
+  .paired-fields { gap: 8rpx; }
+  .pnl-input picker { flex-basis: 104rpx; }
+  .pnl-mode { padding: 0 10rpx; font-size: 24rpx; }
+}
