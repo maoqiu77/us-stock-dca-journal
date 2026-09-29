@@ -10,4 +10,5 @@ export type BoardRow = { instrument: Instrument; quote?: Quote | null; nav?: Nav
 export type BoardResponse = { segment: Segment; rows: BoardRow[]; benchmarks: unknown[]; revision: number; fetched_at: string; warnings: string[] };
 export type Selection = { segment: Segment; revision: number; items: Instrument[] };
 export type DetailResponse = { row: BoardRow; holdings?: unknown | null };
-
+export type Bar = { time: string; trading_date?: string | null; open: string; high: string; low: string; close: string; volume: string | null; is_final: boolean };
+export type Series = { instrument_key: string; currency: string; period: string; range: string; timezone: string; adjustment: string; volume_unit?: string | null; time_label: string; bars: Bar[]; meta: ObservationMeta };

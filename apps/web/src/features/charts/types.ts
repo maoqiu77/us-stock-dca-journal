@@ -56,7 +56,7 @@ export type Quote = WatchlistItem & {
   price: number;
   change: number;
   changePercent: number;
-  volume: number;
+  volume: number | null;
   source: "yfinance" | "sample" | string;
 };
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .catalog import InstrumentCatalog
 from .models import BoardResponse, Capabilities, DetailResponse, Segment, Series
-from .sample import row_for
+from .sample import holdings_for, row_for, series_for
 from .store import BoardStore
 from .providers.bars import BarsProvider
 
@@ -24,7 +24,7 @@ class BoardService:
         item = self.catalog.resolve(key)
         if item is None:
             raise KeyError(key)
-        return DetailResponse(row=row_for(item))
+        return DetailResponse(row=row_for(item), holdings=holdings_for(item) if item.asset_type.value == "FUND" else None)
 
     def capabilities(self, key: str) -> Capabilities:
         item = self.catalog.resolve(key)
@@ -36,4 +36,6 @@ class BoardService:
         item = self.catalog.resolve(key)
         if item is None:
             raise KeyError(key)
+        if item.market.value == "US" and period == "1d" and range_ in {"1mo", "3mo", "1y"}:
+            return series_for(item, period, range_)
         return self.bars.series(item, period, range_, self.now())
