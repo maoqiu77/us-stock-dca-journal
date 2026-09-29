@@ -13,7 +13,7 @@ def default_instruments() -> dict[Segment, list[Instrument]]:
     us_symbols = [("AAPL", "Apple Inc.", "XNAS", "STOCK"), ("MSFT", "Microsoft", "XNAS", "STOCK"), ("NVDA", "NVIDIA", "XNAS", "STOCK"), ("AMZN", "Amazon", "XNAS", "STOCK"), ("GOOGL", "Alphabet", "XNAS", "STOCK"), ("TSLA", "Tesla", "XNAS", "STOCK"), ("SPY", "SPDR S&P 500 ETF", "ARCX", "ETF"), ("QQQ", "Invesco QQQ", "XNAS", "ETF"), ("DIA", "SPDR Dow Jones ETF", "ARCX", "ETF"), ("IWM", "iShares Russell 2000", "ARCX", "ETF")]
     us_symbols += [(f"DEMO{i:02d}", f"Demo US {i:02d}", "XNAS", "STOCK") for i in range(1, 22)]
     us = [_instrument(Market.US, symbol, name, exchange, AssetType(asset), "USD", "America/New_York", now) for symbol, name, exchange, asset in us_symbols]
-    etf = [_instrument(Market.CN, "513100", "纳指ETF", "XSHG", AssetType.ETF, "CNY", "Asia/Shanghai", now), _instrument(Market.CN, "159501", "纳指100ETF", "XSHE", AssetType.ETF, "CNY", "Asia/Shanghai", now), _instrument(Market.CN, "510300", "沪深300ETF", "XSHG", AssetType.ETF, "CNY", "Asia/Shanghai", now)]
+    etf = [_instrument(Market.CN, "513100", "纳指ETF国泰", "XSHG", AssetType.ETF, "CNY", "Asia/Shanghai", now), _instrument(Market.CN, "159501", "纳指100ETF", "XSHE", AssetType.ETF, "CNY", "Asia/Shanghai", now), _instrument(Market.CN, "510300", "沪深300ETF", "XSHG", AssetType.ETF, "CNY", "Asia/Shanghai", now)]
     fund = [_instrument(Market.CN, "016701", "华夏纳斯达克100ETF联接人民币", "FUND", AssetType.FUND, "CNY", "Asia/Shanghai", now), _instrument(Market.CN, "000001", "华夏成长混合", "FUND", AssetType.FUND, "CNY", "Asia/Shanghai", now)]
     return {Segment.US: us, Segment.ETF: etf, Segment.FUND: fund}
 
