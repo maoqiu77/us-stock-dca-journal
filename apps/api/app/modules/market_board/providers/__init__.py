@@ -1,0 +1,2 @@
+"""Market board provider adapters."""
+

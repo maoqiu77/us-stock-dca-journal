@@ -1,0 +1,5 @@
+{
+  "us": ["US:XNAS:AAPL:STOCK", "US:ARCX:SPY:ETF"],
+  "etf": ["CN:XSHG:513100:ETF", "CN:XSHE:159501:ETF"],
+  "fund": ["CN:FUND:016701:FUND"]
+}

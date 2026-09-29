@@ -8,7 +8,7 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
-CURRENT_DB_SCHEMA_VERSION = 4
+CURRENT_DB_SCHEMA_VERSION = 5
 
 
 def connect() -> sqlite3.Connection:
@@ -159,7 +159,13 @@ def migrate_db(connection: sqlite3.Connection) -> None:
             connection.execute(
                 "alter table quant_analysis_steps add column model text not null default ''"
             )
-        connection.execute(f"pragma user_version = {CURRENT_DB_SCHEMA_VERSION}")
+        connection.execute("pragma user_version = 4")
+        version = 4
+    if version < 5:
+        from app.modules.market_board.migration import migrate_board_db
+
+        migrate_board_db(connection)
+        connection.execute("pragma user_version = 5")
 
 
 def seed_watchlist(connection: sqlite3.Connection, template_path: Path) -> None:

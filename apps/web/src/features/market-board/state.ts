@@ -1,0 +1,5 @@
+import type { BoardRow } from "./types";
+export function moveSelection(keys: string[], key: string, to: number) { const next = keys.filter((item) => item !== key); next.splice(Math.max(0, Math.min(to, next.length)), 0, key); return next; }
+export function removeSelection(keys: string[], removed: string[]) { const set = new Set(removed); return keys.filter((key) => !set.has(key)); }
+export function sortRows(rows: BoardRow[], field: string, ascending: boolean) { const direction = ascending ? 1 : -1; return [...rows].sort((a, b) => { const av = field === "name" ? a.instrument.name : field === "symbol" ? a.instrument.symbol : a.quote?.[field as "price" | "change_pct"] ?? a.nav?.[field as "value" | "change_pct"] ?? null; const bv = field === "name" ? b.instrument.name : field === "symbol" ? b.instrument.symbol : b.quote?.[field as "price" | "change_pct"] ?? b.nav?.[field as "value" | "change_pct"] ?? null; if (av == null && bv == null) return 0; if (av == null) return 1; if (bv == null) return -1; return String(av).localeCompare(String(bv), undefined, { numeric: true }) * direction; }); }
+

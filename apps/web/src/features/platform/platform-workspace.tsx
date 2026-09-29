@@ -23,6 +23,7 @@ const ONBOARDING_STORAGE_KEY = "stock-platform-onboarding-v1";
 const ACTIVE_VIEW_STORAGE_KEY = "stock-platform-active-view-v1";
 const RESTORABLE_VIEWS: PlatformView[] = [
   "overview",
+  "market-board",
   "quant",
   "ai",
   "data",
@@ -34,6 +35,10 @@ const QuantAnalysisView = dynamic(
     import("@/features/quant-analysis/quant-analysis-view").then(
       (mod) => mod.QuantAnalysisView
     ),
+  { loading: () => <WorkspaceViewLoading /> }
+);
+const MarketBoardView = dynamic(
+  () => import("@/features/market-board/market-board-view").then((mod) => mod.MarketBoardView),
   { loading: () => <WorkspaceViewLoading /> }
 );
 const AiAdviceView = dynamic(
@@ -125,6 +130,9 @@ export function PlatformWorkspace() {
       >
         {activeView === "overview" ? (
           <DashboardView marketRefreshKey={marketRefreshKey} />
+        ) : null}
+        {activeView === "market-board" ? (
+          <MarketBoardView marketRefreshKey={marketRefreshKey} />
         ) : null}
         {activeView === "quant" ? <QuantAnalysisView /> : null}
         {activeView === "ai" ? <AiAdviceView /> : null}
