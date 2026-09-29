@@ -107,7 +107,23 @@ class BoardService:
         item = self.catalog.resolve(key)
         if item is None:
             raise KeyError(key)
-        return DetailResponse(row=row_for(item), holdings=holdings_for(item) if item.asset_type.value == "FUND" else None)
+        now = self.now()
+        row = row_for(item)
+        if item.asset_type.value == "FUND":
+            row.nav = self.fund_provider.nav(item, now)
+            row.purchase_limit = self.fund_provider.purchase_limit(item, now)
+            row.quality = row.nav.meta.status if row.nav.value is not None else row.quality
+            return DetailResponse(row=row, holdings=self.fund_provider.holdings(item, now))
+        if item.market.value == "US":
+            quote = self.us_provider.quotes([item], now)[0]
+        else:
+            quote = self.cn_provider.quotes([item], now)[0]
+            if item.asset_type.value == "ETF":
+                row.metrics = self.etf_provider.metrics([item], now).get(item.key, row.metrics)
+        if quote.price is not None:
+            row.quote = quote
+            row.quality = quote.meta.status
+        return DetailResponse(row=row)
 
     def capabilities(self, key: str) -> Capabilities:
         item = self.catalog.resolve(key)
