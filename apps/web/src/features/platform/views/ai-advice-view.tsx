@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import {
   AlertCircleIcon,
@@ -38,6 +38,11 @@ import {
   sendAiAdviceChat,
 } from "@/features/platform/api";
 import {
+  fetchJournalCalendar,
+  fetchJournalSession,
+  type CalendarEntry,
+} from "@/features/ai-journal/api";
+import {
   useAiAdviceCalendarQuery,
   useAiSettingsQuery,
 } from "@/features/platform/queries";
@@ -58,6 +63,8 @@ export function AiAdviceView() {
   const [isRecoveringAiResponse, setIsRecoveringAiResponse] =
     React.useState(false);
   const [journalSession, setJournalSession] = React.useState<JournalSession | null>(null);
+  const [journalLoadingId, setJournalLoadingId] = React.useState<string | null>(null);
+  const [journalLoadError, setJournalLoadError] = React.useState("");
   const journalRef = React.useRef<EmbeddedJournalHandle>(null);
   const chatContainerRef = React.useRef<HTMLDivElement>(null);
   const [calendarMonth, setCalendarMonth] = React.useState(() => {
@@ -65,6 +72,10 @@ export function AiAdviceView() {
     return { year: now.getFullYear(), month: now.getMonth() + 1 };
   });
   const aiCalendarQuery = useAiAdviceCalendarQuery(selectedDate);
+  const journalCalendarQuery = useQuery({
+    queryKey: ["ai-journal-calendar"],
+    queryFn: fetchJournalCalendar,
+  });
   const aiSettingsQuery = useAiSettingsQuery();
   const [journalKey, setJournalKey] = React.useState<string | undefined>();
   React.useEffect(() => {
@@ -77,7 +88,24 @@ export function AiAdviceView() {
     return () => window.removeEventListener("ai-journal-prefill", onPrefill);
   }, []);
   const calendarData = aiCalendarQuery.data;
-  const record = calendarData?.record ?? null;
+  const journalCalendar = journalCalendarQuery.data;
+  const selectedCalendarDate =
+    selectedDate ??
+    calendarData?.selectedDate ??
+    calendarData?.today ??
+    journalCalendar?.dates?.[0] ??
+    null;
+  const record =
+    calendarData?.record?.date === selectedCalendarDate
+      ? calendarData.record
+      : null;
+  const journalEntriesForDate = React.useMemo(
+    () =>
+      (journalCalendar?.items ?? []).filter(
+        (entry) => entry.date === selectedCalendarDate
+      ),
+    [journalCalendar?.items, selectedCalendarDate]
+  );
   const applyCalendarResponse = React.useCallback(
     (response: Awaited<ReturnType<typeof fetchAiAdviceCalendar>>) => {
       queryClient.setQueryData(["ai-advice", "default"], response);
@@ -143,8 +171,10 @@ export function AiAdviceView() {
       applyCalendarResponse(response);
     },
   });
-  const savedDates = new Set(calendarData?.dates ?? []);
-  const selectedCalendarDate = selectedDate ?? calendarData?.selectedDate ?? null;
+  const savedDates = new Set([
+    ...(calendarData?.dates ?? []),
+    ...(journalCalendar?.dates ?? []),
+  ]);
   const days = calendarDays(calendarMonth.year, calendarMonth.month);
   const aiReady =
     Boolean(aiSettingsQuery.data?.hasApiKey) &&
@@ -167,6 +197,31 @@ export function AiAdviceView() {
   const aiUnavailableReason = !aiReady
     ? "请先在 AI 模型配置补齐 Base URL、模型和 API Key。"
     : "";
+  const openJournalEntry = React.useCallback(async (entry: CalendarEntry) => {
+    if (!entry.session_id || entry.status !== "completed") return;
+    setJournalLoadingId(entry.id);
+    setJournalLoadError("");
+    setSelectedDate(entry.date);
+    try {
+      const session = await fetchJournalSession(entry.session_id);
+      window.sessionStorage.setItem("ai-journal-session", session.id);
+      setJournalSession(session);
+    } catch (reason) {
+      setJournalLoadError(reason instanceof Error ? reason.message : "研究记录读取失败");
+    } finally {
+      setJournalLoadingId(null);
+    }
+  }, []);
+  const handleJournalSessionChange = React.useCallback(
+    (session: JournalSession | null) => {
+      setJournalSession(session);
+      setJournalLoadError("");
+      if (session) {
+        void queryClient.invalidateQueries({ queryKey: ["ai-journal-calendar"] });
+      }
+    },
+    [queryClient]
+  );
   const submitChat = async () => {
     const prompt = chatPrompt.trim();
     if (!prompt || !aiReady || chatMutation.isPending || isRecoveringAiResponse) {
@@ -249,7 +304,12 @@ export function AiAdviceView() {
                     }
                     size="sm"
                     disabled={!savedDates.has(day)}
-                    onClick={() => setSelectedDate(day)}
+                    onClick={() => {
+                      setSelectedDate(day);
+                      setJournalSession(null);
+                      setJournalLoadError("");
+                      window.sessionStorage.removeItem("ai-journal-session");
+                    }}
                     className="relative h-9 min-w-0 px-1 text-base font-medium"
                     aria-label={`${day}${
                       savedDates.has(day) ? "，已有 AI 分析" : "，无 AI 分析"
@@ -265,6 +325,33 @@ export function AiAdviceView() {
                   </Button>
                 ))}
               </div>
+              {selectedCalendarDate && journalEntriesForDate.length > 0 ? (
+                <div className="grid gap-1 rounded-lg border p-2">
+                  <div className="px-1 text-xs font-medium text-muted-foreground">
+                    当天研究记录
+                  </div>
+                  {journalEntriesForDate.map((entry) => (
+                    <Button
+                      key={entry.id}
+                      variant="ghost"
+                      className="h-auto min-w-0 justify-between gap-2 px-2 py-2 text-left"
+                      disabled={entry.status !== "completed" || journalLoadingId === entry.id}
+                      onClick={() => void openJournalEntry(entry)}
+                      aria-label={`${entry.title}${entry.status === "completed" ? "，点击查看" : `，${journalStatusLabel(entry.status)}`}`}
+                    >
+                      <span className="min-w-0 truncate text-sm">{entry.title}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {journalLoadingId === entry.id ? "读取中" : journalStatusLabel(entry.status)}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+              {journalLoadError ? (
+                <div className="rounded-lg bg-destructive/10 p-2 text-sm text-destructive">
+                  {journalLoadError}
+                </div>
+              ) : null}
             </div>
           </CardContent>
         </Card>
@@ -291,7 +378,7 @@ export function AiAdviceView() {
               ref={journalRef}
               prefillKey={journalKey}
               session={journalSession}
-              onSessionChange={setJournalSession}
+              onSessionChange={handleJournalSessionChange}
             />
             {journalAnswer ? (
               <div className="max-h-[560px] overflow-auto rounded-lg bg-muted/50 p-3">
@@ -617,4 +704,11 @@ function formatDate(year: number, month: number, day: number) {
     2,
     "0"
   )}`;
+}
+
+function journalStatusLabel(status?: string) {
+  if (status === "completed") return "查看";
+  if (status === "failed") return "分析失败";
+  if (status === "pending") return "处理中";
+  return "记录";
 }

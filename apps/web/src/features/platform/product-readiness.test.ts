@@ -132,6 +132,17 @@ test("AI advice calendar is full width and research actions live inside AI analy
   assert.doesNotMatch(source, /AI建议日历/);
 });
 
+test("AI journal sessions appear in the calendar and can be opened", () => {
+  const source = readSource("./views/ai-advice-view.tsx");
+
+  assert.match(source, /fetchJournalCalendar/);
+  assert.match(source, /fetchJournalSession/);
+  assert.match(source, /当天研究记录/);
+  assert.match(source, /openJournalEntry/);
+  assert.match(source, /invalidateQueries\(\{ queryKey: \["ai-journal-calendar"\] \}\)/);
+  assert.match(source, /window\.sessionStorage\.setItem\("ai-journal-session"/);
+});
+
 test("AI advice view shows summarized prompt context without duplicate chat history", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 

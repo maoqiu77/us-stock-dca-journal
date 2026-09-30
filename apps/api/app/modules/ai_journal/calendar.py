@@ -13,8 +13,15 @@ def beijing_date(stamp):
 def calendar(store, target_date=None):
     entries = []
     with store.connect() as db:
-        for row in db.execute('select t.id,t.session_id,t.status,t.created_at,s.title from ai_journal_turns t join ai_journal_sessions s on s.id=t.session_id order by t.created_at desc'):
-            entries.append({'id': row['id'], 'kind': 'session', 'session_id': row['session_id'], 'title': row['title'], 'status': row['status'], 'date': beijing_date(row['created_at'])})
+        for row in db.execute('select t.id,t.session_id,t.status,t.created_at,s.title,s.task_type,p.payload from ai_journal_turns t join ai_journal_sessions s on s.id=t.session_id left join ai_journal_snapshots p on p.id=t.snapshot_id order by t.created_at desc'):
+            question = ''
+            try:
+                question = json.loads(row['payload']).get('request', {}).get('question', '')
+            except (ValueError, TypeError, AttributeError):
+                pass
+            label = '持仓分析' if row['task_type'] == 'portfolio_review' else '标的快研'
+            title = f'{label} · {question[:80]}' if question else row['title']
+            entries.append({'id': row['id'], 'kind': 'session', 'session_id': row['session_id'], 'title': title, 'status': row['status'], 'question': question, 'date': beijing_date(row['created_at'])})
         for row in db.execute('select * from ai_journal_notes where deleted_at is null order by created_at desc'):
             entries.append({'id': row['id'], 'kind': 'note', 'title': row['body'][:80], 'date': beijing_date(row['created_at'])})
         for row in db.execute('select l.*,r.status,r.ticker from ai_journal_quant_links l left join quant_analysis_runs r on r.id=l.run_id order by l.created_at desc'):
