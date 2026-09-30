@@ -60,14 +60,18 @@ test("AI model settings keeps AI and research data configuration together", () =
   assert.match(source, /saveAiSettings/);
 });
 
-test("AI advice view confirms private context before sending to AI", () => {
-  const source = readSource("./views/ai-advice-view.tsx");
+test("AI analysis embeds portfolio and instrument research with preview confirmation", () => {
+  const source = readSource("../ai-journal/embedded-composer.tsx");
+  const view = readSource("./views/ai-advice-view.tsx");
 
-  assert.match(source, /确认发送给 AI/);
-  assert.match(source, /账户/);
-  assert.match(source, /持仓/);
-  assert.match(source, /交易流水/);
-  assert.match(source, /市场观察/);
+  assert.match(view, /EmbeddedJournalComposer/);
+  assert.match(source, /持仓分析/);
+  assert.match(source, /标的快研/);
+  assert.match(source, /生成事实预览/);
+  assert.match(source, /确认范围并分析/);
+  assert.match(source, /未选择的手记、历史回答和交易原因不会发送/);
+  assert.match(source, /实际持仓/);
+  assert.match(source, /投资手记/);
 });
 
 test("AI advice follow-ups use an inline conversation without a confirmation dialog", () => {
@@ -93,7 +97,7 @@ test("AI advice clears a submitted follow-up before waiting for the reply", () =
 test("visible market analysis does not advertise hidden strategy inputs", () => {
   const source = readSource("./views/ai-advice-view.tsx");
   assert.match(source, /市场观察/);
-  assert.match(source, /基于今日分析继续追问/);
+  assert.match(source, /基于当前研究继续追问/);
   assert.match(source, /北京时间上下文：当前交易时段。/);
   assert.doesNotMatch(source, /策略配置/);
   assert.doesNotMatch(source, /持仓计划/);
@@ -109,7 +113,7 @@ test("AI advice view can clear today's follow-up conversation without removing t
   assert.match(source, /record\.messages\.slice\(1\)/);
 });
 
-test("AI advice calendar is full width and generation lives beside the advice title", () => {
+test("AI advice calendar is full width and research actions live inside AI analysis", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 
   assert.match(source, /AI 分析日历/);
@@ -117,9 +121,9 @@ test("AI advice calendar is full width and generation lives beside the advice ti
   assert.match(source, /grid-cols-8/);
   assert.match(source, /text-base font-medium/);
   assert.match(source, />\s*AI 分析\s*</);
-  assert.match(source, /AI 分析\s*<Button/);
-  assert.match(source, /ml-4 sm:ml-12 xl:ml-56/);
-  assert.match(source, /variant="secondary"\s*size="default"/);
+  assert.match(source, /EmbeddedJournalComposer/);
+  assert.doesNotMatch(source, /生成每日 AI 分析/);
+  assert.doesNotMatch(source, /setConfirmGenerate/);
   assert.doesNotMatch(source, />\s*每日 AI 建议\s*</);
   assert.doesNotMatch(source, /AI 日历记录/);
   assert.doesNotMatch(source, /AI建议日历/);

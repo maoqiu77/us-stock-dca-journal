@@ -12,7 +12,6 @@ import {
   MessageSquareIcon,
   RefreshCcwIcon,
   SendIcon,
-  SparklesIcon,
   Trash2Icon,
 } from "lucide-react";
 
@@ -31,20 +30,11 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   fetchAiAdviceCalendar,
   clearAiAdviceChat,
-  generateAiAdvice,
   sendAiAdviceChat,
 } from "@/features/platform/api";
 import {
@@ -55,7 +45,11 @@ import {
   isAiAdviceCompositionEnter,
   isAiAdviceSubmitShortcut,
 } from "@/features/platform/ai-advice-shortcut";
-import {AiJournalPanel} from "@/features/ai-journal/ai-journal-panel";
+import {
+  EmbeddedJournalComposer,
+  type EmbeddedJournalHandle,
+} from "@/features/ai-journal/embedded-composer";
+import type { JournalSession } from "@/features/ai-journal/api";
 
 export function AiAdviceView() {
   const queryClient = useQueryClient();
@@ -63,7 +57,8 @@ export function AiAdviceView() {
   const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
   const [isRecoveringAiResponse, setIsRecoveringAiResponse] =
     React.useState(false);
-  const [confirmGenerate, setConfirmGenerate] = React.useState(false);
+  const [journalSession, setJournalSession] = React.useState<JournalSession | null>(null);
+  const journalRef = React.useRef<EmbeddedJournalHandle>(null);
   const chatContainerRef = React.useRef<HTMLDivElement>(null);
   const [calendarMonth, setCalendarMonth] = React.useState(() => {
     const now = new Date();
@@ -84,7 +79,7 @@ export function AiAdviceView() {
   const calendarData = aiCalendarQuery.data;
   const record = calendarData?.record ?? null;
   const applyCalendarResponse = React.useCallback(
-    (response: Awaited<ReturnType<typeof generateAiAdvice>>) => {
+    (response: Awaited<ReturnType<typeof fetchAiAdviceCalendar>>) => {
       queryClient.setQueryData(["ai-advice", "default"], response);
       const nextDate = response.record?.date ?? response.selectedDate ?? response.today;
       if (nextDate) {
@@ -125,19 +120,6 @@ export function AiAdviceView() {
     },
     [applyCalendarResponse]
   );
-  const externalMutation = useMutation({
-    mutationFn: () => generateAiAdvice(""),
-    onMutate: getCurrentAiAdviceSignature,
-    onSuccess: applyCalendarResponse,
-    onError: (error, _variables, context) => {
-      if (isRecoverableAiAdviceError(error)) {
-        void recoverSavedAiAdvice(
-          context?.previousSignature ?? "",
-          () => externalMutation.reset()
-        );
-      }
-    },
-  });
   const chatMutation = useMutation({
     mutationFn: sendAiAdviceChat,
     onMutate: getCurrentAiAdviceSignature,
@@ -181,35 +163,40 @@ export function AiAdviceView() {
       container.scrollTop = container.scrollHeight;
     }
   }, [chatMessages.length, pendingChatPrompt, chatMutation.isPending]);
-  const generationPending =
-    externalMutation.isPending || isRecoveringAiResponse;
-  let generateButtonLabel = "生成每日 AI 分析";
-  if (externalMutation.isPending) {
-    generateButtonLabel = "生成中";
-  }
-  if (isRecoveringAiResponse) {
-    generateButtonLabel = "同步结果中";
-  }
-  const generationError =
-    isRecoveringAiResponse
-      ? ""
-      : externalMutation.error?.message ?? "";
   const aiStatus = aiReady ? "ready" : "missing-config";
   const aiUnavailableReason = !aiReady
     ? "请先在 AI 模型配置补齐 Base URL、模型和 API Key。"
     : "";
-  const submitChat = () => {
+  const submitChat = async () => {
     const prompt = chatPrompt.trim();
-    if (!prompt || !aiReady || chatMutation.isPending) {
+    if (!prompt || !aiReady || chatMutation.isPending || isRecoveringAiResponse) {
       return;
     }
     setChatPrompt("");
+    if (journalSession) {
+      const completed = await journalRef.current?.followUp(prompt);
+      if (!completed) {
+        setChatPrompt(prompt);
+      }
+      return;
+    }
     chatMutation.mutate(prompt);
   };
+  const journalMessages = journalSession
+    ? journalSession.turns.flatMap((turn) => [
+        { role: "user" as const, content: turn.snapshot.request.question },
+        ...(turn.answer
+          ? [{ role: "assistant" as const, content: turn.answer }]
+          : []),
+      ])
+    : [];
+  const journalAnswer = journalSession?.turns
+    .filter((turn) => turn.status === "completed" && turn.answer)
+    .at(-1)?.answer;
+  const canChat = Boolean(journalSession) || selectedIsToday;
 
   return (
     <>
-      <AiJournalPanel prefillKey={journalKey} />
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="min-w-0 xl:col-span-2">
           <CardHeader className="border-b">
@@ -287,19 +274,11 @@ export function AiAdviceView() {
             <CardTitle className="flex items-center gap-2">
               <FileTextIcon />
               AI 分析
-              <Button
-                className="ml-4 sm:ml-12 xl:ml-56"
-                variant="secondary"
-                size="default"
-                onClick={() => setConfirmGenerate(true)}
-                disabled={!aiReady || generationPending}
-              >
-                <SparklesIcon data-icon="inline-start" />
-                {generateButtonLabel}
-              </Button>
             </CardTitle>
             <CardDescription>
-              {record
+              {journalSession
+                ? journalSession.title
+                : record
                 ? `${record.date}，生成时间 ${record.generated_at}`
                 : "尚未选择或保存 AI 分析"}
             </CardDescription>
@@ -308,12 +287,25 @@ export function AiAdviceView() {
             </CardAction>
           </CardHeader>
           <CardContent className="grid gap-4">
+            <EmbeddedJournalComposer
+              ref={journalRef}
+              prefillKey={journalKey}
+              session={journalSession}
+              onSessionChange={setJournalSession}
+            />
+            {journalAnswer ? (
+              <div className="max-h-[560px] overflow-auto rounded-lg bg-muted/50 p-3">
+                <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
+                  {journalAnswer}
+                </pre>
+              </div>
+            ) : null}
             {aiCalendarQuery.isLoading ? (
               <div className="grid gap-2">
                 <Skeleton className="h-5 w-1/3" />
                 <Skeleton className="h-72 w-full" />
               </div>
-            ) : record ? (
+            ) : record && !journalSession ? (
               <div className="grid gap-4">
                 <div className="rounded-lg bg-muted/50 p-3">
                   <div className="text-sm text-muted-foreground">交易时段</div>
@@ -332,29 +324,12 @@ export function AiAdviceView() {
               </div>
             ) : (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                生成今日 AI 分析后，这里会保存记录并开启追问。
+                选择“持仓分析”或“标的快研”后，这里会保存分析并开启追问。
               </div>
             )}
             {aiUnavailableReason ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
                 {aiUnavailableReason}
-              </div>
-            ) : null}
-            {generationError ? (
-              <div className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                <div className="flex min-w-0 items-start gap-2">
-                  <AlertCircleIcon />
-                  <span className="min-w-0">{generationError}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => externalMutation.mutate()}
-                  disabled={generationPending || !aiReady}
-                >
-                  <RefreshCcwIcon data-icon="inline-start" />
-                  重试
-                </Button>
               </div>
             ) : null}
           </CardContent>
@@ -368,7 +343,9 @@ export function AiAdviceView() {
               AI 对话
             </CardTitle>
             <CardDescription>
-              {record
+              {journalSession
+                ? "基于当前研究继续追问"
+                : record
                 ? selectedIsToday
                   ? "基于今日分析继续追问"
                   : `${record.date} 的历史对话`
@@ -380,6 +357,7 @@ export function AiAdviceView() {
                 size="sm"
                 onClick={() => clearChatMutation.mutate()}
                 disabled={
+                  Boolean(journalSession) ||
                   !selectedIsToday ||
                   chatMessages.length === 0 ||
                   chatMutation.isPending ||
@@ -398,13 +376,22 @@ export function AiAdviceView() {
               className="flex max-h-[520px] min-h-72 flex-1 flex-col gap-3 overflow-y-auto rounded-lg bg-muted/30 p-3"
               aria-live="polite"
             >
-              {chatMessages.length === 0 && !pendingChatPrompt ? (
+              {chatMessages.length === 0 && journalMessages.length === 0 && !pendingChatPrompt ? (
                 <div className="m-auto max-w-64 text-center text-sm text-muted-foreground">
-                  {record
+                  {journalSession
+                    ? "在下方输入问题，继续这次研究。"
+                    : record
                     ? "在下方输入问题，AI 的回答会显示在这里。"
-                    : "请先生成今日 AI 分析。"}
+                    : "请选择持仓分析或标的快研。"}
                 </div>
               ) : null}
+              {journalMessages.map((message, index) => (
+                <ChatMessageBubble
+                  key={`journal-${index}-${message.role}`}
+                  role={message.role}
+                  content={message.content}
+                />
+              ))}
               {chatMessages.map((message, index) => (
                 <ChatMessageBubble
                   key={`${message.created_at}-${message.role}-${index}`}
@@ -461,7 +448,7 @@ export function AiAdviceView() {
                 </Button>
               </div>
             ) : null}
-            {selectedIsToday ? (
+            {canChat ? (
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="ai-chat-prompt">追问</FieldLabel>
@@ -484,9 +471,7 @@ export function AiAdviceView() {
                 </Field>
                 <Button
                   onClick={submitChat}
-                  disabled={
-                    !aiReady || !chatPrompt.trim() || chatMutation.isPending
-                  }
+                  disabled={!aiReady || !chatPrompt.trim() || chatMutation.isPending || isRecoveringAiResponse}
                 >
                   <SendIcon data-icon="inline-start" />
                   {chatMutation.isPending ? "发送中" : "发送追问"}
@@ -507,7 +492,7 @@ export function AiAdviceView() {
           <Card>
           <CardHeader className="border-b">
             <CardTitle>AI-prompt</CardTitle>
-            <CardDescription>每日总结发送给 AI 的上下文类型</CardDescription>
+            <CardDescription>当前分析和对话发送给 AI 的上下文类型</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-2">
             {record ? (
@@ -518,62 +503,14 @@ export function AiAdviceView() {
               ))
             ) : (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                生成每日总结后，这里会展示发送给 AI 的上下文类型。
+                选择持仓分析或标的快研后，这里会展示发送给 AI 的上下文类型。
               </div>
             )}
           </CardContent>
           </Card>
         </div>
       </div>
-      <AiSendConfirmDialog
-        open={confirmGenerate}
-        isPending={externalMutation.isPending}
-        onOpenChange={setConfirmGenerate}
-        onConfirm={() => {
-          externalMutation.mutate();
-          setConfirmGenerate(false);
-        }}
-      />
     </>
-  );
-}
-
-function AiSendConfirmDialog({
-  open,
-  isPending,
-  onOpenChange,
-  onConfirm,
-}: {
-  open: boolean;
-  isPending: boolean;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>确认发送给 AI</DialogTitle>
-          <DialogDescription>
-            继续后会调用你在数据管理中配置的 OpenAI-compatible 接口。请先确认这些本地上下文可以发送给外部模型。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-2 text-sm">
-          <div className="rounded-lg bg-muted/50 p-3">账户摘要：账户规模、现金、持仓成本和仓位状态。</div>
-          <div className="rounded-lg bg-muted/50 p-3">持仓快照：标的、资产类型、股数、成本与建仓日期。</div>
-          <div className="rounded-lg bg-muted/50 p-3">交易流水：历史买卖记录和备注。</div>
-          <div className="rounded-lg bg-muted/50 p-3">市场观察：报价、均线、RSI、回撤和日内走势。</div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            取消
-          </Button>
-          <Button onClick={onConfirm} disabled={isPending}>
-            确认生成分析
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 
