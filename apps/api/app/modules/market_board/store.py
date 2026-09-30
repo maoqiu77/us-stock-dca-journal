@@ -68,6 +68,7 @@ class BoardStore:
         if len(keys) > (100 if segment is Segment.US else 30):
             raise ValueError("selection too large")
         with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             row = db.execute("select revision from board_selections where segment=?", (segment.value,)).fetchone()
             revision = int(row[0]) if row else 0
             if revision != expected_revision:
@@ -78,7 +79,7 @@ class BoardStore:
                 if raw is None:
                     raise ValueError("unknown instrument")
                 item = Instrument.model_validate_json(raw[0])
-                if item.asset_type not in _SEGMENT_TYPES[segment]:
+                if item.asset_type not in _SEGMENT_TYPES[segment] or item.market.value != ('US' if segment is Segment.US else 'CN'):
                     raise ValueError("instrument does not belong to segment")
                 instruments.append(item)
             new_revision = revision + 1
@@ -108,4 +109,3 @@ class BoardStore:
         with self._connect() as db:
             rows = db.execute("select instrument_key,basis,trade_date,premium,is_final from board_premiums where instrument_key=? and basis=? and trade_date>=? order by trade_date", (key, basis, since)).fetchall()
         return [dict(row) for row in rows]
-

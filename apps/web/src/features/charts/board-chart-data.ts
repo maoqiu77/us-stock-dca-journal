@@ -1,5 +1,5 @@
 import type { ChartResponse } from "@/features/charts/types";
-import type { Series } from "./types";
+import type { Series } from "../market-board/types";
 
 export function toBoardChartData(series: Series): ChartResponse {
   return {

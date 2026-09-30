@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
 
 from app.core.settings import DB_PATH
@@ -18,8 +18,15 @@ _service = BoardService(_store, _catalog)
 
 
 class SelectionUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     keys: list[str] = Field(default_factory=list)
-    expected_revision: int
+    expected_revision: int = Field(ge=0)
+
+
+class QuotesRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    keys: list[str] = Field(max_length=30)
+    refresh: bool = False
 
 
 @router.get("/search")
@@ -74,14 +81,8 @@ def series(key: str, period: str = Query(default="1d"), range_: str = Query(defa
 
 
 @router.post("/quotes")
-def quotes(payload: dict):
-    keys = payload.get("keys", [])
-    if not isinstance(keys, list) or len(keys) > 30:
-        raise HTTPException(status_code=422, detail={"code": "invalid_keys"})
-    rows = []
-    for key in keys:
-        try:
-            rows.append(_service.detail(str(key), bool(payload.get("refresh"))).row.model_dump(mode="json"))
-        except KeyError as exc:
-            raise HTTPException(status_code=422, detail={"code": "unknown_instrument"}) from exc
-    return {"items": rows}
+def quotes(payload: QuotesRequest):
+    try:
+        return {'items':[row.model_dump(mode='json') for row in _service.quotes(payload.keys,payload.refresh)]}
+    except KeyError as exc:
+        raise HTTPException(status_code=422,detail={'code':'unknown_instrument'}) from exc

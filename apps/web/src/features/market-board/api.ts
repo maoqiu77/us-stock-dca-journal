@@ -3,7 +3,7 @@ import type { BoardResponse, DetailResponse, Instrument, Segment, Selection, Ser
 const base = (process.env.NEXT_PUBLIC_API_URL ?? "").replace(/\/$/, "");
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${base}${path}`, init);
-  if (!response.ok) throw new Error(`market-board request failed (${response.status})`);
+  if (!response.ok) throw new Error(response.status === 409 ? "自选已在其他页面修改，请重试（409）" : `看板请求失败（${response.status}），请重试`);
   return (await response.json()) as T;
 }
 export function fetchBoard(segment: Segment, refresh = false, signal?: AbortSignal) { return request<BoardResponse>(`/api/market-board/board/${segment}?refresh=${refresh}`, { signal }); }

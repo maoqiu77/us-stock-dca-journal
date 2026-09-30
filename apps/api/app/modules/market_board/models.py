@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import Any, Optional
+import re
+from typing import Any, Optional, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -43,9 +44,11 @@ class ObservationMeta(BaseModel):
     cache_state: str = "miss"
     reason: Optional[str] = None
 
-    @field_validator("fetched_at")
+    @field_validator("fetched_at", "as_of")
     @classmethod
-    def fetched_not_future(cls, value: datetime) -> datetime:
+    def fetched_not_future(cls, value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
         now = datetime.now(timezone.utc)
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
@@ -80,6 +83,13 @@ class Instrument(BaseModel):
             raise ValueError("fund exchange must be FUND")
         if self.asset_type is AssetType.FUND and self.market is not Market.CN:
             raise ValueError("funds must be CN instruments")
+        if self.exchange=='FUND' and self.asset_type is not AssetType.FUND:
+            raise ValueError('off-exchange identity requires fund share class')
+        pattern=r'[A-Z][A-Z0-9.-]{0,14}' if self.market is Market.US else r'\d{6}'
+        if not re.fullmatch(pattern,self.symbol):
+            raise ValueError('invalid instrument symbol')
+        if self.timezone!=('America/New_York' if self.market is Market.US else 'Asia/Shanghai'):
+            raise ValueError('identity timezone mismatch')
         if self.market is Market.CN and self.exchange not in {"XSHG", "XSHE", "FUND"}:
             raise ValueError("unsupported CN exchange")
         if self.market is Market.US and self.exchange not in {"XNAS", "XNYS", "ARCX", "BATS"}:
@@ -109,7 +119,7 @@ class Quote(BaseModel):
     volume: Optional[Decimal] = None
     volume_unit: Optional[str] = None
     trading_date: Optional[date] = None
-    session: str = "unknown"
+    session: Literal['pre', 'regular', 'post', 'closed', 'unknown'] = "unknown"
     meta: ObservationMeta
 
     @field_validator("price", "previous_close", "change", "change_pct", "volume", mode="before")
@@ -123,6 +133,14 @@ class Quote(BaseModel):
         if value is not None and value < 0:
             raise ValueError("volume cannot be negative")
         return value
+
+    @model_validator(mode='after')
+    def missing_has_no_price(self):
+        if self.meta.status == ObservationStatus.MISSING and self.price is not None:
+            raise ValueError('missing quote cannot contain price')
+        if self.instrument_key.endswith(':FUND') and self.price is not None:
+            raise ValueError('formal NAV is not a quote')
+        return self
 
 
 class Bar(BaseModel):
@@ -182,9 +200,9 @@ class Nav(BaseModel):
 
 class PurchaseLimit(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    state: str
+    state: Literal['limited', 'unlimited', 'suspended', 'unknown']
     amount: Optional[Decimal] = None
-    currency: str = "CNY"
+    currency: Literal['CNY'] = "CNY"
     channel: Optional[str] = None
     meta: ObservationMeta
 
@@ -195,6 +213,26 @@ class PurchaseLimit(BaseModel):
         if self.state == "limited" and (self.amount is None or self.amount <= 0):
             raise ValueError("limited purchase state needs positive amount")
         return self
+
+
+class ReferenceValue(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    value: Optional[Decimal] = None
+    reference_date: Optional[date] = None
+    meta: ObservationMeta
+
+
+class TradingDates(BaseModel):
+    dates: list[str] = Field(default_factory=list)
+    meta: ObservationMeta
+
+
+class SharesObservation(BaseModel):
+    shares: Optional[Decimal] = None
+    shares_date: Optional[date] = None
+    shares_change: Optional[Decimal] = None
+    previous_shares_date: Optional[date] = None
+    meta: ObservationMeta
 
 
 class EtfMetrics(BaseModel):
@@ -209,6 +247,11 @@ class EtfMetrics(BaseModel):
     shares_date: Optional[date] = None
     shares_change: Optional[Decimal] = None
     previous_shares_date: Optional[date] = None
+    nav: Optional[Nav] = None
+    iopv: Optional[ReferenceValue] = None
+    vendor_reference: Optional[ReferenceValue] = None
+    basis_id: Optional[str] = None
+    shares_meta: Optional[ObservationMeta] = None
     meta: ObservationMeta
 
 
@@ -219,6 +262,7 @@ class FundHoldings(BaseModel):
     allocation: Optional[dict[str, Any]] = None
     stocks: list[dict[str, Any]] = Field(default_factory=list)
     meta: ObservationMeta
+    allocation_meta: Optional[ObservationMeta] = None
 
 
 class BoardRow(BaseModel):

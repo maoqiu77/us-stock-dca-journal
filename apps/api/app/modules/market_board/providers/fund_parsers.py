@@ -4,6 +4,9 @@ import re
 import json
 from datetime import date, datetime, timezone, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo
+from html import unescape
+from html.parser import HTMLParser
 
 
 def parse_amount(value: str | None) -> str | None:
@@ -15,7 +18,7 @@ def parse_amount(value: str | None) -> str | None:
     amount = Decimal(match.group(1).replace(",", ""))
     if "万" in value:
         amount *= 10000
-    return format(amount, "f").rstrip("0").rstrip(".") or "0"
+    return format(amount.normalize(), "f")
 
 
 def parse_nav_rows(rows: list[dict]) -> dict | None:
@@ -47,9 +50,11 @@ def parse_nav_trend(text: str, now: datetime) -> dict | None:
             continue
         if row["x"] > cutoff or not isinstance(row.get("y"), (int, float)):
             continue
-        observed = datetime.fromtimestamp(row["x"] / 1000, timezone.utc).date()
+        if row['y'] <= 0:
+            continue
+        observed = datetime.fromtimestamp(row["x"] / 1000, ZoneInfo('Asia/Shanghai')).date()
         parsed.append({"date": observed.isoformat(), "nav": str(row["y"]), "change_pct": str(row["equityReturn"]) if isinstance(row.get("equityReturn"), (int, float)) else None})
-    return parsed[-1] if parsed else None
+    return max(parsed, key=lambda row: row['date']) if parsed else None
 
 
 def parse_asset_allocation(text: str, now: datetime) -> dict | None:
@@ -64,35 +69,68 @@ def parse_asset_allocation(text: str, now: datetime) -> dict | None:
     return {"report_date": report_date, "stocks_pct": str(values["股票占净比"]) if isinstance(values.get("股票占净比"), (int, float)) else None, "bonds_pct": str(values["债券占净比"]) if isinstance(values.get("债券占净比"), (int, float)) else None, "cash_pct": str(values["现金占净比"]) if isinstance(values.get("现金占净比"), (int, float)) else None}
 
 
-def parse_holdings(text: str, now: datetime, instrument_key: str):
-    report = None
-    stocks = []
-    for block in re.finditer(r"<div[^>]+class=[\"']boxitem[\"'][^>]*>(.*?)</div>\s*</div>", text, re.S | re.I):
-        date_match = re.search(r"(20\d{2}-\d{2}-\d{2})", block.group(1))
-        if not date_match or date_match.group(1) > now.date().isoformat():
-            continue
-        rows = re.findall(r"<tr[^>]*>\s*(.*?)\s*</tr>", block.group(1), re.S | re.I)
-        parsed = []
-        for row in rows:
-            cells = [re.sub(r"<[^>]+>", "", cell).strip() for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S | re.I)]
-            if len(cells) < 4 or not cells[0].isdigit():
-                continue
-            weight = re.search(r"(\d+(?:\.\d+)?)\s*%", " ".join(cells))
-            if weight:
-                parsed.append({"rank": int(cells[0]), "symbol": cells[1], "name": cells[2], "weight_pct": weight.group(1)})
-        if parsed:
-            report, stocks = date_match.group(1), parsed[:10]
-            break
-    return {"instrument_key": instrument_key, "report_date": report, "allocation": parse_asset_allocation(text, now), "stocks": stocks}
+class HoldingsHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.depth=0;self.section=None;self.sections=[];self.cell=None;self.row=[];self.header=False;self.in_heading=False
+    def handle_starttag(self,tag,attrs):
+        if tag=='div':
+            self.depth+=1
+            if 'boxitem' in dict(attrs).get('class','').split():
+                self.section={'depth':self.depth,'heading':[],'rows':[]}
+        if self.section is None:return
+        if tag=='h4':self.in_heading=True
+        if tag=='tr':self.row=[];self.header=False
+        if tag in ('td','th'):
+            self.cell=[];self.header=self.header or tag=='th'
+    def handle_data(self,data):
+        if self.section is not None and self.in_heading:self.section['heading'].append(data)
+        if self.cell is not None:self.cell.append(data)
+    def handle_endtag(self,tag):
+        if tag in ('td','th') and self.cell is not None:
+            self.row.append(''.join(self.cell).strip());self.cell=None
+        if tag=='tr' and self.section is not None and self.row:
+            self.section['rows'].append((self.header,self.row));self.row=[]
+        if tag=='h4':self.in_heading=False
+        if tag=='div':
+            if self.section is not None and self.section['depth']==self.depth:
+                self.sections.append(self.section);self.section=None
+            self.depth-=1
+
+
+def parse_holdings(text,now,instrument_key):
+    parser=HoldingsHTMLParser();parser.feed(text)
+    candidates=[]
+    for section in parser.sections:
+        match=re.search(r'20\d{2}-\d{2}-\d{2}',''.join(section['heading']))
+        if not match:continue
+        try:report=date.fromisoformat(match.group())
+        except ValueError:continue
+        if report>now.astimezone(ZoneInfo('Asia/Shanghai')).date():continue
+        headers=[];stocks=[];ranks=set()
+        for is_header,cells in section['rows']:
+            if is_header:headers=cells;continue
+            def column(label):
+                index=next((i for i,h in enumerate(headers) if label in h),None)
+                return cells[index] if index is not None and index<len(cells) else ''
+            rank=column('序号');symbol=column('代码');name=column('名称');weight=column('占净值')
+            if not rank.isdigit() or not 1<=int(rank)<=10 or int(rank) in ranks or not re.fullmatch(r'[A-Za-z0-9.-]{1,24}',symbol) or not name or not re.fullmatch(r'\d+(?:\.\d+)?%',weight):continue
+            amount=Decimal(weight[:-1])
+            if amount>100:continue
+            ranks.add(int(rank));stocks.append(dict(rank=int(rank),symbol=symbol.upper(),name=name,weight_pct=str(amount)))
+        if stocks:candidates.append((report.isoformat(),sorted(stocks,key=lambda s:s['rank'])))
+    report,stocks=max(candidates,key=lambda pair:pair[0]) if candidates else (None,[])
+    return dict(instrument_key=instrument_key,report_date=report,allocation=parse_asset_allocation(text,now),stocks=stocks)
 
 
 def parse_purchase_state(text: str | None) -> tuple[str, str | None]:
     value = (text or "").strip()
-    if "暂停" in value:
+    if re.search(r'暂停(?:申购|购买)', value):
         return "suspended", None
-    amount = parse_amount(value)
-    if amount is not None:
-        return "limited", amount
-    if "不限" in value or "开放" in value:
+    if "不限额" in value or '无限额' in value:
         return "unlimited", None
+    match = re.search(r'(?:单日累计购买上限|单日限额|限额|购买上限)[^\d]{0,15}([\d,.]+\s*(?:万元|万|元))', value)
+    amount = parse_amount(match.group(1)) if match else None
+    if amount is not None and Decimal(amount) > 0:
+        return 'limited', amount
     return "unknown", None

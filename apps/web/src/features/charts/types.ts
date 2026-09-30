@@ -66,7 +66,7 @@ export type ChartBar = {
   high: number;
   low: number;
   close: number;
-  volume: number;
+  volume: number | null;
 };
 
 export type ChartResponse = {

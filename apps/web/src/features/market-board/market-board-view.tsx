@@ -1,48 +1,73 @@
 "use client";
-
 import * as React from "react";
-import { RefreshCw, Search, X } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fetchBoard, fetchDetail, fetchSelection, fetchSeries, saveSelection, searchInstruments } from "./api";
-import { formatAmount, formatPercent, qualityLabel } from "./format";
-import type { BoardResponse, BoardRow, DetailResponse, Instrument, Segment, Series } from "./types";
-import { BoardChart } from "./board-chart";
+import {RefreshCw, Search, Settings2, ArrowUp, ArrowDown, ChevronsUp, X} from "lucide-react";
+import {Button} from "@/components/ui/button";
+import {Card,CardContent} from "@/components/ui/card";
+import {Input} from "@/components/ui/input";
+import {Tabs,TabsList,TabsTrigger} from "@/components/ui/tabs";
+import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from "@/components/ui/dialog";
+import {fetchBoard,saveSelection,searchInstruments} from "./api";
+import {useResource} from "./use-resource";
+import {matchesSegment,moveSelection,selectionNeedsReload,sortRows} from "./state";
+import {formatFetchedAt,formatPercent,metaSummary} from "./format";
+import type {Instrument,Segment} from "./types";
+import {BoardRows} from "./board-rows";
+import {InstrumentDetail} from "./instrument-detail";
 
-export function MarketBoardView({ marketRefreshKey = 0 }: { marketRefreshKey?: number }) {
-  const [segment, setSegment] = React.useState<Segment>("us");
-  const [board, setBoard] = React.useState<BoardResponse | null>(null);
-  const [query, setQuery] = React.useState("");
-  const [results, setResults] = React.useState<Instrument[]>([]);
-  const [detail, setDetail] = React.useState<DetailResponse | null>(null);
-  const [error, setError] = React.useState<string | null>(null);
-  const requestGeneration = React.useRef(0);
-  const load = React.useCallback(async (next = segment, signal?: AbortSignal) => { const generation = ++requestGeneration.current; try { setError(null); const response = await fetchBoard(next, false, signal); if (generation === requestGeneration.current) setBoard(response); } catch (err) { if (err instanceof DOMException && err.name === "AbortError") return; if (generation === requestGeneration.current) setError(err instanceof Error ? err.message : "看板加载失败"); } }, [segment]);
-  React.useEffect(() => { const controller = new AbortController(); const timer = window.setTimeout(() => { void load(segment, controller.signal); }, 0); return () => { window.clearTimeout(timer); controller.abort(); }; }, [segment, marketRefreshKey, load]);
-  React.useEffect(() => { const controller = new AbortController(); const timer = window.setTimeout(() => { if (!query.trim()) { setResults([]); return; } void searchInstruments(query, segment === "us" ? "US" : "CN", segment === "us" ? undefined : segment === "etf" ? "ETF" : "FUND", controller.signal).then((data) => setResults(data.items)).catch(() => undefined); }, query.trim() ? 300 : 0); return () => { window.clearTimeout(timer); controller.abort(); }; }, [query, segment]);
-  const add = async (item: Instrument) => { if (!board) return; const selection = await fetchSelection(segment); if (selection.items.some((row) => row.key === item.key)) return; await saveSelection(segment, [...selection.items.map((row) => row.key), item.key], selection.revision); await load(); setQuery(""); };
-  const remove = async (key: string) => { if (!board) return; const selection = await fetchSelection(segment); await saveSelection(segment, selection.items.filter((row) => row.key !== key).map((row) => row.key), selection.revision); await load(); };
-  return <div className="flex flex-col gap-4">
-    <div className="flex flex-wrap items-center justify-between gap-3"><div><h1 className="text-2xl font-semibold">多市场看板</h1><p className="text-sm text-muted-foreground">独立自选，区分交易价、净值与数据时效</p></div><Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw className="mr-2 size-4" />刷新</Button></div>
-    <Card><CardContent className="flex flex-wrap items-center gap-2 pt-6"><Search className="size-4 text-muted-foreground" /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称或代码" className="max-w-sm" />{results.map((item) => <Button key={item.key} size="sm" variant="secondary" onClick={() => void add(item)}>{item.symbol} · {item.name}</Button>)}</CardContent></Card>
-    {error ? <Card><CardContent className="pt-6 text-sm text-destructive">{error}</CardContent></Card> : null}
-    <Tabs value={segment} onValueChange={(value) => { setDetail(null); setSegment(value as Segment); }}><TabsList><TabsTrigger value="us">美股</TabsTrigger><TabsTrigger value="etf">场内 ETF</TabsTrigger><TabsTrigger value="fund">场外基金</TabsTrigger></TabsList>
-      <TabsContent value={segment} className="mt-4"><Card><CardHeader><CardTitle>{board?.segment === segment ? board.warnings?.[0] ?? "关注列表" : "加载中"}</CardTitle></CardHeader><CardContent>{board?.segment === segment && board.rows.length ? <BoardTable segment={segment} rows={board.rows} onOpen={(key) => void fetchDetail(key).then(setDetail)} onRemove={(key) => void remove(key)} /> : <div className="py-12 text-center text-sm text-muted-foreground">{board?.segment === segment ? "暂无关注标的" : "正在加载当前板块"}</div>}</CardContent></Card></TabsContent>
-    </Tabs>
-    {detail ? <DetailPanel detail={detail} onClose={() => setDetail(null)} /> : null}
-  </div>;
+const labels={us:"美股",etf:"场内 ETF",fund:"场外基金"};
+export function MarketBoardView({marketRefreshKey=0}:{marketRefreshKey?:number}) {
+ const [segment,setSegment]=React.useState<Segment>("us");
+ return <div className="flex min-w-0 flex-col gap-4" data-testid="market-board">
+  <div><h1 className="text-2xl font-semibold">多市场看板</h1><p className="mt-1 text-sm text-muted-foreground">自选独立保存；移除与清空不修改持仓、交易记录或策略股票池。</p></div>
+  <Tabs value={segment} onValueChange={value=>setSegment(value as Segment)}><TabsList className="grid w-full grid-cols-3 sm:w-fit"><TabsTrigger value="us">美股</TabsTrigger><TabsTrigger value="etf">场内 ETF</TabsTrigger><TabsTrigger value="fund">场外基金</TabsTrigger></TabsList></Tabs>
+  <SegmentBoard key={segment} segment={segment} marketRefreshKey={marketRefreshKey}/>
+ </div>;
 }
-
-function BoardTable({ segment, rows, onOpen, onRemove }: { segment: Segment; rows: BoardRow[]; onOpen: (key: string) => void; onRemove: (key: string) => void }) { return <Table><TableHeader><TableRow><TableHead>标的</TableHead><TableHead>{segment === "fund" ? "净值" : "最新价"}</TableHead><TableHead>{segment === "fund" ? "净值涨幅" : "涨跌幅"}</TableHead><TableHead>状态</TableHead><TableHead className="w-24" /></TableRow></TableHeader><TableBody>{rows.map((row) => <TableRow key={row.instrument.key}><TableCell><button className="text-left font-medium hover:underline" onClick={() => onOpen(row.instrument.key)}>{row.instrument.name}<span className="ml-2 text-xs text-muted-foreground">{row.instrument.symbol}</span></button></TableCell><TableCell>{formatAmount(segment === "fund" ? row.nav?.value : row.quote?.price, row.instrument.currency)}</TableCell><TableCell>{formatPercent(segment === "fund" ? row.nav?.change_pct : row.quote?.change_pct)}</TableCell><TableCell><Badge variant={row.quality === "sample" ? "secondary" : "outline"}>{qualityLabel(row)}</Badge></TableCell><TableCell><Button variant="ghost" size="icon" aria-label="移除" onClick={() => onRemove(row.instrument.key)}><X className="size-4" /></Button></TableCell></TableRow>)}</TableBody></Table>; }
-
-function DetailPanel({ detail, onClose }: { detail: DetailResponse; onClose: () => void }) {
-  const row = detail.row;
-  const [series, setSeries] = React.useState<Series | null>(null);
-  const [range, setRange] = React.useState<"1mo" | "3mo" | "1y">("1y");
-  React.useEffect(() => { if (row.instrument.market !== "US") return; const controller = new AbortController(); void fetchSeries(row.instrument.key, "1d", range, controller.signal).then(setSeries).catch(() => undefined); return () => controller.abort(); }, [row.instrument.key, row.instrument.market, range]);
-  return <div className="grid gap-4"><Card><CardHeader className="flex-row items-center justify-between"><CardTitle>{row.instrument.name} ({row.instrument.symbol})</CardTitle><Button variant="ghost" size="icon" onClick={onClose}><X className="size-4" /></Button></CardHeader><CardContent className="grid gap-2 text-sm sm:grid-cols-2"><div>市场：{row.instrument.market}</div><div>币种：{row.instrument.currency}</div><div>来源：{row.quote?.meta.source ?? row.nav?.meta.source ?? "--"}</div><div>观察时间：{row.quote?.meta.as_of ?? row.nav?.nav_date ?? "--"}</div><div>数据状态：{qualityLabel(row)}</div><div>{row.instrument.asset_type === "FUND" ? "正式净值不等同于盘中成交价" : "价格为独立交易报价"}</div>{row.purchase_limit ? <div>申购状态：{row.purchase_limit.state}</div> : null}</CardContent></Card>{detail.holdings ? <Card><CardHeader><CardTitle>披露持仓与资产配置</CardTitle></CardHeader><CardContent className="text-sm">报告期：{String((detail.holdings as { report_date?: string }).report_date ?? "--")} · 数据状态：{qualityLabel(row)}</CardContent></Card> : null}{row.instrument.market === "US" ? <div className="flex gap-2"><span className="self-center text-sm text-muted-foreground">范围</span>{(["1mo", "3mo", "1y"] as const).map((option) => <Button key={option} size="sm" variant={range === option ? "default" : "outline"} onClick={() => setRange(option)}>{option}</Button>)}</div> : null}{series ? <BoardChart series={series} /> : null}</div>;
+function SegmentBoard({segment,marketRefreshKey}:{segment:Segment;marketRefreshKey:number}) {
+ const [refresh,setRefresh]=React.useState(0),[revision,setRevision]=React.useState(0);
+ const [query,setQuery]=React.useState(""),[managing,setManaging]=React.useState(false),[confirmClear,setConfirmClear]=React.useState(false);
+ const [detailKey,setDetailKey]=React.useState<string|null>(null);
+ const [saving,setSaving]=React.useState(false),[mutationError,setMutationError]=React.useState<string|null>(null);
+ const [selectionKeys,setSelectionKeys]=React.useState<string[]|null>(null),draggedKey=React.useRef<string|null>(null),selectionRevision=React.useRef<number|null>(null);
+ const savingRef=React.useRef(false);
+ const [sort,setSort]=React.useState({field:"",ascending:true});
+ const boardLoader=React.useCallback((signal:AbortSignal)=>fetchBoard(segment,refresh>0,signal),[segment,refresh]);
+ const board=useResource(segment+":"+marketRefreshKey+":"+refresh+":"+revision,boardLoader);
+ const trimmed=query.trim();
+ const searchLoader=React.useCallback((signal:AbortSignal)=>trimmed ? searchInstruments(trimmed,segment==="us"?"US":"CN",segment==="us"?undefined:segment==="etf"?"ETF":"FUND",signal) : Promise.resolve({items:[]}),[trimmed,segment]);
+ const search=useResource(segment+":"+trimmed,searchLoader,trimmed?300:0);
+ const data=board.data;
+ React.useEffect(()=>{if(data&&!savingRef.current&&(selectionRevision.current===null||data.revision>=selectionRevision.current)){setSelectionKeys(null);selectionRevision.current=data.revision;}},[data]);
+ const keys=selectionKeys??data?.rows.map(row=>row.instrument.key)??[];
+ const update=async(next:string[])=>{
+  if(!data || savingRef.current)return;
+  const previous=keys;
+  setSelectionKeys(next);
+  savingRef.current=true;setSaving(true);setMutationError(null);
+  const expectedRevision=selectionRevision.current??data.revision;
+  try {const saved=await saveSelection(segment,next,expectedRevision);selectionRevision.current=saved.revision;setQuery("");if(selectionNeedsReload(next,data.rows))setRevision(v=>v+1);}
+  catch(error){setSelectionKeys(previous);selectionRevision.current=null;setMutationError(error instanceof Error?error.message:"保存失败");setRevision(v=>v+1);}
+  finally{savingRef.current=false;setSaving(false);}
+ };
+ const add=(item:Instrument)=>{if(matchesSegment(item,segment)&&!keys.includes(item.key))void update([...keys,item.key]);};
+ const ordered=data ? keys.map(key=>data.rows.find(row=>row.instrument.key===key)).filter((row):row is NonNullable<typeof row>=>Boolean(row)) : [];
+ const sorted=data ? managing||!sort.field ? ordered : sortRows(ordered,sort.field,sort.ascending) : [];
+ const sortBy=(field:string)=>setSort(current=>({field,ascending:current.field===field?!current.ascending:true}));
+ const dropRow=(targetKey:string)=>{const sourceKey=draggedKey.current;draggedKey.current=null;if(!sourceKey||sourceKey===targetKey)return;const targetIndex=keys.indexOf(targetKey);if(targetIndex>=0)void update(moveSelection(keys,sourceKey,targetIndex));};
+ return <>
+  <Card className="min-w-0"><CardContent className="flex min-w-0 flex-col gap-4 pt-5">
+   <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">{labels[segment]} <span className="text-xs font-normal text-muted-foreground">{data?keys.length:"--"} 个自选</span></h2><div className="flex gap-2"><Button variant="outline" size="sm" disabled={board.loading||saving} onClick={()=>{selectionRevision.current=null;setRefresh(v=>v+1);}}><RefreshCw className={board.loading?"animate-spin":""}/>刷新</Button><Button variant={managing?"secondary":"outline"} size="sm" onClick={()=>setManaging(v=>!v)}><Settings2/>{managing?"完成管理":"管理"}</Button></div></div>
+   <div className="relative"><Search className="absolute left-3 top-2.5 size-4 text-muted-foreground"/><Input aria-label="搜索名称或代码" placeholder={segment==="fund"?"搜索人民币基金名称或代码（保留 A/C 份额）":"搜索名称或代码"} value={query} maxLength={80} onChange={event=>setQuery(event.target.value)} className="w-full pl-9"/></div>
+   {trimmed?<div className="grid gap-1 rounded-md border p-2" aria-live="polite">{search.loading?<p className="p-2 text-sm">搜索中…</p>:search.error?<p role="alert" className="text-destructive">{search.error}</p>:search.data?.items.filter(item=>matchesSegment(item,segment)).length ? search.data.items.filter(item=>matchesSegment(item,segment)).map(item=><Button className="h-auto justify-start whitespace-normal py-2 text-left" key={item.key} variant="ghost" disabled={saving||!data||keys.includes(item.key)} onClick={()=>add(item)}>{item.symbol} · {item.name} {keys.includes(item.key)?"已自选":"＋添加"}</Button>):<p className="p-2 text-sm text-muted-foreground">当前板块无匹配结果；场外仅收录已核实人民币份额。</p>}</div>:null}
+   {mutationError||board.error?<p role="alert" className="text-sm text-destructive">{mutationError??board.error}</p>:null}
+   {data?.warnings.map(warning=><p key={warning} className="rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground">{warning}</p>)}
+   {segment==="fund"?<p className="text-xs leading-5 text-muted-foreground">正式净值不是盘中价格；限额仅代表天天基金渠道。</p>:segment==="etf"?<p className="text-xs leading-5 text-muted-foreground">参考溢价不是实时溢价；缺同步 NAV / IOPV 时显示“不可计算”。</p>:null}
+   {data?<p className="break-words text-xs leading-5 text-muted-foreground">更新于 {formatFetchedAt(data.fetched_at)} · {segment==="fund"?"净值日期":"行情日期"}：{[...new Set(data.rows.map(row=>segment==="fund"?row.nav?.nav_date:row.quote?.trading_date).filter(Boolean))].sort().join(" / ")||"未知"}</p>:null}
+   {managing?<div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2"><span className="text-xs leading-5 text-muted-foreground">拖拽行或使用箭头调整自选顺序。</span><Button size="sm" variant="destructive" disabled={!keys.length||saving} onClick={()=>setConfirmClear(true)}>清空当前自选</Button></div>:null}
+   {board.loading?<p role="status" className="py-10 text-center text-sm text-muted-foreground">正在加载{labels[segment]}…</p>:data&&!data.rows.length?<p role="status" className="py-10 text-center text-sm text-muted-foreground">暂无自选，搜索名称或代码添加。清空后不会自动恢复默认列表。</p>:data?<BoardRows segment={segment} rows={sorted} sort={sort} onSort={sortBy} onOpen={setDetailKey} managing={managing} onDragStart={key=>{draggedKey.current=key;}} onDropRow={dropRow} actions={row=>{const index=keys.indexOf(row.instrument.key);return <div className="flex flex-wrap justify-end gap-1"><Button variant="ghost" size="icon-sm" aria-label={"置顶 "+row.instrument.symbol} disabled={saving||index===0} onClick={()=>void update(moveSelection(keys,row.instrument.key,0))}><ChevronsUp/></Button><Button variant="ghost" size="icon-sm" aria-label={"上移 "+row.instrument.symbol} disabled={saving||index===0} onClick={()=>void update(moveSelection(keys,row.instrument.key,index-1))}><ArrowUp/></Button><Button variant="ghost" size="icon-sm" aria-label={"下移 "+row.instrument.symbol} disabled={saving||index===keys.length-1} onClick={()=>void update(moveSelection(keys,row.instrument.key,index+1))}><ArrowDown/></Button><Button variant="ghost" size="icon-sm" aria-label={"移除 "+row.instrument.symbol} disabled={saving} onClick={()=>void update(keys.filter(key=>key!==row.instrument.key))}><X/></Button></div>;}}/>:null}
+  </CardContent></Card>
+  {data?.benchmarks.length?<div className="grid min-w-0 gap-2 sm:grid-cols-3">{data.benchmarks.map(item=><Card key={item.symbol}><CardContent className="grid gap-1 pt-4 text-xs"><span className="font-medium">{item.name} · {item.kind==="future"?"期货":"指数"}</span><span>{item.quote.price??"--"} · {formatPercent(item.quote.change_pct)}</span><span className="break-all text-muted-foreground">{metaSummary(item.quote.meta)}</span></CardContent></Card>)}</div>:null}
+  <Dialog open={confirmClear} onOpenChange={setConfirmClear}><DialogContent><DialogHeader><DialogTitle>清空{labels[segment]}自选？</DialogTitle><DialogDescription>仅移除当前板块关注关系，不删除持仓、交易、策略或行情历史。</DialogDescription></DialogHeader><div className="flex justify-end gap-2"><Button variant="outline" onClick={()=>setConfirmClear(false)}>取消</Button><Button variant="destructive" disabled={saving} onClick={()=>{setConfirmClear(false);void update([]);}}>确认清空</Button></div></DialogContent></Dialog>
+  {detailKey?<InstrumentDetail key={detailKey} instrumentKey={detailKey} onClose={()=>setDetailKey(null)}/>:null}
+ </>;
 }
