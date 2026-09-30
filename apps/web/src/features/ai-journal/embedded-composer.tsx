@@ -20,6 +20,7 @@ import type { ObservationMeta } from "../market-board/types";
 import {
   confirmJournal,
   deleteJournalNote,
+  errors,
   fetchCapabilities,
   fetchContextOptions,
   fetchJournalNote,
@@ -66,7 +67,6 @@ export const EmbeddedJournalComposer = React.forwardRef<
   const [preview, setPreview] = React.useState<JournalPreview | null>(null);
   const [query, setQuery] = React.useState("");
   const [market, setMarket] = React.useState<"US" | "CN">("US");
-  const [asset, setAsset] = React.useState("");
   const [note, setNote] = React.useState("");
   const [noteId, setNoteId] = React.useState<string>();
   const [deleteId, setDeleteId] = React.useState<string | null>(null);
@@ -86,13 +86,13 @@ export const EmbeddedJournalComposer = React.forwardRef<
     enabled: Boolean(draft.instrument_key),
   });
   const search = useResource(
-    query + market + asset,
+    query + market,
     React.useCallback(
       (signal: AbortSignal) =>
         query.trim()
-          ? searchInstruments(query, market, asset || undefined, signal)
+          ? searchInstruments(query, market, undefined, signal)
           : Promise.resolve({ items: [] }),
-      [query, market, asset]
+      [query, market]
     ),
     300
   );
@@ -168,6 +168,11 @@ export const EmbeddedJournalComposer = React.forwardRef<
       const value = await confirmJournal(preview, idempotency.current);
       window.sessionStorage.setItem("ai-journal-session", value.id);
       onSessionChange(value);
+      const failed = value.turns.find((turn) => turn.snapshot_id === preview.id && turn.status === "failed");
+      if (failed) {
+        setError(errors[failed.error_code] ?? "分析失败，请重试。");
+        return;
+      }
       setPreview(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "请求失败，请重试");
@@ -191,6 +196,11 @@ export const EmbeddedJournalComposer = React.forwardRef<
         const value = await confirmJournal(nextPreview, crypto.randomUUID());
         window.sessionStorage.setItem("ai-journal-session", value.id);
         onSessionChange(value);
+        const failed = value.turns.find((turn) => turn.snapshot_id === nextPreview.id && turn.status === "failed");
+        if (failed) {
+          setError(errors[failed.error_code] ?? "分析失败，请重试。");
+          return false;
+        }
         setPreview(null);
         return true;
       } catch (reason) {
@@ -208,8 +218,6 @@ export const EmbeddedJournalComposer = React.forwardRef<
   const pick = (
     field:
       | "position_tickers"
-      | "plan_tickers"
-      | "trade_ids"
       | "note_ids"
       | "history_turn_ids",
     id: string
@@ -254,7 +262,7 @@ export const EmbeddedJournalComposer = React.forwardRef<
 
   return (
     <div className="grid min-w-0 gap-3" data-testid="embedded-ai-journal">
-      <div className="grid gap-2 sm:max-w-xs">
+      <div className="grid grid-cols-2 gap-2 sm:max-w-md">
         <Button
           variant={mode === "portfolio_review" ? "secondary" : "outline"}
           onClick={() => chooseMode("portfolio_review")}
@@ -272,7 +280,7 @@ export const EmbeddedJournalComposer = React.forwardRef<
         <div className="grid gap-3 rounded-lg border p-3">
           {mode === "instrument_research" ? (
             <>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:max-w-xs">
                 {(["US", "CN"] as const).map((value) => (
                   <Button
                     key={value}
@@ -283,18 +291,6 @@ export const EmbeddedJournalComposer = React.forwardRef<
                     {value === "US" ? "美股" : "国内"}
                   </Button>
                 ))}
-                {["", "STOCK", "ETF", "FUND"]
-                  .filter((value) => market === "CN" || value !== "FUND")
-                  .map((value) => (
-                    <Button
-                      key={value}
-                      size="sm"
-                      variant={asset === value ? "secondary" : "ghost"}
-                      onClick={() => setAsset(value)}
-                    >
-                      {({ "": "全部", STOCK: "股票", ETF: "ETF", FUND: "场外基金" } as Record<string, string>)[value]}
-                    </Button>
-                  ))}
               </div>
               <Input
                 aria-label="快研搜索标的"
@@ -321,32 +317,10 @@ export const EmbeddedJournalComposer = React.forwardRef<
                   ? `${capabilities.data.instrument.name} · ${capabilities.data.instrument.symbol} · ${capabilities.data.instrument.exchange} · ${capabilities.data.instrument.currency}`
                   : draft.instrument_key ?? "尚未选择标的"}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant={!draft.primary_period ? "secondary" : "outline"}
-                  onClick={() => update({ primary_period: null, auxiliary_periods: [] })}
-                >
-                  报价/披露
-                </Button>
-                {capabilities.data?.periods.map((period) => (
-                  <Button
-                    key={period}
-                    size="sm"
-                    variant={draft.primary_period === period ? "secondary" : "outline"}
-                    onClick={() => update({ primary_period: period })}
-                  >
-                    {period === "1d" ? "日线" : period}
-                  </Button>
-                ))}
-              </div>
-              <p className="text-xs text-muted-foreground">
-                {capabilities.data?.period_reason ?? "周期由服务端能力矩阵决定"}
-              </p>
             </>
           ) : (
             <div className="grid gap-2 text-sm text-muted-foreground">
-              <p>选择要纳入本轮的持仓、计划和私有上下文，再生成事实预览。</p>
+              <p>选择要纳入本轮的持仓和私有上下文，再生成事实预览。</p>
               <Choices
                 title="实际持仓"
                 items={(options.data?.positions ?? []).map((item) => ({
@@ -355,21 +329,6 @@ export const EmbeddedJournalComposer = React.forwardRef<
                 }))}
                 selected={draft.position_tickers}
                 onChange={(id) => pick("position_tickers", id)}
-              />
-              <Choices
-                title="投资计划"
-                items={(options.data?.plans ?? []).map((item) => ({
-                  id: item.ticker,
-                  label: `${item.ticker} · 目标权重 ${item.targetWeight}`,
-                }))}
-                selected={draft.plan_tickers}
-                onChange={(id) => pick("plan_tickers", id)}
-              />
-              <Choices
-                title="交易原因"
-                items={options.data?.trades ?? []}
-                selected={draft.trade_ids}
-                onChange={(id) => pick("trade_ids", id)}
               />
               <Choices
                 title="个人手记"
@@ -419,7 +378,7 @@ export const EmbeddedJournalComposer = React.forwardRef<
         </div>
       ) : null}
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-        <span>未选择的手记、历史回答和交易原因不会发送。</span>
+        <span>未选择的手记和历史回答不会发送。</span>
         {session ? <span>当前会话：{session.title}</span> : null}
       </div>
       <div className="grid gap-2 rounded-lg border p-3">

@@ -69,9 +69,12 @@ test("AI analysis embeds portfolio and instrument research with preview confirma
   assert.match(source, /标的快研/);
   assert.match(source, /生成事实预览/);
   assert.match(source, /确认范围并分析/);
-  assert.match(source, /未选择的手记、历史回答和交易原因不会发送/);
+  assert.match(source, /未选择的手记和历史回答不会发送/);
   assert.match(source, /实际持仓/);
   assert.match(source, /投资手记/);
+  assert.doesNotMatch(source, /投资计划/);
+  assert.doesNotMatch(source, /交易原因/);
+  assert.doesNotMatch(source, /报价\/披露/);
 });
 
 test("AI advice follow-ups use an inline conversation without a confirmation dialog", () => {

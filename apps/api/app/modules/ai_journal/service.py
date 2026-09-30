@@ -100,7 +100,8 @@ class JournalService:
                 self.store.finish(turn_id, error='ai_not_configured')
             else:
                 try:
-                    result = self.completion(**snapshot['model'], base_url=settings['baseUrl'], api_key=settings['apiKey'], messages=messages(snapshot), timeout=120, max_output_tokens=3000)
+                    # Reasoning models share this budget between reasoning and the visible answer.
+                    result = self.completion(**snapshot['model'], base_url=settings['baseUrl'], api_key=settings['apiKey'], messages=messages(snapshot), timeout=120, max_output_tokens=8192)
                     answer = str(result.get('content') or '').strip()
                     if not answer:
                         raise ValueError('empty response')
