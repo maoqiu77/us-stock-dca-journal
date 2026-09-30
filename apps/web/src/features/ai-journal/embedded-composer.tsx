@@ -4,6 +4,14 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { searchInstruments } from "../market-board/api";
@@ -61,6 +69,7 @@ export const EmbeddedJournalComposer = React.forwardRef<
   const [asset, setAsset] = React.useState("");
   const [note, setNote] = React.useState("");
   const [noteId, setNoteId] = React.useState<string>();
+  const [deleteId, setDeleteId] = React.useState<string | null>(null);
   const [error, setError] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [clock, setClock] = React.useState(() => Date.now());
@@ -431,11 +440,23 @@ export const EmbeddedJournalComposer = React.forwardRef<
           {(options.data?.notes ?? []).slice(0, 3).map((item) => (
             <span className="inline-flex items-center gap-1" key={item.id}>
               <Button size="sm" variant="ghost" onClick={() => void editNote(item.id)}>{item.label}</Button>
-              <Button size="sm" variant="ghost" onClick={() => void deleteNote(item.id)}>删除</Button>
+              <Button size="sm" variant="ghost" onClick={() => setDeleteId(item.id)}>删除</Button>
             </span>
           ))}
         </div>
       </div>
+      <Dialog open={Boolean(deleteId)} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除这条手记？</DialogTitle>
+            <DialogDescription>已确认的 AI 快照仍会保留引用副本，并标记原手记已删除。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>取消</Button>
+            <Button variant="destructive" onClick={() => { if (deleteId) void deleteNote(deleteId); setDeleteId(null); }}>确认删除</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 });
