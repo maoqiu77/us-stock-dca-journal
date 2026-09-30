@@ -3,7 +3,7 @@ import * as React from "react";
 import {Button} from "@/components/ui/button";
 import {Card,CardContent,CardHeader,CardTitle} from "@/components/ui/card";
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from "@/components/ui/dialog";
-import {fetchDetail,fetchSeries} from "./api";
+import {fetchAiJournalCapabilities,fetchDetail,fetchSeries} from "./api";
 import {useResource} from "./use-resource";
 import {cacheStateLabels,formatAmount,formatFetchedAt,formatPercent,formatShares,formatVolume,qualityLabel,sessionLabel,limitLabel,basisLabel,statusLabels,timelinessLabels,observationLabel} from "./format";
 import type {ObservationMeta,BoardRow} from "./types";
@@ -13,9 +13,11 @@ export function Metadata({meta,showReason=true}:{meta?:ObservationMeta|null;show
 export function InstrumentDetail({instrumentKey,onClose}:{instrumentKey:string;onClose:()=>void}) {
  const loader=React.useCallback((signal:AbortSignal)=>fetchDetail(instrumentKey,signal),[instrumentKey]);
  const detail=useResource(instrumentKey,loader);
+ const caps=useResource(instrumentKey+":capabilities",React.useCallback((signal:AbortSignal)=>fetchAiJournalCapabilities(instrumentKey,signal),[instrumentKey]));
  const row=detail.data?.row;
+ const symbol=row?.instrument.symbol;
  const holdings=detail.data?.holdings;
- return <Dialog open onOpenChange={open=>{if(!open)onClose();}}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-5xl"><DialogHeader className="pr-8"><DialogTitle>{row?row.instrument.name+" · "+row.instrument.symbol:"标的详情"}</DialogTitle><DialogDescription>{row?row.instrument.currency+" · "+row.instrument.exchange+" · "+qualityLabel(row):"独立加载身份与各字段数据"}</DialogDescription></DialogHeader>
+ return <Dialog open onOpenChange={open=>{if(!open)onClose();}}><DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-5xl"><DialogHeader className="pr-8"><DialogTitle className="flex flex-wrap items-center gap-2">{row?row.instrument.name+" · "+row.instrument.symbol:"标的详情"}{row?<Button size="sm" variant="outline" onClick={()=>{onClose();localStorage.setItem("ai-journal-prefill-key",row.instrument.key);window.dispatchEvent(new CustomEvent("ai-journal-prefill",{detail:row.instrument.key}));}}>和 AI 聊聊</Button>:null}{caps.data?.quant_eligible&&symbol?<Button size="sm" variant="outline" onClick={()=>{onClose();localStorage.setItem("quant-prefill-key",symbol);window.dispatchEvent(new CustomEvent("quant-prefill",{detail:symbol}));}}>深入量化研究</Button>:null}</DialogTitle><DialogDescription>{row?row.instrument.currency+" · "+row.instrument.exchange+" · "+qualityLabel(row):"独立加载身份与各字段数据"}</DialogDescription></DialogHeader>
   {detail.loading?<p role="status">详情加载中…</p>:detail.error?<p role="alert" className="text-destructive">{detail.error}</p>:row?<div className="grid min-w-0 gap-4">
    {row.instrument.asset_type==="FUND"?<><Card><CardHeader><CardTitle>正式净值</CardTitle></CardHeader><CardContent className="text-sm">{formatAmount(row.nav?.value,"CNY")} · 涨幅 {formatPercent(row.nav?.change_pct)}<p>净值日期：{row.nav?.nav_date??"--"} · 公告日期：{row.nav?.announcement_date??"未知"}</p><p className="text-muted-foreground">正式净值不是盘中价格；未接入估算数据，不以估算替代。</p><Metadata meta={row.nav?.meta}/></CardContent></Card>
    <Card><CardHeader><CardTitle>渠道单日限额</CardTitle></CardHeader><CardContent className="text-sm">{limitLabel(row.purchase_limit)} · 币种 {row.purchase_limit?.currency??"CNY"} · 渠道 {row.purchase_limit?.channel==="eastmoney"?"天天基金":row.purchase_limit?.channel??"未知"}<Metadata meta={row.purchase_limit?.meta}/></CardContent></Card>

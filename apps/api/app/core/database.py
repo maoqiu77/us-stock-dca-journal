@@ -8,7 +8,7 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
-CURRENT_DB_SCHEMA_VERSION = 5
+CURRENT_DB_SCHEMA_VERSION = 6
 
 
 def connect() -> sqlite3.Connection:
@@ -20,6 +20,8 @@ def connect() -> sqlite3.Connection:
 
 def init_db() -> None:
     with connect() as connection:
+        from app.modules.ai_journal.migration import backup_before_upgrade
+        backup_before_upgrade(connection)
         migrate_db(connection)
         existing = connection.execute("select count(*) from watchlist").fetchone()[0]
         if existing == 0:
@@ -166,6 +168,9 @@ def migrate_db(connection: sqlite3.Connection) -> None:
 
         migrate_board_db(connection)
         connection.execute("pragma user_version = 5")
+    if version < 6:
+        from app.modules.ai_journal.migration import migrate_journal_db
+        migrate_journal_db(connection)
 
 
 def seed_watchlist(connection: sqlite3.Connection, template_path: Path) -> None:

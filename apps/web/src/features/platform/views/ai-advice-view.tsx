@@ -55,6 +55,7 @@ import {
   isAiAdviceCompositionEnter,
   isAiAdviceSubmitShortcut,
 } from "@/features/platform/ai-advice-shortcut";
+import {AiJournalPanel} from "@/features/ai-journal/ai-journal-panel";
 
 export function AiAdviceView() {
   const queryClient = useQueryClient();
@@ -70,6 +71,16 @@ export function AiAdviceView() {
   });
   const aiCalendarQuery = useAiAdviceCalendarQuery(selectedDate);
   const aiSettingsQuery = useAiSettingsQuery();
+  const [journalKey, setJournalKey] = React.useState<string | undefined>();
+  React.useEffect(() => {
+    const saved = window.localStorage.getItem("ai-journal-prefill-key");
+    if (saved) { // eslint-disable-next-line react-hooks/set-state-in-effect
+      setJournalKey(saved);
+    }
+    const onPrefill = (event: Event) => setJournalKey((event as CustomEvent<string>).detail);
+    window.addEventListener("ai-journal-prefill", onPrefill);
+    return () => window.removeEventListener("ai-journal-prefill", onPrefill);
+  }, []);
   const calendarData = aiCalendarQuery.data;
   const record = calendarData?.record ?? null;
   const applyCalendarResponse = React.useCallback(
@@ -198,6 +209,7 @@ export function AiAdviceView() {
 
   return (
     <>
+      <AiJournalPanel prefillKey={journalKey} />
       <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
         <Card className="min-w-0 xl:col-span-2">
           <CardHeader className="border-b">

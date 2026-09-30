@@ -102,6 +102,16 @@ export function PlatformWorkspace() {
     window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
     setActiveView(view);
   }, []);
+  React.useEffect(() => {
+    const onPrefill = () => changeActiveView("ai");
+    window.addEventListener("ai-journal-prefill", onPrefill);
+    return () => window.removeEventListener("ai-journal-prefill", onPrefill);
+  }, [changeActiveView]);
+  React.useEffect(() => {
+    const onPrefill = () => changeActiveView("quant");
+    window.addEventListener("quant-prefill", onPrefill);
+    return () => window.removeEventListener("quant-prefill", onPrefill);
+  }, [changeActiveView]);
 
   const openOnboardingView = React.useCallback(
     (view: PlatformView) => {

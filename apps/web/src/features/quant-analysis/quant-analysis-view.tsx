@@ -63,6 +63,7 @@ import {
   fetchQuantAnalysisRuns,
   resumeQuantAnalysisRun,
 } from "./api";
+import {linkQuantRun} from "@/features/ai-journal/api";
 import {
   estimateAnalysisCalls,
   groupAnalysisRuns,
@@ -161,6 +162,18 @@ export function QuantAnalysisView() {
   const [selectedRunId, setSelectedRunId] = React.useState<string | null>(null);
   const [dateNotice, setDateNotice] = React.useState("");
   const historical = Boolean(analysisDate && analysisDate < today);
+  React.useEffect(() => {
+    const saved = window.localStorage.getItem("quant-prefill-key");
+    if (saved) { // eslint-disable-next-line react-hooks/set-state-in-effect
+      setTicker(saved);
+      window.localStorage.removeItem("quant-prefill-key");
+    }
+    const onPrefill = (event: Event) => {
+      setTicker((event as CustomEvent<string>).detail);
+    };
+    window.addEventListener("quant-prefill", onPrefill);
+    return () => window.removeEventListener("quant-prefill", onPrefill);
+  }, []);
 
   const runsQuery = useQuery({
     queryKey: ["quant-analysis-runs"],
@@ -226,6 +239,8 @@ export function QuantAnalysisView() {
           : ""
       );
       toast.success(run.reused ? "已载入相同配置的历史结果" : "量化分析任务已创建");
+      const sessionId = window.sessionStorage.getItem("ai-journal-session");
+      if (sessionId) void linkQuantRun(run.id, sessionId).catch(() => undefined);
     },
     onError: (error) => toast.error(error.message),
   });
