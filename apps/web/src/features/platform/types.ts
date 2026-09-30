@@ -4,11 +4,13 @@ import {
   BotIcon,
   DatabaseIcon,
   LayoutDashboardIcon,
+  PanelsTopLeftIcon,
   SlidersHorizontalIcon,
 } from "lucide-react";
 
 export type PlatformView =
   | "overview"
+  | "market-board"
   | "quant"
   | "ai"
   | "data"
@@ -27,6 +29,12 @@ export const platformNavItems: PlatformNavItem[] = [
     title: "总览",
     description: "盈亏、今日变动与持仓状态",
     icon: LayoutDashboardIcon,
+  },
+  {
+    id: "market-board",
+    title: "看板",
+    description: "美股、场内 ETF 与场外基金",
+    icon: PanelsTopLeftIcon,
   },
   {
     id: "ai",

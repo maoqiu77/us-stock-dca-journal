@@ -1,0 +1,434 @@
+{
+  "note": "公开身份目录，来源：只读旧小程序公开目录；不包含价格、自选或用户数据。基金仅人民币份额。",
+  "verified_at": "2026-09-29T00:00:00Z",
+  "us": [
+    {
+      "symbol": "NVDA",
+      "name": "英伟达",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "AMD",
+      "name": "美国超微公司",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "SPY",
+      "name": "标普500ETF",
+      "exchange": "ARCX",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "AAPL",
+      "name": "苹果",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "GOOG",
+      "name": "谷歌-C",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "QQQ",
+      "name": "纳指100ETF",
+      "exchange": "XNAS",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "QQQM",
+      "name": "纳斯达克100指数ETF-Invesco",
+      "exchange": "XNAS",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "SMH",
+      "name": "VanEck半导体ETF",
+      "exchange": "XNAS",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "MSFT",
+      "name": "微软",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "AMZN",
+      "name": "亚马逊",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "META",
+      "name": "Meta",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "TSLA",
+      "name": "特斯拉",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "AVGO",
+      "name": "博通",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "TSM",
+      "name": "台积电",
+      "exchange": "XNYS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "PLTR",
+      "name": "Palantir",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "NFLX",
+      "name": "奈飞",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "COIN",
+      "name": "Coinbase",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "MU",
+      "name": "美光科技",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "INTC",
+      "name": "英特尔",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "BABA",
+      "name": "阿里巴巴",
+      "exchange": "XNYS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "JPM",
+      "name": "摩根大通",
+      "exchange": "XNYS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "V",
+      "name": "Visa",
+      "exchange": "XNYS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "WMT",
+      "name": "沃尔玛",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "COST",
+      "name": "好市多",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    },
+    {
+      "symbol": "GLD",
+      "name": "黄金ETF",
+      "exchange": "ARCX",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "IWM",
+      "name": "罗素2000ETF",
+      "exchange": "ARCX",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "DIA",
+      "name": "道琼斯ETF",
+      "exchange": "ARCX",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "VOO",
+      "name": "先锋标普500ETF",
+      "exchange": "ARCX",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "SOXX",
+      "name": "iShares半导体ETF",
+      "exchange": "XNAS",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "TQQQ",
+      "name": "三倍做多纳指ETF",
+      "exchange": "XNAS",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "SQQQ",
+      "name": "三倍做空纳指ETF",
+      "exchange": "XNAS",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "GOOGL",
+      "name": "谷歌-A",
+      "exchange": "XNAS",
+      "asset_type": "STOCK"
+    }
+  ],
+  "cn": [
+    {
+      "symbol": "159501",
+      "name": "纳指ETF嘉实",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513870",
+      "name": "纳指ETF富国",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159696",
+      "name": "纳指ETF易方达",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159513",
+      "name": "纳斯达克100ETF大成",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159632",
+      "name": "纳斯达克ETF华安",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513390",
+      "name": "纳指100ETF博时",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159659",
+      "name": "纳斯达克100ETF招商",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159660",
+      "name": "纳指ETF汇添富",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159941",
+      "name": "纳指ETF广发",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513100",
+      "name": "纳指ETF国泰",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513110",
+      "name": "纳指ETF华泰柏瑞",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513300",
+      "name": "纳斯达克ETF华夏",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513500",
+      "name": "标普500ETF博时",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159612",
+      "name": "标普500ETF国泰",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "513650",
+      "name": "标普500ETF南方",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "159655",
+      "name": "标普500ETF华夏",
+      "exchange": "XSHE",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "501312",
+      "name": "华宝海外科技股票(QDII-LOF)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "016701",
+      "name": "银华海外数字经济量化选股混合发起式(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "017091",
+      "name": "景顺长城纳斯达克科技ETF联接(QDII)A人民币",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "017730",
+      "name": "嘉实全球产业升级股票发起式(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "017436",
+      "name": "华宝纳斯达克精选股票发起式(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "161128",
+      "name": "易方达标普信息科技指数(QDII-LOF)A(人民币)",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "008253",
+      "name": "华宝致远混合(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "001668",
+      "name": "汇添富全球移动互联混合(QDII)人民币A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "012920",
+      "name": "易方达全球成长精选混合(QDII)人民币A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "005698",
+      "name": "华夏全球科技先锋混合(QDII)A(人民币)",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "006373",
+      "name": "国富全球科技互联混合(QDII)人民币A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "006555",
+      "name": "浦银全球智能科技(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "270023",
+      "name": "广发全球精选股票(QDII)人民币A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "016664",
+      "name": "天弘全球高端制造混合(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "501226",
+      "name": "长城全球新能源车股票发起式(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "539002",
+      "name": "建信新兴市场混合(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "017731",
+      "name": "嘉实全球产业升级股票发起式(QDII)C",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "016452",
+      "name": "南方纳斯达克100指数发起(QDII)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "016453",
+      "name": "南方纳斯达克100指数发起(QDII)C",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "007721",
+      "name": "天弘标普500发起(QDII-FOF)A",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "007722",
+      "name": "天弘标普500发起(QDII-FOF)C",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    },
+    {
+      "symbol": "510300",
+      "name": "沪深300ETF华泰柏瑞",
+      "exchange": "XSHG",
+      "asset_type": "ETF"
+    },
+    {
+      "symbol": "000001",
+      "name": "华夏成长混合",
+      "exchange": "FUND",
+      "asset_type": "FUND"
+    }
+  ]
+}

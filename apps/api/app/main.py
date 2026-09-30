@@ -55,6 +55,8 @@ from app.modules.trading_data import (
     save_trading_state,
     validate_trading_state,
 )
+from app.modules.market_board.router import router as market_board_router
+from app.modules.ai_journal.router import router as ai_journal_router
 
 
 app = FastAPI(title="Stock Trading Platform API", version=get_runtime_info().version)
@@ -71,6 +73,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(market_board_router)
+app.include_router(ai_journal_router)
 
 
 @app.on_event("startup")

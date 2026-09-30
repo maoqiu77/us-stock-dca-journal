@@ -1,0 +1,1 @@
+"""Multi-market board domain."""

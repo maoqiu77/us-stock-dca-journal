@@ -18,8 +18,8 @@ export function formatPercent(value?: number) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
-export function formatVolume(value?: number) {
-  if (value === undefined || Number.isNaN(value)) {
+export function formatVolume(value?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";
   }
   if (value >= 100_000_000) {
@@ -56,7 +56,7 @@ export function summarizeBars(bars: ChartBar[]) {
   const last = bars[bars.length - 1];
   const high = Math.max(...bars.map((bar) => bar.high));
   const low = Math.min(...bars.map((bar) => bar.low));
-  const volume = bars.reduce((total, bar) => total + bar.volume, 0);
+  const volume = bars.reduce((total, bar) => total + (bar.volume ?? 0), 0);
   const change = last.close - first.open;
   const changePercent = first.open ? (change / first.open) * 100 : 0;
 

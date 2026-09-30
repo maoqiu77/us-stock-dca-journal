@@ -1,0 +1,25 @@
+import type {Instrument} from "../market-board/types";
+export type JournalRequest={task_type:"portfolio_review"|"instrument_research";question:string;instrument_key:string|null;primary_period:string|null;auxiliary_periods:string[];quantity:string|null;cost:string|null;max_position:string|null;cost_currency:string|null;position_tickers:string[];plan_tickers:string[];trade_ids:string[];note_ids:string[];history_turn_ids:string[];session_id:string|null;reuse_snapshot_id:string|null};
+export type JournalPreview={id:string;digest:string;request:JournalRequest;instrument:Instrument|null;missing:string[];facts:Array<{kind:string;instrument_key:string;value:Record<string,unknown>}>;private_context:Record<string,unknown>;model:{model:string;provider:string};created_at:string;expires_at:string;ai_configured:boolean;facts_origin:{snapshot_id:string;created_at:string}|null};
+export type JournalTurn={id:string;status:string;answer:string;error_code:string;snapshot_id:string;snapshot:JournalPreview;deleted_note_ids:string[]};
+export type JournalSession={id:string;title:string;instrument_key:string|null;task_type:JournalRequest["task_type"];turns:JournalTurn[]};
+export type CalendarEntry={id:string;kind:"session"|"note"|"quant"|"legacy";title:string;date:string;session_id?:string;status?:string;deleted?:boolean;question?:string};
+export type JournalCalendar={dates:string[];items:CalendarEntry[]};
+export type ContextOption={id:string;label:string;length?:number};
+export type ContextOptions={positions:Array<{ticker:string;currency:string;quantity:number;cost:number}>;excluded:Array<{ticker:string;reason:string}>;plans:Array<{ticker:string;targetWeight:number}>;trades:ContextOption[];notes:ContextOption[];history:ContextOption[]};
+export type Capabilities={instrument:Instrument;periods:string[];period_reason:string;quant_eligible:boolean;quant_reason:string};
+export type JournalNote={id:string;body:string;created_at:string};
+export type QuantPrefill={ticker?:string;question?:string;sessionId?:string;runId?:string};
+const base=(process.env.NEXT_PUBLIC_API_URL??"").replace(/\/$/,"");
+export const errors:Record<string,string>={snapshot_expired:"预览已过期，请重新预览并确认。",preview_changed:"模型配置或预览已变化，请重新预览。",ai_not_configured:"请先配置 AI；手记仍可本地保存。",model_failed:"模型请求失败，问题与快照已保留，可重试。",period_not_verified:"该周期尚未验证，暂不可用。",primary_period_unavailable:"主周期没有可靠的已收盘 K 线。",quant_link_conflict:"报告已关联其他会话。"};
+async function request<T>(path:string,init?:RequestInit):Promise<T>{const response=await fetch(`${base}/api/ai-journal${path}`,{...init,headers:{"content-type":"application/json",...init?.headers}});if(!response.ok){const data=await response.json().catch(()=>null);const code=data?.detail?.code;throw new Error(errors[code]??code??`请求失败（${response.status}）`);}return response.json();}
+export const previewJournal=(payload:JournalRequest,signal?:AbortSignal)=>request<JournalPreview>("/preview",{method:"POST",body:JSON.stringify(payload),signal});
+export const confirmJournal=(snapshot:JournalPreview,idempotencyKey:string)=>request<JournalSession>(snapshot.request.session_id?`/sessions/${snapshot.request.session_id}/turns`:"/sessions",{method:"POST",body:JSON.stringify({snapshot_id:snapshot.id,digest:snapshot.digest,idempotency_key:idempotencyKey})});
+export const fetchJournalSession=(id:string)=>request<JournalSession>(`/sessions/${encodeURIComponent(id)}`);
+export const saveJournalNote=(body:string,id?:string)=>request<{id:string}>(id?`/notes/${id}`:"/notes",{method:id?"PUT":"POST",body:JSON.stringify({body})});
+export const fetchJournalNote=(id:string)=>request<JournalNote>(`/notes/${id}`);
+export const deleteJournalNote=(id:string)=>request<{deleted:boolean}>(`/notes/${id}`,{method:"DELETE",body:JSON.stringify({confirmed:true})});
+export const fetchJournalCalendar=()=>request<JournalCalendar>("/calendar");
+export const fetchContextOptions=()=>request<ContextOptions>("/context-options");
+export const fetchCapabilities=(key:string,signal?:AbortSignal)=>request<Capabilities>(`/capabilities?key=${encodeURIComponent(key)}`,{signal});
+export const linkQuantRun=(runId:string,sessionId:string)=>request<{run_id:string}>("/quant-links",{method:"POST",body:JSON.stringify({run_id:runId,session_id:sessionId})});

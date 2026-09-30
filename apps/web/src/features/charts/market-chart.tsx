@@ -188,9 +188,9 @@ export function MarketChart({
       priceLineVisible: false,
     });
     volumeSeries.setData(
-      chartPoints.map<HistogramData>((bar) => ({
+      chartPoints.filter((bar) => bar.volume !== null).map<HistogramData>((bar) => ({
         time: bar.chartTime,
-        value: bar.volume,
+        value: bar.volume as number,
         color: bar.close >= bar.open ? upColor : downColor,
       }))
     );
