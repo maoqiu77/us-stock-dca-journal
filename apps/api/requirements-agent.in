@@ -1,0 +1,7 @@
+# Optional Agent development environment: Python >=3.12.
+# Keep the canonical legacy environment unchanged until an authorized upgrade.
+-r requirements.txt
+langgraph==1.2.12
+langchain-openai==1.6.6
+langchain-core==1.6.6
+pydantic==2.13.5

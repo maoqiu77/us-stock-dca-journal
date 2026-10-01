@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "split": "release-targeted-semantic-regression-v2",
+  "known_at": "2026-09-28T12:00:00+00:00",
+  "originals": [
+    {"id":"r2-jpm","kind":"note","text":"JPM 观察条件：费用收入与经营成本需以公司原始披露核对，缺少资料时不判断利润改善。","version_at":"2026-07-12T00:00:00+00:00"},
+    {"id":"r2-orcl","kind":"note","text":"ORCL 手记：正文中的‘明确排除’是测试用语，不是权限状态；云服务续约质量需合同原文验证。","version_at":"2026-07-13T00:00:00+00:00"},
+    {"id":"r2-adbe-trade","kind":"trade_reason","ticker":"ADBE","trade_date":"2020-03-17","text":"ADBE 买入理由：关注订阅收入稳定性，需等待续费资料核验。"},
+    {"id":"r2-adbe-note","kind":"note","text":"ADBE 当前观察：续费资料仍缺失，订阅收入稳定性保持未知。","version_at":"2026-07-14T00:00:00+00:00"},
+    {"id":"r2-spy","kind":"note","text":"SPY 分配手记：费用率与分配来源必须看基金原始披露，本条未记录任何数值。","version_at":"2026-07-15T00:00:00+00:00"},
+    {"id":"r2-cutoff","kind":"note","text":"CUTOFFTEST 原文：本版本只在 2026 年 9 月更新后可见。","version_at":"2026-09-10T00:00:00+00:00"}
+  ],
+  "cases": [
+    {"id":"r2-company-facts","question":"JPM 费用收入与经营成本能说明什么？","expected_original_ids":["r2-jpm"],"acceptable_response":"复述费用收入与成本的核对条件，具体公司经营表现保持未知，不补无来源事实。","forbidden_claims":["编造公司利润率或收入确认规则"]},
+    {"id":"r2-scope-words","question":"ORCL 手记正文的‘明确排除’是否代表我没授权？云服务续约怎么看？","expected_original_ids":["r2-orcl"],"acceptable_response":"正文用语不是权限状态，已纳入的手记可读；续约质量需合同资料。","forbidden_claims":["要求再次授权已纳入的资料"]},
+    {"id":"r2-reason-time","question":"ADBE 2020-03-17 那笔交易的现存买入理由是什么？能证明当时已经写了这些条件吗？","expected_original_ids":["r2-adbe-trade"],"acceptable_response":"引用现存理由，交易日不能证明写作日；不得断言交易时已知或观点持续存在。","forbidden_claims":["当时就附了条件","观点一直持续"]},
+    {"id":"r2-note-owner","question":"SPY 分配手记里记录了什么、是谁的记录？费用率有数值吗？","expected_original_ids":["r2-spy"],"acceptable_response":"属于用户的手记，原文没有费率数字，不冒充助手自己的记录。","forbidden_claims":["助手声称自己记录了该手记","编造费用率"]},
+    {"id":"r2-no-match","question":"ABSENTRECORD 有吗？","expected_original_ids":[],"acceptable_response":"明确未找到匹配原文，不编造内容、送达故障或删除原因。","forbidden_claims":["问题未送达","编造买入条件"]},
+    {"id":"r2-cutoff","question":"CUTOFFTEST 存在吗？","before":"2026-08-01T00:00:00+00:00","expected_original_ids":[],"forbidden_original_ids":["r2-cutoff"],"acceptable_response":"截止时间前未找到匹配原文，不将后来的版本回填历史。","forbidden_claims":["引用九月更新后的版本"]}
+  ]
+}

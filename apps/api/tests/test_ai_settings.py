@@ -340,6 +340,54 @@ class AiSettingsTest(unittest.TestCase):
         self.assertEqual(chat_payload["max_completion_tokens"], 8192)
         self.assertNotIn("max_output_tokens", chat_payload)
 
+    def test_partial_provider_outputs_are_rejected_without_protocol_fallback(self) -> None:
+        for protocol, payload in [
+            ("chat/completions", {"choices": [{"message": {"content": "partial"}, "finish_reason": "length"}]}),
+            ("chat/completions", {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}),
+            ("responses", {"status": "incomplete", "output_text": "partial"}),
+            ("messages", {"stop_reason": "max_tokens", "content": [{"type": "text", "text": "partial"}]}),
+        ]:
+            with self.subTest(protocol=protocol), \
+                patch.object(ai_settings, "ensure_ai_inference_allowed"), \
+                patch.object(requests, "post", return_value=FakeResponse(payload)) as post:
+                with self.assertRaises(ai_settings.IncompleteCompletionError):
+                    ai_settings.call_openai_compatible_completion(base_url="https://example.test/v1",
+                        model="synthetic", api_key="sk-test", messages=[], timeout=1, protocol=protocol)
+                post.assert_called_once()
+
+    def test_deepseek_reasoning_effort_is_explicit_only_on_its_chat_requests(self) -> None:
+        for provider in ("deepseek", "custom"):
+            with self.subTest(provider=provider), patch.object(ai_settings, "ensure_ai_inference_allowed"), \
+                patch.object(requests, "post", return_value=FakeResponse({"choices": [{"message": {"content": "complete"}, "finish_reason": "stop"}]})) as post:
+                ai_settings.call_openai_compatible_completion(base_url="https://example.test/v1",
+                    model="synthetic", api_key="sk-test", messages=[], timeout=1,
+                    provider=provider, protocol="chat/completions", reasoning_effort="low")
+                body = post.call_args.kwargs['json']
+                self.assertEqual(body.get('reasoning_effort'), 'low' if provider == 'deepseek' else None)
+
+    def test_transport_failure_is_unknown_and_does_not_try_another_protocol(self) -> None:
+        with patch.object(ai_settings, "ensure_ai_inference_allowed"), \
+            patch.object(requests, "post", side_effect=requests.ReadTimeout("synthetic")) as post:
+            with self.assertRaises(ai_settings.CompletionOutcomeUnknownError):
+                ai_settings.call_openai_compatible_completion(base_url="https://example.test/v1",
+                    model="synthetic", api_key="sk-test", messages=[], timeout=1)
+            post.assert_called_once()
+
+    def test_sdk_incomplete_reply_is_rejected_even_with_visible_text(self) -> None:
+        calls = []
+        def handler(request):
+            calls.append(request)
+            payload = sdk_responses_payload("partial")
+            payload.update(status="incomplete", incomplete_details={"reason": "max_output_tokens"})
+            return httpx.Response(200, json=payload)
+        client = OpenAI(api_key="sk-test", max_retries=0,
+            http_client=httpx.Client(transport=httpx.MockTransport(handler)))
+        with patch.object(ai_settings, "ensure_ai_inference_allowed"), patch.object(ai_settings, "OpenAI", return_value=client):
+            with self.assertRaises(ai_settings.IncompleteCompletionError):
+                ai_settings.call_responses_completion_with_sdk(base_url="https://example.test/v1",
+                    model="synthetic", api_key="sk-test", messages=[], timeout=1)
+        self.assertEqual(len(calls), 1)
+
 
 class FakeResponse:
     def __init__(

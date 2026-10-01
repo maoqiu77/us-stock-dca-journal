@@ -60,21 +60,18 @@ test("AI model settings keeps AI and research data configuration together", () =
   assert.match(source, /saveAiSettings/);
 });
 
-test("AI analysis embeds portfolio and instrument research with preview confirmation", () => {
+test("AI analysis embeds a unified conversation with server snapshots", () => {
   const source = readSource("../ai-journal/embedded-composer.tsx");
   const view = readSource("./views/ai-advice-view.tsx");
 
   assert.match(view, /EmbeddedJournalComposer/);
-  assert.match(source, /持仓分析/);
-  assert.match(source, /标的快研/);
-  assert.match(source, /生成事实预览/);
-  assert.match(source, /确认范围并分析/);
-  assert.match(source, /未选择的手记和历史回答不会发送/);
-  assert.match(source, /实际持仓/);
+  assert.match(source, /conversationRequest/);
+  assert.match(source, /previewJournal/);
+  assert.match(source, /confirmJournal/);
+  assert.match(source, /发送问题/);
+  assert.match(source, /recoverJournalSession/);
   assert.match(source, /投资手记/);
-  assert.doesNotMatch(source, /投资计划/);
-  assert.doesNotMatch(source, /交易原因/);
-  assert.doesNotMatch(source, /报价\/披露/);
+  assert.doesNotMatch(source, /持仓分析|标的快研|确认范围并分析|标的与资料|搜索标的|纳入本轮原文/);
 });
 
 test("AI advice follow-ups use an inline conversation without a confirmation dialog", () => {

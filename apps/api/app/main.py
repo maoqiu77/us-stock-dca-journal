@@ -57,6 +57,7 @@ from app.modules.trading_data import (
 )
 from app.modules.market_board.router import router as market_board_router
 from app.modules.ai_journal.router import router as ai_journal_router
+from app.modules.ai_journal.agent.manager import journal_agent_manager
 
 
 app = FastAPI(title="Stock Trading Platform API", version=get_runtime_info().version)
@@ -81,11 +82,13 @@ app.include_router(ai_journal_router)
 def on_startup() -> None:
     init_db()
     quant_analysis_manager.start()
+    journal_agent_manager.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
     quant_analysis_manager.stop()
+    journal_agent_manager.stop()
 
 
 @app.get("/health")

@@ -57,11 +57,12 @@ def available_positions(board, state):
     return rows, excluded
 
 
-def private_context(store, board, request):
+def private_context(store, board, request, *, state=None):
     selected = {}
     missing = []
     if request.position_tickers or request.plan_tickers or request.trade_ids:
-        state = load_trading_state()
+        if state is None:
+            state = load_trading_state()
         positions, excluded = available_positions(board, state)
         allowed = {p['ticker']: p for p in positions}
         if any(ticker not in allowed for ticker in request.position_tickers + request.plan_tickers):

@@ -6,7 +6,8 @@ from uuid import uuid4
 
 
 def backup_before_upgrade(connection):
-    if connection.execute('pragma user_version').fetchone()[0] >= 6:
+    from app.core.database import CURRENT_DB_SCHEMA_VERSION
+    if connection.execute('pragma user_version').fetchone()[0] >= CURRENT_DB_SCHEMA_VERSION:
         return
     filename = connection.execute('pragma database_list').fetchone()[2]
     if not filename or not connection.execute("select name from sqlite_master where type='table'").fetchone():
@@ -35,7 +36,10 @@ def migrate_journal_db(connection):
         ]
         for statement in statements:
             connection.execute(statement)
-        connection.execute('pragma user_version = 6')
+        if connection.execute('pragma user_version').fetchone()[0] < 6:
+            connection.execute('pragma user_version = 6')
+        from .agent.migration import migrate_agent_db
+        migrate_agent_db(connection)
         connection.execute('release journal_upgrade')
     except Exception:
         connection.execute('rollback to journal_upgrade')

@@ -8,7 +8,7 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
-CURRENT_DB_SCHEMA_VERSION = 6
+CURRENT_DB_SCHEMA_VERSION = 7
 
 
 def connect() -> sqlite3.Connection:
@@ -171,6 +171,9 @@ def migrate_db(connection: sqlite3.Connection) -> None:
     if version < 6:
         from app.modules.ai_journal.migration import migrate_journal_db
         migrate_journal_db(connection)
+    if version < 7:
+        from app.modules.ai_journal.agent.migration import migrate_agent_db
+        migrate_agent_db(connection)
 
 
 def seed_watchlist(connection: sqlite3.Connection, template_path: Path) -> None:

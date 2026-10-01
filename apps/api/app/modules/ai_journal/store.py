@@ -56,14 +56,28 @@ class JournalStore:
             turn = dict(row)
             payload, checksum, _ = self.snapshot(turn['snapshot_id'])
             turn['snapshot'] = {**payload, 'digest': checksum}
+            if payload['request'].get('engine') == 'agent':
+                from .agent.store import AgentStore
+                with self.connect() as db:
+                    run = db.execute('select id from ai_journal_agent_runs where turn_id=?', (turn['id'],)).fetchone()
+                turn['engine'] = 'agent'
+                turn['run_id'] = run['id'] if run else None
+                turn['run'] = AgentStore(self).get(run['id']) if run else None
             # Deletion status is separate metadata; never modify stored evidence.
             with self.connect() as db:
                 note_states = {note['id']: db.execute('select deleted_at from ai_journal_notes where id=?', (note['id'],)).fetchone() for note in payload['private_context'].get('notes', [])}
                 turn['deleted_note_ids'] = [key for key, state in note_states.items() if not state or state[0]]
-            if turn['status'] == 'pending' and (datetime.now(timezone.utc) - datetime.fromisoformat(turn['updated_at'])).total_seconds() > 600:
+            if payload['request'].get('engine', 'llm') == 'llm' and turn['status'] == 'pending' and (datetime.now(timezone.utc) - datetime.fromisoformat(turn['updated_at'])).total_seconds() > 600:
                 turn['status'], turn['error_code'] = 'failed', 'interrupted_repreview'
             result['turns'].append(turn)
         return result
+
+    def session_for_snapshot(self, snapshot_id):
+        with self.connect() as db:
+            row = db.execute('select session_id from ai_journal_turns where snapshot_id=?', (snapshot_id,)).fetchone()
+        if not row:
+            fail('confirmation_not_found', 404)
+        return self.session(row['session_id'])
 
     def claim(self, request, payload, session_id):
         stamp = now_iso()
@@ -73,9 +87,6 @@ class JournalStore:
             if existing:
                 if existing['snapshot_id'] != request.snapshot_id or existing['idempotency_key'] != request.idempotency_key or (session_id and existing['session_id'] != session_id):
                     fail('idempotency_conflict')
-                if existing['status'] == 'failed':
-                    db.execute("update ai_journal_turns set status='pending',error_code='',updated_at=? where id=?", (stamp, existing['id']))
-                    return existing['session_id'], existing['id'], True
                 return existing['session_id'], existing['id'], False
             if session_id:
                 if not db.execute('select id from ai_journal_sessions where id=?', (session_id,)).fetchone():

@@ -19,7 +19,7 @@ def calendar(store, target_date=None):
                 question = json.loads(row['payload']).get('request', {}).get('question', '')
             except (ValueError, TypeError, AttributeError):
                 pass
-            label = '持仓分析' if row['task_type'] == 'portfolio_review' else '标的快研'
+            label = {'portfolio_review': '持仓分析', 'instrument_research': '标的快研', 'conversation': 'AI 对话'}.get(row['task_type'], 'AI 对话')
             title = f'{label} · {question[:80]}' if question else row['title']
             entries.append({'id': row['id'], 'kind': 'session', 'session_id': row['session_id'], 'title': title, 'status': row['status'], 'question': question, 'date': beijing_date(row['created_at'])})
         for row in db.execute('select * from ai_journal_notes where deleted_at is null order by created_at desc'):

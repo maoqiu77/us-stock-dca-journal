@@ -335,7 +335,7 @@ export function AiAdviceView() {
                       key={entry.id}
                       variant="ghost"
                       className="h-auto min-w-0 justify-between gap-2 px-2 py-2 text-left"
-                      disabled={entry.status !== "completed" || journalLoadingId === entry.id}
+                      disabled={!entry.session_id || journalLoadingId === entry.id}
                       onClick={() => void openJournalEntry(entry)}
                       aria-label={`${entry.title}${entry.status === "completed" ? "，点击查看" : `，${journalStatusLabel(entry.status)}`}`}
                     >
@@ -370,7 +370,7 @@ export function AiAdviceView() {
                 : "尚未选择或保存 AI 分析"}
             </CardDescription>
             <CardAction>
-              <Badge variant="outline">{record?.source ?? "local"}</Badge>
+              <Badge variant="outline">{journalSession ? journalSession.turns.at(-1)?.engine === "agent" ? "Agent" : "文本分析" : record?.source ?? "local"}</Badge>
             </CardAction>
           </CardHeader>
           <CardContent className="grid gap-4">
@@ -409,11 +409,11 @@ export function AiAdviceView() {
                   </pre>
                 </div>
               </div>
-            ) : (
+            ) : !journalSession ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                选择“持仓分析”或“标的快研”后，这里会保存分析并开启追问。
+                暂无分析记录。
               </div>
-            )}
+            ) : null}
             {aiUnavailableReason ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
                 {aiUnavailableReason}
@@ -469,7 +469,7 @@ export function AiAdviceView() {
                     ? "在下方输入问题，继续这次研究。"
                     : record
                     ? "在下方输入问题，AI 的回答会显示在这里。"
-                    : "请选择持仓分析或标的快研。"}
+                    : "暂无对话。"}
                 </div>
               ) : null}
               {journalMessages.map((message, index) => (
@@ -535,7 +535,7 @@ export function AiAdviceView() {
                 </Button>
               </div>
             ) : null}
-            {canChat ? (
+            {canChat && !journalSession ? (
               <FieldGroup>
                 <Field>
                   <FieldLabel htmlFor="ai-chat-prompt">追问</FieldLabel>
@@ -569,14 +569,14 @@ export function AiAdviceView() {
                   </div>
                 ) : null}
               </FieldGroup>
-            ) : record ? (
+            ) : record && !journalSession ? (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
                 历史记录仅供查看；请选择今天继续追问。
               </div>
             ) : null}
           </CardContent>
           </Card>
-          <Card>
+          {!journalSession ? <Card>
           <CardHeader className="border-b">
             <CardTitle>AI-prompt</CardTitle>
             <CardDescription>当前分析和对话发送给 AI 的上下文类型</CardDescription>
@@ -590,11 +590,11 @@ export function AiAdviceView() {
               ))
             ) : (
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                选择持仓分析或标的快研后，这里会展示发送给 AI 的上下文类型。
+                暂无上下文记录。
               </div>
             )}
           </CardContent>
-          </Card>
+          </Card> : null}
         </div>
       </div>
     </>

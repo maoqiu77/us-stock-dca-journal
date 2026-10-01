@@ -46,6 +46,7 @@ dist/
 
 # Local browser verification artifacts and personal media
 .playwright-cli/
+output/playwright/
 storage/图片/
 
 # npm is the release package manager for this project

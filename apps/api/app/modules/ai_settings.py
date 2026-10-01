@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 import requests
 from fastapi import HTTPException
-from openai import OpenAI, OpenAIError
+from openai import APIConnectionError, OpenAI, OpenAIError
 
 from app.core.database import get_state_payload, set_state_payload
 from app.modules.ai_providers import PROVIDERS, PROVIDER_BY_ID, PROTOCOLS, build_anthropic_payload
@@ -340,6 +340,14 @@ def normalize_openai_base_url(base_url: str) -> tuple[str, str | None]:
     return normalized, None
 
 
+def check_completion_complete(payload: dict[str, Any]) -> None:
+    choices = payload.get("choices") or []
+    if (payload.get("status") == "incomplete" or payload.get("stop_reason") == "max_tokens"
+        or payload.get("finish_reason") == "length"
+        or any(row.get("finish_reason") == "length" for row in choices if isinstance(row, dict))):
+        raise IncompleteCompletionError("模型回答被截断，未作为完整答案保存。")
+
+
 def call_openai_compatible_completion(
     *,
     base_url: str,
@@ -351,6 +359,7 @@ def call_openai_compatible_completion(
     provider: str = "custom",
     protocol: str = "auto",
     max_output_tokens: int | None = None,
+    reasoning_effort: str | None = None,
     _connection_probe: bool = False,
 ) -> dict[str, str]:
     _check_completion_policy(messages, _connection_probe)
@@ -369,6 +378,7 @@ def call_openai_compatible_completion(
         )
     endpoints = [protocol] if protocol != "auto" else (["messages"] if endpoint_preference == "messages" else openai_compatible_endpoint_order(endpoint_preference))
     errors: list[str] = []
+    outcome_unknown = False
     for endpoint in endpoints:
         _check_completion_policy(messages, _connection_probe)
         try:
@@ -378,12 +388,15 @@ def call_openai_compatible_completion(
                 body = build_openai_compatible_payload(endpoint, model, messages, max_output_tokens=max_output_tokens)
                 if endpoint == "chat/completions" and "max_completion_tokens" in body and (provider not in {"openai", "custom"} or not model.lower().startswith(("gpt-", "o1", "o3", "o4"))):
                     body["max_tokens"] = body.pop("max_completion_tokens")
+                if endpoint == "chat/completions" and provider == "deepseek" and reasoning_effort is not None:
+                    body["reasoning_effort"] = reasoning_effort
             response = requests.post(
                 f"{normalized_base_url}/{endpoint}", headers=build_ai_request_headers(api_key, endpoint),
                 json=body, timeout=timeout, allow_redirects=False,
             )
             response.raise_for_status()
             payload = response.json()
+            check_completion_complete(payload)
             if endpoint == "messages":
                 content = extract_text_value([block for block in payload.get("content", []) if isinstance(block, dict) and block.get("type") == "text"])
                 if not content:
@@ -391,9 +404,12 @@ def call_openai_compatible_completion(
             else:
                 content = extract_response_text(payload)
             return {"content": content, "endpoint": endpoint}
+        except IncompleteCompletionError:
+            raise
         except requests.exceptions.RequestException as exc:
             errors.append(f"{endpoint}: {describe_ai_request_error(exc)}")
             response = getattr(exc, "response", None)
+            outcome_unknown = response is None
             status = getattr(response, "status_code", None)
             provider_error = extract_provider_error_message(response).lower()
             unsupported = status in {404, 405, 501} and not any(word in provider_error for word in ("model", "模型", "quota", "余额", "key"))
@@ -405,7 +421,8 @@ def call_openai_compatible_completion(
     detail = "；".join(errors)
     if api_key:
         detail = detail.replace(api_key, "[密钥已隐藏]")
-    raise OpenAICompatibleRequestError(detail)
+    error = CompletionOutcomeUnknownError if outcome_unknown else OpenAICompatibleRequestError
+    raise error(detail)
 
 
 def call_responses_completion_with_sdk(
@@ -432,6 +449,7 @@ def call_responses_completion_with_sdk(
                 model, messages, max_output_tokens=max_output_tokens
             ),
         )
+        check_completion_complete({"status": getattr(response, "status", None)})
         content = str(response.output_text or "").strip()
         if not content:
             raise ValueError("Missing responses text")
@@ -439,8 +457,11 @@ def call_responses_completion_with_sdk(
             "content": content,
             "endpoint": "responses",
         }
+    except IncompleteCompletionError:
+        raise
     except OpenAIError as exc:
-        raise OpenAICompatibleRequestError(
+        error = CompletionOutcomeUnknownError if isinstance(exc, APIConnectionError) else OpenAICompatibleRequestError
+        raise error(
             f"responses: {describe_openai_sdk_error(exc).replace(api_key, '[密钥已隐藏]') if api_key else describe_openai_sdk_error(exc)}"
         ) from exc
     except (AttributeError, KeyError, IndexError, TypeError, ValueError) as exc:
@@ -603,6 +624,14 @@ def extract_text_value(value: Any) -> str:
 
 
 class OpenAICompatibleRequestError(ValueError):
+    pass
+
+
+class IncompleteCompletionError(OpenAICompatibleRequestError):
+    pass
+
+
+class CompletionOutcomeUnknownError(OpenAICompatibleRequestError):
     pass
 
 

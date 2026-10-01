@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "split": "agent-run-limit-regression-v1",
+  "known_at": "2026-09-29T12:00:00+00:00",
+  "purpose": "Offline Agent context-budget regression only. The padding is deterministic test input and is not semantic evidence.",
+  "tool_rounds": 2,
+  "tool_calls_per_round": 3,
+  "context_padding": "This synthetic excerpt padding exercises bounded context assembly; it carries no claim and must not be cited.",
+  "cases": [
+    {
+      "id": "rl-business-conditions-01",
+      "category": "business_conditions",
+      "question": "RL-BIZ-01 续约稳定性可以直接确认吗？",
+      "expected_original_ids": ["rl-business-conditions-01-primary", "rl-business-conditions-01-secondary"],
+      "source_ids": [
+        "rl-business-conditions-01-primary",
+        "rl-business-conditions-01-secondary",
+        "rl-business-conditions-01-decoy-a",
+        "rl-business-conditions-01-decoy-b",
+        "rl-business-conditions-01-decoy-c",
+        "rl-business-conditions-01-decoy-d"
+      ],
+      "required_claims": ["签署页、履约记录和回款需要一起核验", "续约稳定性未知"],
+      "forbidden_claims": ["仅凭发货量证明合同兑现"],
+      "tool_query": "RL-BIZ-01 续约履约回款"
+    },
+    {
+      "id": "rl-note-time-01",
+      "category": "note_time",
+      "question": "RL-TIME-01 较晚保存的当前版本能证明初稿何时形成吗？",
+      "expected_original_ids": ["rl-note-time-01-primary", "rl-note-time-01-secondary"],
+      "source_ids": [
+        "rl-note-time-01-primary",
+        "rl-note-time-01-secondary",
+        "rl-note-time-01-decoy-a",
+        "rl-note-time-01-decoy-b",
+        "rl-note-time-01-decoy-c",
+        "rl-note-time-01-decoy-d"
+      ],
+      "required_claims": ["当前版本保存时间不等于初稿时间", "初稿形成时间未知"],
+      "forbidden_claims": ["较晚版本证明当时没有这条理由"],
+      "tool_query": "RL-TIME-01 当前版本 初稿时间"
+    },
+    {
+      "id": "rl-contradictory-sources-01",
+      "category": "contradictory_sources",
+      "question": "RL-CONFLICT-01 两份互相冲突的估计能确认实际库存吗？",
+      "expected_original_ids": ["rl-contradictory-sources-01-primary", "rl-contradictory-sources-01-secondary"],
+      "source_ids": [
+        "rl-contradictory-sources-01-primary",
+        "rl-contradictory-sources-01-secondary",
+        "rl-contradictory-sources-01-decoy-a",
+        "rl-contradictory-sources-01-decoy-b",
+        "rl-contradictory-sources-01-decoy-c",
+        "rl-contradictory-sources-01-decoy-d"
+      ],
+      "required_claims": ["两份库存估计互相矛盾", "实际库存未知"],
+      "forbidden_claims": ["把其中一份估计当作已证实库存"],
+      "tool_query": "RL-CONFLICT-01 库存冲突 估计"
+    },
+    {
+      "id": "rl-multiple-sources-01",
+      "category": "multiple_sources",
+      "question": "RL-MULTI-01 两份资料分别需要核对什么？",
+      "expected_original_ids": ["rl-multiple-sources-01-primary", "rl-multiple-sources-01-secondary"],
+      "source_ids": [
+        "rl-multiple-sources-01-primary",
+        "rl-multiple-sources-01-secondary",
+        "rl-multiple-sources-01-decoy-a",
+        "rl-multiple-sources-01-decoy-b",
+        "rl-multiple-sources-01-decoy-c",
+        "rl-multiple-sources-01-decoy-d"
+      ],
+      "required_claims": ["许可证有效期需要看发证文件", "合同终止条款需要看合同原文"],
+      "forbidden_claims": ["许可证文件可以替代合同条款"],
+      "tool_query": "RL-MULTI-01 许可证 合同终止条款"
+    }
+  ],
+  "originals": [
+    {"id": "rl-business-conditions-01-primary", "kind": "note", "text": "RL-BIZ-01 续约观察：续约稳定性必须同时核对租约签署页、履约记录与本期回款；本条没有已签文件或回款结论。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-business-conditions-01-secondary", "kind": "note", "text": "RL-BIZ-01 履约补记：发货量只是过程信号，不能替代履约记录和回款凭证，也不能单独证明合同已经兑现。", "version_at": "2026-08-19T00:00:00+00:00"},
+    {"id": "rl-business-conditions-01-decoy-a", "kind": "note", "text": "RL-BIZ-01 无关资料甲：办公设备维护安排待下月确认。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-business-conditions-01-decoy-b", "kind": "note", "text": "RL-BIZ-01 无关资料乙：仓库照明改造仍在排期。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-business-conditions-01-decoy-c", "kind": "note", "text": "RL-BIZ-01 无关资料丙：员工培训签到表待归档。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-business-conditions-01-decoy-d", "kind": "note", "text": "RL-BIZ-01 无关资料丁：会议室预订不构成业务结果。", "version_at": "2026-08-18T00:00:00+00:00"},
+
+    {"id": "rl-note-time-01-primary", "kind": "note", "text": "RL-TIME-01 当前版本：手记记录待核对验收资料，版本保存时间晚于交易日期；没有初稿形成时间。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-note-time-01-secondary", "kind": "note", "text": "RL-TIME-01 时间边界：当前版本的保存或修改时间只能说明该版本何时可用，不能证明初稿当日内容或当时不存在这条理由。", "version_at": "2026-08-19T00:00:00+00:00"},
+    {"id": "rl-note-time-01-decoy-a", "kind": "note", "text": "RL-TIME-01 无关资料甲：设备序列号已登记。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-note-time-01-decoy-b", "kind": "note", "text": "RL-TIME-01 无关资料乙：供应商联系人待更新。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-note-time-01-decoy-c", "kind": "note", "text": "RL-TIME-01 无关资料丙：运输单号尚未回传。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-note-time-01-decoy-d", "kind": "note", "text": "RL-TIME-01 无关资料丁：版本标签本身不是交易日期。", "version_at": "2026-08-18T00:00:00+00:00"},
+
+    {"id": "rl-contradictory-sources-01-primary", "kind": "note", "text": "RL-CONFLICT-01 记录甲：库存压力可能已经下降，但这只是尚未核实的估计。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-contradictory-sources-01-secondary", "kind": "note", "text": "RL-CONFLICT-01 记录乙：盘点摘要认为库存压力仍然偏高，同样没有原始盘点表支持。", "version_at": "2026-08-19T00:00:00+00:00"},
+    {"id": "rl-contradictory-sources-01-decoy-a", "kind": "note", "text": "RL-CONFLICT-01 无关资料甲：包装耗材采购申请等待审批。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-contradictory-sources-01-decoy-b", "kind": "note", "text": "RL-CONFLICT-01 无关资料乙：厂区访客记录已经归档。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-contradictory-sources-01-decoy-c", "kind": "note", "text": "RL-CONFLICT-01 无关资料丙：物流标签格式正在调整。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-contradictory-sources-01-decoy-d", "kind": "note", "text": "RL-CONFLICT-01 无关资料丁：不同估计不能互相变成盘点事实。", "version_at": "2026-08-18T00:00:00+00:00"},
+
+    {"id": "rl-multiple-sources-01-primary", "kind": "note", "text": "RL-MULTI-01 条件甲：许可证有效期需要核对发证机构文件；当前资料没有该文件。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-multiple-sources-01-secondary", "kind": "note", "text": "RL-MULTI-01 条件乙：合同终止条款需要核对合同原文；许可证材料不能替代合同条款。", "version_at": "2026-08-19T00:00:00+00:00"},
+    {"id": "rl-multiple-sources-01-decoy-a", "kind": "note", "text": "RL-MULTI-01 无关资料甲：内部培训课程已经排期。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-multiple-sources-01-decoy-b", "kind": "note", "text": "RL-MULTI-01 无关资料乙：办公用品采购单待入库。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-multiple-sources-01-decoy-c", "kind": "note", "text": "RL-MULTI-01 无关资料丙：联系人邮箱发生变更。", "version_at": "2026-08-18T00:00:00+00:00"},
+    {"id": "rl-multiple-sources-01-decoy-d", "kind": "note", "text": "RL-MULTI-01 无关资料丁：独立条件应分别核对，不能把一份文件当成另一份文件。", "version_at": "2026-08-18T00:00:00+00:00"}
+  ]
+}
