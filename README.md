@@ -1,12 +1,8 @@
-> **当前产品：持仓手记 · 微信小程序（发布准备中）。** 本地持仓、个人手记、完整备份恢复，以及受控云端行情/AI 能力的说明，见[小程序当前入口](docs/miniprogram/README.md)、[发布准备状态](docs/implementation/chicang-slim/RELEASE_PREPARATION.md)和[真机清单](docs/implementation/chicang-slim/DEVICE_ACCEPTANCE.md)。本地检查通过不代表已经发布；云端清理、权限、数据许可、微信后台及真机验收仍需补齐。生产小程序行情缺失时显示不可用或带时间的真实缓存，不使用示例报价补位。
->
-> 下方中文和英文正文均为既有桌面版文档。其中 sample 降级、安装包和密钥本机保存等描述不适用于当前小程序，不应直接用于小程序审核、隐私说明或运行手册。
-
 > **桌面源码发布候选：`v1.3.2-rc.1`。** 本候选提供可审查、可本地开发的源码压缩包；它不是 Windows 或 macOS 一键运行安装包。跨平台安装包仍以对应 Releases 条目和签名状态为准。
 
 <a id="中文"></a>
 
-<h1 align="center">美股定投交易日记 · 量化分析</h1>
+<h1 align="center">持仓手记 · 量化分析</h1>
 
 <p align="center">
   <strong>把持仓、行情、策略、AI 研究与交易复盘留在自己电脑上的本地投资工作台</strong>
@@ -41,19 +37,35 @@
 
 | | 能力 | 你可以做什么 |
 | --- | --- | --- |
-| 📊 | **账户总览** | 汇总持仓成本、市值、浮动盈亏、目标仓位、均线、RSI、回撤与当日信号 |
-| 📈 | **K 线工作台** | 查看 1 日、5 日、日 K、周 K、月 K，叠加成交量、MA20/60/120/200 与交易标记 |
-| 🧭 | **策略研究** | 配置 ETF / 核心仓 / 卫星仓规则，对比买入持有、定投、MA 风控与回调加仓回测 |
-| ✨ | **AI 建议日历** | 生成每日建议、连续追问，并按日期回看交易操作、AI 判断与后续对话 |
-| 🧠 | **量化分析** | 先计算可复算指标，再由多角色分析、辩论和风险审查生成结构化研究报告 |
-| 🔒 | **本地数据管理** | 管理股票池、交易流水、持仓目标和 AI Provider；支持 CSV / TSV 与持仓截图导入 |
+| 📊 | **资产总览** | 汇总持仓成本、浮动盈亏、今日变动、技术指标与观察标的状态 |
+| 📈 | **多市场看板** | 管理美股、场内 ETF 与场外基金自选，查看行情、涨跌、溢价、份额和数据来源 |
+| ✨ | **AI 日历** | 按日期回看 AI 分析、连续对话和投资手记，自动保留每次研究上下文 |
+| 🧠 | **量化分析** | 组合技术面、基本面、新闻、情绪与宏观研究，经过多角色研判和风险复核形成报告 |
+| 🧾 | **交易记录** | 录入交易流水、导入持仓截图，维护持仓成本和目标仓位 |
+| 🔒 | **本地数据管理** | 管理 AI Provider、备份恢复和浏览器草稿；私有运行数据默认只写入本机 |
 
 ## 产品界面
 
-![美股定投交易日记整体界面](docs/screenshots/overview.png)
+以下截图来自本地运行的当前前端页面，展示新版工作台的四个主要入口：
+
+### 总览
+
+![资产总览：持仓盈亏、今日变动与标的状态](docs/screenshots/overview.png)
+
+### 看板
+
+![多市场看板：美股、场内 ETF 与场外基金行情](docs/screenshots/market-board.png)
+
+### AI 日历
+
+![AI 日历：按日期回看分析、连续对话与投资手记](docs/screenshots/ai-calendar.png)
+
+### 量化分析
+
+![量化分析：研究配置、分析师开关与历史报告](docs/screenshots/quant-analysis.png)
 
 <p align="center">
-  总览、K 线、策略研究、AI 建议与量化分析共享同一套本地数据<br>
+  总览、看板、AI 日历与量化分析共享同一套本地数据<br>
   <a href="https://github.com/user-attachments/assets/d07989b2-8ad5-490d-a9b6-327f87805320"><strong>▶ 在线观看演示</strong></a>
   ·
   <a href="docs/screenshots/demo.mp4">下载 MP4 录屏</a>
@@ -231,7 +243,7 @@ npm run check
 
 <a id="english"></a>
 
-# US Stock DCA Journal + Quant Analysis
+# Chicang Shouji + Quant Analysis
 
 > A local-first workspace for US stock and ETF research, portfolio journaling, strategy review, and AI-assisted analysis.
 
@@ -241,11 +253,23 @@ The project brings portfolio status, candlestick charts, strategy signals, backt
 
 ## Highlights
 
-- **One workspace:** portfolio overview, 1D / 5D / daily / weekly / monthly charts, strategy research, AI advice, and quant analysis.
+- **One workspace:** portfolio overview, multi-market board, AI calendar, and multi-agent quantitative analysis.
 - **Reproducible first:** indicators and relative performance are calculated before non-deterministic AI interpretation.
 - **Decisions with history:** trades, daily advice, and follow-up conversations are organized in a browsable calendar.
 - **Local by default:** private runtime data and provider keys stay under the gitignored `storage/local/` directory.
 - **Resilient UI:** production market paths show real observations, timestamped real caches, or an explicit unavailable state; synthetic data is limited to explicit development/test injection.
+
+## Product interface
+
+The current frontend is organized around four primary workspace views:
+
+| Overview | Market board |
+| --- | --- |
+| ![Portfolio overview](docs/screenshots/overview.png) | ![Market board](docs/screenshots/market-board.png) |
+
+| AI calendar | Quant analysis |
+| --- | --- |
+| ![AI calendar](docs/screenshots/ai-calendar.png) | ![Quant analysis](docs/screenshots/quant-analysis.png) |
 
 > [!WARNING]
 > This project is for research and journaling only. It never places trades, and its quantitative or AI-generated output is not investment advice.
