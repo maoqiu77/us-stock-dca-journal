@@ -392,6 +392,56 @@ class ManagerExecutionTest(unittest.TestCase):
         self.assertEqual(self.service.confirm(request)['turns'][0]['run_id'],run_id)
         self.assertEqual(calls,[1]);self.assertEqual(self.store.get(run_id)['usage']['llm_calls'],1)
 
+    def test_u04_send_scope_is_explicit_and_excluded_note_never_reaches_sources(self):
+        included = self.journal.save_note('synthetic included memory')['id']
+        excluded = self.journal.save_note('synthetic excluded memory')['id']
+        preview = self.service.preview(PreviewRequest(
+            task_type='portfolio_review', question='synthetic scope question', engine='agent',
+            note_ids=[included], memory_excluded_ids=[excluded]))
+        private = preview['private_context']
+        self.assertEqual([row['id'] for row in private['notes']], [included])
+        self.assertNotIn(excluded, json.dumps(private, ensure_ascii=False))
+        selected_source_ids = [row['id'] for row in preview['agent_sources'] if row['kind'] == 'note']
+        self.assertEqual(preview['agent_scope']['memory_source_ids'], selected_source_ids)
+        self.assertEqual(len(selected_source_ids), 1)
+        self.assertNotIn(excluded, selected_source_ids)
+        self.assertEqual(preview['agent_scope']['coverage'], 'selected_positions_only')
+        # Text in the question cannot grant an unselected note or instrument.
+        self.assertNotIn('excluded', json.dumps(preview['agent_sources'], ensure_ascii=False))
+
+    def test_reviewed_answer_and_usage_are_persisted_without_draft(self):
+        from langchain_core.messages import AIMessage
+        from app.modules.ai_journal.agent.research_plan import research_plan
+        note = self.journal.save_note('synthetic original')['id']
+        original = self.service.preview(PreviewRequest(task_type='portfolio_review', question='synthetic original', engine='agent', note_ids=[note]))
+        payload = {key: value for key, value in original.items() if key not in {'id', 'digest'}}
+        payload['research_plan'] = research_plan('复盘我的持仓，简短说', task_type='portfolio_review')
+        payload['agent_scope']['public_research'] = True
+        preview = self.journal.save_snapshot(payload, model_fingerprint(SETTINGS))
+        request = ConfirmRequest(snapshot_id=preview['id'], digest=preview['digest'], idempotency_key='review-fixture')
+        created = self.store.create(request, preview, model_fingerprint(SETTINGS), None)
+        calls = []
+        def factory(*_):
+            async def model(messages, tools):
+                calls.append(1)
+                if len(calls) == 1:
+                    return AIMessage(content='', tool_calls=[{'id': 'review-memory', 'name': 'search_investment_memory', 'args': {'query': 'original'}}])
+                value = json.loads(answer([preview['agent_sources'][0]['id']]))
+                value['summary'] = 'unreviewed-draft-fixture' if len(calls) == 2 else 'reviewed-answer-fixture'
+                return AIMessage(content=json.dumps(value))
+            return model
+        manager = JournalAgentManager(self.journal, settings=lambda: SETTINGS, model_factory=factory,
+            access=self.access, enabled=lambda: True, research_factory=lambda: None)
+        manager.execute(created['run_id'])
+        result = self.store.get(created['run_id'])
+        self.assertEqual(result['status'], 'succeeded')
+        self.assertEqual(result['usage']['answer_review'], 'completed')
+        self.assertEqual(result['usage']['llm_calls'], 3)
+        self.assertEqual(result['events'][-1]['tool'], 'review_answer')
+        final = self.journal.session(created['session_id'])['turns'][0]['answer']
+        self.assertIn('reviewed-answer-fixture', final)
+        self.assertNotIn('unreviewed-draft-fixture', final)
+
     def test_local_budget_sentinel_is_a_failed_run_not_a_successful_answer(self):
         from app.modules.ai_journal.agent.contracts import insufficient
 
@@ -429,10 +479,13 @@ class ManagerExecutionTest(unittest.TestCase):
     def test_note_revision_and_delete_revoke_frozen_and_cached_access(self):
         note=self.journal.save_note('synthetic original')['id']
         preview,_,_,_=self.create([note]);self.access(preview,self.journal)
+        frozen, _, _ = self.journal.snapshot(preview['id'])
+        self.assertEqual(frozen['private_context']['notes'][0]['body'], 'synthetic original')
         self.journal.save_note('changed original',note)
         with self.assertRaises(AccessRevoked): self.access(preview,self.journal)
         preview,_,_,_=self.create([note]);self.journal.delete_note(note)
         with self.assertRaises(AccessRevoked): self.access(preview,self.journal)
+        with self.assertRaises(Exception): self.journal.note_versions(note)
 
     def test_multiworker_claim_and_only_expired_leases_become_unknown(self):
         _,_,run_id,_=self.create()

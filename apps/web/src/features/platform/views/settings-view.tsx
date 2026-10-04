@@ -100,16 +100,18 @@ function DataBoundaryCard({
 
 function storageStatusLabel(status: string) {
   if (status === "api") {
-    return "sqlite";
+    return "已写入本地数据库";
   }
   if (status === "saving") {
-    return "saving";
+    return "保存中";
   }
   if (status === "loading") {
-    return "loading";
+    return "正在读取";
   }
   if (status === "error") {
-    return "local fallback";
+    return "保存被拒绝，草稿保留";
   }
-  return "local";
+  if (status === "conflict") return "保存冲突";
+  if (status === "unknown") return "结果待核验";
+  return "仅浏览器草稿";
 }

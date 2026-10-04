@@ -7,50 +7,14 @@ VERSION="${1:-v$PACKAGE_VERSION}"
 DIST_DIR="$ROOT/dist"
 ARCHIVE="$DIST_DIR/stock-trading-platform-next-${VERSION}.zip"
 
-mkdir -p "$DIST_DIR"
-rm -f "$ARCHIVE"
+if [[ ! "$VERSION" =~ ^v[0-9]+(\.[0-9]+){2}(-[A-Za-z0-9._-]+)?$ ]]; then
+  echo "Expected a version such as v1.4.0-rc.1" >&2
+  exit 2
+fi
 
 cd "$ROOT"
 
 python3 scripts/check_public_safety.py
 python3 scripts/check_release_readiness.py
 
-zip -r "$ARCHIVE" . \
-  -x ".git" \
-  -x ".git/*" \
-  -x "*/.git/*" \
-  -x "*/.git/**" \
-  -x "dist/*" \
-  -x "node_modules/*" \
-  -x "apps/web/node_modules/*" \
-  -x "*/node_modules/*" \
-  -x "packages/*/dist/*" \
-  -x "packages/*/coverage/*" \
-  -x "packages/*/*.tsbuildinfo" \
-  -x "packages/*/storage/local/*" \
-  -x "apps/miniprogram/dist/*" \
-  -x "apps/miniprogram/project.private.config.json" \
-  -x "apps/miniprogram/*/project.private.config.json" \
-  -x "apps/mobile/.expo/*" \
-  -x "apps/mobile/native-artifacts/*" \
-  -x "apps/mobile/ios/*" \
-  -x "apps/mobile/android/*" \
-  -x "*.keystore" \
-  -x "*.jks" \
-  -x "*.p12" \
-  -x "*.mobileprovision" \
-  -x "apps/web/.next/*" \
-  -x ".venv/*" \
-  -x "storage/local/*" \
-  -x "*.db" \
-  -x "*.sqlite" \
-  -x "*.sqlite3" \
-  -x ".env" \
-  -x ".env.*" \
-  -x "apps/**/.env" \
-  -x "apps/**/.env.*" \
-  -x ".DS_Store" \
-  -x "__pycache__/*" \
-  -x "*/__pycache__/*"
-
-echo "$ARCHIVE"
+python3 scripts/create_source_archive.py "$ARCHIVE"

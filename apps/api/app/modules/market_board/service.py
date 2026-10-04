@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, wait
 import time
 from .models import BoardResponse, Capabilities, DetailResponse, Segment, Series, Quote, Nav, PurchaseLimit, EtfMetrics, FundHoldings, ObservationMeta, BoardRow
-from .sample import row_for, series_for
 from .providers.bars import BarsProvider
 from .providers.us import USProvider
 from .providers.cn import CNProvider
@@ -77,10 +76,7 @@ class BoardService:
                     metrics.shares_meta=shares.meta
                     fields['metrics']=metrics
                 self._complete_premium_history(item, fields.get('quote'), fields.get('metrics'), now)
-        actual=[v for v in fields.values() if v is not None]
-        if not actual:
-            return row_for(item)
-        # Never combine a sample price with real supplemental facts.
+        # Provider outages stay explicit; production never fills gaps with sample prices.
         row=BoardRow(instrument=item,**fields)
         missing=ObservationMeta(source='未取得数据',fetched_at=now,status='missing',reason='字段不可用；未填充示例')
         if item.asset_type.value=='FUND':
@@ -203,6 +199,4 @@ class BoardService:
         if item is None: raise KeyError(key)
         live=self.cache.get('yahoo',key,'bars',Series,lambda:self.bars.series(item,period,range_,self.now()),refresh=refresh,period=period,range_=range_,adjustment='split_adjusted')
         if live: return live
-        if item.market.value=='US' and period=='1d' and range_ in ('1mo','3mo','1y') and any(known.key==key for known in self.catalog.defaults[Segment.US]):
-            return series_for(item,period,range_)
         return Series(instrument_key=key,currency=item.currency,period=period,range=range_,timezone=item.timezone,meta=ObservationMeta(source='Yahoo Finance',fetched_at=self.now(),status='missing',reason='无真实 K 线缓存'))

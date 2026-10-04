@@ -1,714 +1,183 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
-import {
-  AlertCircleIcon,
-  BotIcon,
-  CalendarDaysIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  FileTextIcon,
-  MessageSquareIcon,
-  RefreshCcwIcon,
-  SendIcon,
-  Trash2Icon,
-} from "lucide-react";
-
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { BotIcon, CalendarDaysIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  fetchAiAdviceCalendar,
-  clearAiAdviceChat,
-  sendAiAdviceChat,
-} from "@/features/platform/api";
-import {
-  fetchJournalCalendar,
-  fetchJournalSession,
-  type CalendarEntry,
-} from "@/features/ai-journal/api";
-import {
-  useAiAdviceCalendarQuery,
-  useAiSettingsQuery,
-} from "@/features/platform/queries";
-import {
-  isAiAdviceCompositionEnter,
-  isAiAdviceSubmitShortcut,
-} from "@/features/platform/ai-advice-shortcut";
-import {
-  EmbeddedJournalComposer,
-  type EmbeddedJournalHandle,
-} from "@/features/ai-journal/embedded-composer";
-import type { JournalSession } from "@/features/ai-journal/api";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useAiAdviceCalendarQuery, useAiSettingsQuery } from "@/features/platform/queries";
+import { EmbeddedJournalComposer } from "@/features/ai-journal/embedded-composer";
+import { JournalRunPanel } from "@/features/ai-journal/run-panel";
+import { errors, fetchJournalCalendar, fetchJournalNote, fetchJournalSession, fetchNoteVersions,
+  type CalendarEntry, type JournalNote, type JournalSession } from "@/features/ai-journal/api";
+import { beijingDay, calendarCells, shiftMonth } from "@/features/ai-journal/calendar";
+import { runIsActive } from "@/features/ai-journal/state";
+import { SaveJudgmentButton } from "@/features/ai-journal/user-records-panel";
 
 export function AiAdviceView() {
   const queryClient = useQueryClient();
-  const [chatPrompt, setChatPrompt] = React.useState("");
-  const [selectedDate, setSelectedDate] = React.useState<string | null>(null);
-  const [isRecoveringAiResponse, setIsRecoveringAiResponse] =
-    React.useState(false);
-  const [journalSession, setJournalSession] = React.useState<JournalSession | null>(null);
-  const [journalLoadingId, setJournalLoadingId] = React.useState<string | null>(null);
-  const [journalLoadError, setJournalLoadError] = React.useState("");
-  const journalRef = React.useRef<EmbeddedJournalHandle>(null);
-  const chatContainerRef = React.useRef<HTMLDivElement>(null);
-  const [calendarMonth, setCalendarMonth] = React.useState(() => {
-    const now = new Date();
-    return { year: now.getFullYear(), month: now.getMonth() + 1 };
-  });
-  const aiCalendarQuery = useAiAdviceCalendarQuery(selectedDate);
-  const journalCalendarQuery = useQuery({
-    queryKey: ["ai-journal-calendar"],
-    queryFn: fetchJournalCalendar,
-  });
-  const aiSettingsQuery = useAiSettingsQuery();
-  const [journalKey, setJournalKey] = React.useState<string | undefined>();
+  const today = beijingDay();
+  const [selectedDate, setSelectedDate] = React.useState(() => readDateParam(today));
+  const [month, setMonth] = React.useState(() => readDateParam(today).slice(0, 7));
+  const [session, setSession] = React.useState<JournalSession | null>(null);
+  const [prefillKey, setPrefillKey] = React.useState<string | undefined>(() => readInstrumentParam() ?? undefined);
+  const [loadingId, setLoadingId] = React.useState<string | null>(null);
+  const [error, setError] = React.useState("");
+  const [note, setNote] = React.useState<JournalNote | null>(null);
+  const noteVersions = useQuery({ queryKey: ["ai-journal-note-versions", note?.id], queryFn: () => fetchNoteVersions(note!.id), enabled: Boolean(note) });
+  const [sending, setSending] = React.useState(false);
+  const selectionVersion = React.useRef(0);
+  const end = React.useRef<HTMLDivElement>(null);
+  const calendar = useQuery({ queryKey: ["ai-journal-calendar"], queryFn: fetchJournalCalendar });
+  const legacy = useAiAdviceCalendarQuery(selectedDate);
+  const settings = useAiSettingsQuery();
+  const active = sending || (session?.turns.some((turn) => turn.status === "pending" || runIsActive(turn.run?.status)) ?? false);
+  const ready = Boolean(settings.data?.hasApiKey && settings.data?.baseUrl && settings.data?.model);
+  const savedDates = new Set([...(calendar.data?.dates ?? []), ...(legacy.data?.dates ?? [])]);
+  // List a conversation once per day, while retaining its complete turn history.
+  const entries = (calendar.data?.items ?? []).filter((entry) => entry.date === selectedDate)
+    .filter((entry, index, all) => !entry.session_id || entry.kind !== "session" ||
+      all.findIndex((other) => other.kind === "session" && other.session_id === entry.session_id) === index);
+  const record = legacy.data?.record?.date === selectedDate ? legacy.data.record : null;
+
   React.useEffect(() => {
-    const saved = window.localStorage.getItem("ai-journal-prefill-key");
-    if (saved) { // eslint-disable-next-line react-hooks/set-state-in-effect
-      setJournalKey(saved);
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session");
+    if (sessionId) {
+      void fetchJournalSession(sessionId).then(value => setSession(value)).catch(reason => setError(reason instanceof Error ? reason.message : "会话暂时无法读取。"));
     }
-    const onPrefill = (event: Event) => setJournalKey((event as CustomEvent<string>).detail);
+    const saved = window.localStorage.getItem("ai-journal-prefill-key");
+    if (saved) {
+      // Hydrate the browser-only handoff after mount.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPrefillKey(saved);
+      window.localStorage.removeItem("ai-journal-prefill-key");
+    }
+    const onPrefill = (event: Event) => {
+      setPrefillKey((event as CustomEvent<string>).detail);
+      window.localStorage.removeItem("ai-journal-prefill-key");
+    };
     window.addEventListener("ai-journal-prefill", onPrefill);
     return () => window.removeEventListener("ai-journal-prefill", onPrefill);
   }, []);
-  const calendarData = aiCalendarQuery.data;
-  const journalCalendar = journalCalendarQuery.data;
-  const selectedCalendarDate =
-    selectedDate ??
-    calendarData?.selectedDate ??
-    calendarData?.today ??
-    journalCalendar?.dates?.[0] ??
-    null;
-  const record =
-    calendarData?.record?.date === selectedCalendarDate
-      ? calendarData.record
-      : null;
-  const journalEntriesForDate = React.useMemo(
-    () =>
-      (journalCalendar?.items ?? []).filter(
-        (entry) => entry.date === selectedCalendarDate
-      ),
-    [journalCalendar?.items, selectedCalendarDate]
-  );
-  const applyCalendarResponse = React.useCallback(
-    (response: Awaited<ReturnType<typeof fetchAiAdviceCalendar>>) => {
-      queryClient.setQueryData(["ai-advice", "default"], response);
-      const nextDate = response.record?.date ?? response.selectedDate ?? response.today;
-      if (nextDate) {
-        queryClient.setQueryData(["ai-advice", nextDate], response);
-        setSelectedDate(nextDate);
-        const [year, month] = nextDate.split("-").map(Number);
-        setCalendarMonth({ year, month });
-      }
-      void queryClient.invalidateQueries({ queryKey: ["ai-advice"] });
-    },
-    [queryClient]
-  );
-  const recoverSavedAiAdvice = React.useCallback(
-    async (previousSignature: string, resetMutation: () => void) => {
-      setIsRecoveringAiResponse(true);
-      try {
-        for (let attempt = 0; attempt < 12; attempt += 1) {
-          if (attempt > 0) {
-            await wait(2500);
-          }
-          const response = await fetchAiAdviceCalendar();
-          const nextSignature = aiAdviceRecordSignature(response.record);
-          if (
-            response.record &&
-            response.selectedDate === response.today &&
-            nextSignature !== previousSignature
-          ) {
-            applyCalendarResponse(response);
-            resetMutation();
-            return;
-          }
-        }
-      } catch {
-        // Keep the original mutation error visible when recovery cannot confirm a saved record.
-      } finally {
-        setIsRecoveringAiResponse(false);
-      }
-    },
-    [applyCalendarResponse]
-  );
-  const chatMutation = useMutation({
-    mutationFn: sendAiAdviceChat,
-    onMutate: getCurrentAiAdviceSignature,
-    onSuccess: (response) => {
-      applyCalendarResponse(response);
-    },
-    onError: (error, _variables, context) => {
-      if (isRecoverableAiAdviceError(error)) {
-        void recoverSavedAiAdvice(
-          context?.previousSignature ?? "",
-          () => chatMutation.reset()
-        );
-      }
-    },
-  });
-  const clearChatMutation = useMutation({
-    mutationFn: clearAiAdviceChat,
-    onSuccess: (response) => {
-      chatMutation.reset();
-      setChatPrompt("");
-      applyCalendarResponse(response);
-    },
-  });
-  const savedDates = new Set([
-    ...(calendarData?.dates ?? []),
-    ...(journalCalendar?.dates ?? []),
-  ]);
-  const days = calendarDays(calendarMonth.year, calendarMonth.month);
-  const aiReady =
-    Boolean(aiSettingsQuery.data?.hasApiKey) &&
-    Boolean(aiSettingsQuery.data?.baseUrl) &&
-    Boolean(aiSettingsQuery.data?.model);
-  const selectedIsToday =
-    Boolean(selectedCalendarDate) && selectedCalendarDate === calendarData?.today;
-  const chatMessages = record ? record.messages.slice(1) : [];
-  const pendingChatPrompt =
-    chatMutation.isPending || chatMutation.isError
-      ? chatMutation.variables?.trim()
-      : "";
+
+  const acceptSession = React.useCallback((value: JournalSession | null) => {
+    setSession(value); setError("");
+    const url = new URL(window.location.href);
+    if (value) { url.searchParams.set("session", value.id); void queryClient.invalidateQueries({ queryKey: ["ai-journal-calendar"] }); }
+    else url.searchParams.delete("session");
+    window.history.replaceState({}, "", url);
+  }, [queryClient]);
+
+  const last = session?.turns.at(-1);
   React.useEffect(() => {
-    const container = chatContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
-  }, [chatMessages.length, pendingChatPrompt, chatMutation.isPending]);
-  const aiStatus = aiReady ? "ready" : "missing-config";
-  const aiUnavailableReason = !aiReady
-    ? "请先在 AI 模型配置补齐 Base URL、模型和 API Key。"
-    : "";
-  const openJournalEntry = React.useCallback(async (entry: CalendarEntry) => {
-    if (!entry.session_id || entry.status !== "completed") return;
-    setJournalLoadingId(entry.id);
-    setJournalLoadError("");
-    setSelectedDate(entry.date);
+    const target = window.location.hash.startsWith("#turn-") ? document.getElementById(decodeURIComponent(window.location.hash.slice(1))) : null;
+    (target ?? end.current)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [session?.id, session?.turns.length, last?.answer, last?.run?.status]);
+
+  const openEntry = async (entry: CalendarEntry) => {
+    const version = ++selectionVersion.current;
+    setLoadingId(entry.id); setError("");
     try {
-      const session = await fetchJournalSession(entry.session_id);
-      window.sessionStorage.setItem("ai-journal-session", session.id);
-      setJournalSession(session);
+      if (entry.kind === "note") {
+        const value = await fetchJournalNote(entry.id);
+        if (version === selectionVersion.current) setNote(value);
+      } else if (entry.session_id) {
+        const value = await fetchJournalSession(entry.session_id);
+        if (version !== selectionVersion.current) return;
+        window.sessionStorage.setItem("ai-journal-session", value.id);
+        const url = new URL(window.location.href); url.searchParams.set("view", "ai"); url.searchParams.set("date", selectedDate); url.searchParams.set("session", value.id); window.history.replaceState({}, "", url);
+        setSession(value);
+      }
     } catch (reason) {
-      setJournalLoadError(reason instanceof Error ? reason.message : "研究记录读取失败");
+      if (version === selectionVersion.current) setError(reason instanceof Error ? reason.message : "记录暂时无法读取");
     } finally {
-      setJournalLoadingId(null);
+      if (version === selectionVersion.current) setLoadingId(null);
     }
-  }, []);
-  const handleJournalSessionChange = React.useCallback(
-    (session: JournalSession | null) => {
-      setJournalSession(session);
-      setJournalLoadError("");
-      if (session) {
-        void queryClient.invalidateQueries({ queryKey: ["ai-journal-calendar"] });
-      }
-    },
-    [queryClient]
-  );
-  const submitChat = async () => {
-    const prompt = chatPrompt.trim();
-    if (!prompt || !aiReady || chatMutation.isPending || isRecoveringAiResponse) {
-      return;
-    }
-    setChatPrompt("");
-    if (journalSession) {
-      const completed = await journalRef.current?.followUp(prompt);
-      if (!completed) {
-        setChatPrompt(prompt);
-      }
-      return;
-    }
-    chatMutation.mutate(prompt);
   };
-  const journalMessages = journalSession
-    ? journalSession.turns.flatMap((turn) => [
-        { role: "user" as const, content: turn.snapshot.request.question },
-        ...(turn.answer
-          ? [{ role: "assistant" as const, content: turn.answer }]
-          : []),
-      ])
-    : [];
-  const journalAnswer = journalSession?.turns
-    .filter((turn) => turn.status === "completed" && turn.answer)
-    .at(-1)?.answer;
-  const canChat = Boolean(journalSession) || selectedIsToday;
 
-  return (
-    <>
-      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Card className="min-w-0 xl:col-span-2">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <CalendarDaysIcon />
-              AI 分析日历
-            </CardTitle>
-            <CardDescription>按本地持仓数据和 AI 模型配置生成</CardDescription>
-            <CardAction>
-              <Badge variant={aiStatus === "ready" ? "secondary" : "outline"}>
-                {aiStatus}
-              </Badge>
-            </CardAction>
-          </CardHeader>
-          <CardContent>
-            <div className="grid min-w-0 gap-2">
-              <div className="flex items-center justify-between gap-2">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  onClick={() =>
-                    setCalendarMonth(shiftMonth(calendarMonth, -1))
-                  }
-                  title="上个月"
-                >
-                  <ChevronLeftIcon />
-                  <span className="sr-only">上个月</span>
-                </Button>
-                <div className="text-sm font-medium">
-                  {calendarMonth.year} 年 {calendarMonth.month} 月
-                </div>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  onClick={() =>
-                    setCalendarMonth(shiftMonth(calendarMonth, 1))
-                  }
-                  title="下个月"
-                >
-                  <ChevronRightIcon />
-                  <span className="sr-only">下个月</span>
-                </Button>
-              </div>
-              <div className="grid grid-cols-8 gap-1">
-                {days.map((day) => (
-                  <Button
-                    key={day}
-                    variant={
-                      day === selectedCalendarDate ? "secondary" : "outline"
-                    }
-                    size="sm"
-                    disabled={!savedDates.has(day)}
-                    onClick={() => {
-                      setSelectedDate(day);
-                      setJournalSession(null);
-                      setJournalLoadError("");
-                      window.sessionStorage.removeItem("ai-journal-session");
-                    }}
-                    className="relative h-9 min-w-0 px-1 text-base font-medium"
-                    aria-label={`${day}${
-                      savedDates.has(day) ? "，已有 AI 分析" : "，无 AI 分析"
-                    }`}
-                  >
-                    {Number(day.slice(-2))}
-                    {savedDates.has(day) ? (
-                      <span
-                        className="absolute right-1 top-1 size-1 rounded-full bg-current"
-                        aria-hidden="true"
-                      />
-                    ) : null}
-                  </Button>
-                ))}
-              </div>
-              {selectedCalendarDate && journalEntriesForDate.length > 0 ? (
-                <div className="grid gap-1 rounded-lg border p-2">
-                  <div className="px-1 text-xs font-medium text-muted-foreground">
-                    当天研究记录
-                  </div>
-                  {journalEntriesForDate.map((entry) => (
-                    <Button
-                      key={entry.id}
-                      variant="ghost"
-                      className="h-auto min-w-0 justify-between gap-2 px-2 py-2 text-left"
-                      disabled={!entry.session_id || journalLoadingId === entry.id}
-                      onClick={() => void openJournalEntry(entry)}
-                      aria-label={`${entry.title}${entry.status === "completed" ? "，点击查看" : `，${journalStatusLabel(entry.status)}`}`}
-                    >
-                      <span className="min-w-0 truncate text-sm">{entry.title}</span>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {journalLoadingId === entry.id ? "读取中" : journalStatusLabel(entry.status)}
-                      </span>
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
-              {journalLoadError ? (
-                <div className="rounded-lg bg-destructive/10 p-2 text-sm text-destructive">
-                  {journalLoadError}
-                </div>
-              ) : null}
+  const chooseDay = (day: string) => {
+    selectionVersion.current += 1;
+    setSelectedDate(day); setSession(null); setLoadingId(null); setError("");
+    window.sessionStorage.removeItem("ai-journal-session");
+    const url = new URL(window.location.href); url.searchParams.set("view", "ai"); url.searchParams.set("date", day); url.searchParams.delete("session"); window.history.replaceState({}, "", url);
+  };
+
+  return <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <Card className="min-w-0">
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2"><BotIcon className="size-5" />AI 投资助手 <Badge variant="secondary">{ready ? "已连接" : "待配置模型"}</Badge></CardTitle>
+        <CardDescription>聊一只股票、检查持仓，或了解新闻对交易的影响。每次分析自动保存在右侧日历。</CardDescription>
+      </CardHeader>
+      <CardContent className="grid min-w-0 gap-4">
+        <div className="flex max-h-[60vh] min-h-60 flex-col gap-4 overflow-y-auto rounded-lg bg-muted/20 p-3" aria-label="投资助手对话" aria-live="polite">
+          {!session ? <div className="m-auto max-w-lg py-8 text-center">
+            <p className="text-lg font-medium">今天想研究什么？</p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">直接输入股票名称或代码，也可以问“我的持仓应该怎么调整”。我会先查资料，再用容易理解的话说明判断和下一步。</p>
+          </div> : session.turns.map((turn) => <div key={turn.id} id={`turn-${turn.id}`} className="grid min-w-0 gap-3">
+            <div className="ml-auto max-w-[90%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-sm text-primary-foreground">{turn.snapshot.request.question}</div>
+            <div className="min-w-0 rounded-2xl rounded-bl-sm border bg-background p-4">
+              {turn.run ? <JournalRunPanel run={turn.run} onRefresh={() => void queryClient.invalidateQueries({ queryKey: ["ai-journal-session", session.id] })} /> :
+                turn.answer ? <div className="whitespace-pre-wrap break-words text-sm leading-7">{turn.answer}</div> :
+                  <p className="text-sm text-muted-foreground">{turn.status === "failed" ? errors[turn.error_code] ?? "这次分析未完成，可以继续提问。" : "正在查阅资料并整理回答…"}</p>}
+              {!turn.run && turn.snapshot.facts.some((fact) => fact.kind === "新闻") ? <details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer">本轮新闻来源</summary>
+                <div className="grid gap-2 pt-2">{turn.snapshot.facts.filter((fact) => fact.kind === "新闻").map((fact, index) => <a key={index} href={String(fact.value.url)} target="_blank" rel="noreferrer" className="underline">{String(fact.value.title)} · {String(fact.value.publisher)} · {String(fact.value.published_at).slice(0, 10)}</a>)}</div>
+              </details> : null}
+              {turn.status === "completed" && (turn.answer || turn.run?.status === "succeeded") ? <SaveJudgmentButton turnId={turn.id} scope={session.instrument_key ?? "我的组合"} /> : null}
+              <details className="mt-3 text-xs text-muted-foreground"><summary className="cursor-pointer">原冻结快照</summary><p>观察记录时间：{turn.snapshot.created_at} · 快照 {turn.snapshot_id}</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify({ facts: turn.snapshot.facts, missing: turn.snapshot.missing }, null, 2)}</pre>{turn.deleted_note_ids.length ? <p>部分原手记已删除；旧快照仍保留当时证据，不再加入新上下文。</p> : null}</details>
             </div>
-          </CardContent>
-        </Card>
-        <div className="flex min-w-0 flex-col gap-3">
-          <Card className="min-w-0">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <FileTextIcon />
-              AI 分析
-            </CardTitle>
-            <CardDescription>
-              {journalSession
-                ? journalSession.title
-                : record
-                ? `${record.date}，生成时间 ${record.generated_at}`
-                : "尚未选择或保存 AI 分析"}
-            </CardDescription>
-            <CardAction>
-              <Badge variant="outline">{journalSession ? journalSession.turns.at(-1)?.engine === "agent" ? "Agent" : "文本分析" : record?.source ?? "local"}</Badge>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="grid gap-4">
-            <EmbeddedJournalComposer
-              ref={journalRef}
-              prefillKey={journalKey}
-              session={journalSession}
-              onSessionChange={handleJournalSessionChange}
-            />
-            {journalAnswer ? (
-              <div className="max-h-[560px] overflow-auto rounded-lg bg-muted/50 p-3">
-                <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-                  {journalAnswer}
-                </pre>
-              </div>
-            ) : null}
-            {aiCalendarQuery.isLoading ? (
-              <div className="grid gap-2">
-                <Skeleton className="h-5 w-1/3" />
-                <Skeleton className="h-72 w-full" />
-              </div>
-            ) : record && !journalSession ? (
-              <div className="grid gap-4">
-                <div className="rounded-lg bg-muted/50 p-3">
-                  <div className="text-sm text-muted-foreground">交易时段</div>
-                  <div className="mt-1 text-sm">
-                    {record.beijing_context.estimated_session_status ?? "--"}
-                  </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    {record.beijing_context.timing_suggestion ?? ""}
-                  </div>
-                </div>
-                <div className="max-h-[560px] overflow-auto rounded-lg bg-muted/50 p-3">
-                  <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-                    {record.content}
-                  </pre>
-                </div>
-              </div>
-            ) : !journalSession ? (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                暂无分析记录。
-              </div>
-            ) : null}
-            {aiUnavailableReason ? (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                {aiUnavailableReason}
-              </div>
-            ) : null}
-          </CardContent>
-          </Card>
+          </div>)}
+          <div ref={end} />
         </div>
-        <div className="flex flex-col gap-3">
-          <Card className="min-h-[560px]">
-          <CardHeader className="border-b">
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquareIcon />
-              AI 对话
-            </CardTitle>
-            <CardDescription>
-              {journalSession
-                ? "基于当前研究继续追问"
-                : record
-                ? selectedIsToday
-                  ? "基于今日分析继续追问"
-                  : `${record.date} 的历史对话`
-                : "生成今日 AI 分析后可继续追问"}
-            </CardDescription>
-            <CardAction className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => clearChatMutation.mutate()}
-                disabled={
-                  Boolean(journalSession) ||
-                  !selectedIsToday ||
-                  chatMessages.length === 0 ||
-                  chatMutation.isPending ||
-                  clearChatMutation.isPending
-                }
-                title="仅清空今日追问，保留 AI 首次总结"
-              >
-                <Trash2Icon data-icon="inline-start" />
-                {clearChatMutation.isPending ? "清空中" : "清空今日对话"}
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-3">
-            <div
-              ref={chatContainerRef}
-              className="flex max-h-[520px] min-h-72 flex-1 flex-col gap-3 overflow-y-auto rounded-lg bg-muted/30 p-3"
-              aria-live="polite"
-            >
-              {chatMessages.length === 0 && journalMessages.length === 0 && !pendingChatPrompt ? (
-                <div className="m-auto max-w-64 text-center text-sm text-muted-foreground">
-                  {journalSession
-                    ? "在下方输入问题，继续这次研究。"
-                    : record
-                    ? "在下方输入问题，AI 的回答会显示在这里。"
-                    : "暂无对话。"}
-                </div>
-              ) : null}
-              {journalMessages.map((message, index) => (
-                <ChatMessageBubble
-                  key={`journal-${index}-${message.role}`}
-                  role={message.role}
-                  content={message.content}
-                />
-              ))}
-              {chatMessages.map((message, index) => (
-                <ChatMessageBubble
-                  key={`${message.created_at}-${message.role}-${index}`}
-                  role={message.role}
-                  content={message.content}
-                  createdAt={message.created_at}
-                />
-              ))}
-              {pendingChatPrompt ? (
-                <ChatMessageBubble role="user" content={pendingChatPrompt} />
-              ) : null}
-              {chatMutation.isPending ? (
-                <div className="mr-auto flex max-w-[85%] items-center gap-2 rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm text-muted-foreground">
-                  <BotIcon className="size-4" />
-                  AI 正在回复…
-                </div>
-              ) : null}
-            </div>
-            {chatMutation.error ? (
-              <div className="flex items-start justify-between gap-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                <div className="flex min-w-0 items-start gap-2">
-                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
-                  <span className="min-w-0">{chatMutation.error.message}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    chatMutation.mutate(
-                      chatMutation.variables?.trim() || chatPrompt.trim()
-                    )
-                  }
-                  disabled={chatMutation.isPending || !aiReady}
-                >
-                  <RefreshCcwIcon data-icon="inline-start" />
-                  重试
-                </Button>
-              </div>
-            ) : null}
-            {clearChatMutation.error ? (
-              <div className="flex items-start justify-between gap-3 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                <div className="flex min-w-0 items-start gap-2">
-                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0" />
-                  <span className="min-w-0">{clearChatMutation.error.message}</span>
-                </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => clearChatMutation.mutate()}
-                  disabled={clearChatMutation.isPending}
-                >
-                  <RefreshCcwIcon data-icon="inline-start" />
-                  重试
-                </Button>
-              </div>
-            ) : null}
-            {canChat && !journalSession ? (
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="ai-chat-prompt">追问</FieldLabel>
-                  <Textarea
-                    id="ai-chat-prompt"
-                    value={chatPrompt}
-                    onChange={(event) => setChatPrompt(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (isAiAdviceCompositionEnter(event)) {
-                        return;
-                      }
-                      if (isAiAdviceSubmitShortcut(event)) {
-                        event.preventDefault();
-                        submitChat();
-                      }
-                    }}
-                    className="min-h-24 resize-none"
-                    placeholder="输入追问；Control + Enter 发送，Enter 换行"
-                  />
-                </Field>
-                <Button
-                  onClick={submitChat}
-                  disabled={!aiReady || !chatPrompt.trim() || chatMutation.isPending || isRecoveringAiResponse}
-                >
-                  <SendIcon data-icon="inline-start" />
-                  {chatMutation.isPending ? "发送中" : "发送追问"}
-                </Button>
-                {aiUnavailableReason ? (
-                  <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                    {aiUnavailableReason}
-                  </div>
-                ) : null}
-              </FieldGroup>
-            ) : record && !journalSession ? (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                历史记录仅供查看；请选择今天继续追问。
-              </div>
-            ) : null}
-          </CardContent>
-          </Card>
-          {!journalSession ? <Card>
-          <CardHeader className="border-b">
-            <CardTitle>AI-prompt</CardTitle>
-            <CardDescription>当前分析和对话发送给 AI 的上下文类型</CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            {record ? (
-              AI_PROMPT_CONTEXT_ITEMS.map((item) => (
-                <div key={item} className="rounded-lg bg-muted/50 p-3 text-sm">
-                  {item}
-                </div>
-              ))
-            ) : (
-              <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
-                暂无上下文记录。
-              </div>
-            )}
-          </CardContent>
-          </Card> : null}
+        <EmbeddedJournalComposer prefillKey={prefillKey} journalDate={selectedDate} session={session} onSessionChange={acceptSession} onBusyChange={setSending} />
+        {!ready && !settings.isLoading ? <p className="text-sm text-muted-foreground">在「AI 模型配置」连接模型后即可开始对话，投资手记可以直接保存。</p> : null}
+      </CardContent>
+    </Card>
+    <Card className="min-w-0">
+      <CardHeader><CardTitle className="flex items-center gap-2"><CalendarDaysIcon className="size-4" />AI 分析日历</CardTitle><CardDescription>回看研究、继续对话和查阅手记</CardDescription></CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="ghost" size="icon-sm" aria-label="上个月" onClick={() => setMonth(shiftMonth(month, -1))}><ChevronLeftIcon /></Button>
+          <span className="text-sm font-medium">{month.replace("-", " 年 ")} 月</span>
+          <Button variant="ghost" size="icon-sm" aria-label="下个月" onClick={() => setMonth(shiftMonth(month, 1))}><ChevronRightIcon /></Button>
         </div>
-      </div>
-    </>
-  );
-}
-
-function ChatMessageBubble({
-  role,
-  content,
-  createdAt,
-}: {
-  role: "user" | "assistant";
-  content: string;
-  createdAt?: string;
-}) {
-  const isUser = role === "user";
-  return (
-    <div
-      className={
-        isUser
-          ? "ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-primary-foreground"
-          : "mr-auto max-w-[85%] rounded-2xl rounded-bl-sm bg-muted px-3 py-2"
-      }
-    >
-      <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-        {content}
-      </pre>
-      {createdAt ? (
-        <div
-          className={
-            isUser
-              ? "mt-1 text-right text-[11px] text-primary-foreground/70"
-              : "mt-1 text-[11px] text-muted-foreground"
-          }
-        >
-          {createdAt}
+        <div className="grid grid-cols-7 gap-1">
+          {["一", "二", "三", "四", "五", "六", "日"].map((day) => <span key={day} className="py-1 text-center text-xs text-muted-foreground">{day}</span>)}
+          {calendarCells(month).map((day, index) => day ? <Button key={day} size="sm" variant={day === selectedDate ? "secondary" : "ghost"} className="relative h-9 min-w-0 px-0 tabular-nums" disabled={active}
+            aria-pressed={day === selectedDate} aria-label={`${day}${savedDates.has(day) ? "，已有记录" : "，无记录"}`} onClick={() => chooseDay(day)}>
+            {Number(day.slice(-2))}{savedDates.has(day) ? <span className="absolute bottom-1 size-1 rounded-full bg-primary" /> : null}
+          </Button> : <span key={`empty-${index}`} />)}
         </div>
-      ) : null}
-    </div>
-  );
+        <Button variant="outline" size="sm" disabled={active} onClick={() => { setMonth(today.slice(0, 7)); chooseDay(today); }}>回到今天</Button>
+        <div className="grid gap-2 border-t pt-3">
+          <p className="text-xs font-medium text-muted-foreground">{selectedDate} · {entries.length} 条记录</p>
+          {calendar.isLoading ? <p className="text-sm text-muted-foreground">正在读取记录…</p> : null}
+          {calendar.isError ? <Button variant="outline" onClick={() => void calendar.refetch()}>日历读取失败，点击重试</Button> : null}
+          {entries.map((entry) => entry.kind === "legacy" ? null : <Button key={`${entry.kind}-${entry.id}`} variant="ghost" className="h-auto min-w-0 justify-start py-2 text-left" disabled={active || Boolean(loadingId) || (entry.kind !== "note" && !entry.session_id)} onClick={() => void openEntry(entry)}>
+            <span className="grid min-w-0 gap-1"><span className="truncate">{entry.title}</span><span className="text-xs font-normal text-muted-foreground">{loadingId === entry.id ? "读取中…" : entry.kind === "note" ? "投资手记" : statusLabel(entry.status)}</span></span>
+          </Button>)}
+          {!entries.length && !calendar.isLoading ? <p className="text-sm text-muted-foreground">这一天还没有记录，可以直接开始新对话。</p> : null}
+          {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        </div>
+        {record ? <details className="border-t pt-3"><summary className="cursor-pointer text-sm">旧版分析与对话</summary><div className="grid max-h-96 gap-3 overflow-auto pt-3 text-sm leading-relaxed">
+          <p className="whitespace-pre-wrap break-words">{record.content}</p>
+          {record.messages.slice(1).map((message, index) => <p key={index} className="whitespace-pre-wrap break-words"><span className="font-medium">{message.role === "user" ? "你：" : "AI："}</span>{message.content}</p>)}
+        </div></details> : null}
+      </CardContent>
+    </Card>
+    <Dialog open={Boolean(note)} onOpenChange={(open) => { if (!open) setNote(null); }}><DialogContent className="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>投资手记</DialogTitle></DialogHeader><p className="whitespace-pre-wrap break-words text-sm leading-7">{note?.body}</p><details><summary className="cursor-pointer text-sm">手记历史版本</summary>{noteVersions.isError ? <p role="alert">历史版本暂时无法读取。</p> : null}{noteVersions.data?.versions.map(version => <div key={version.version} className="my-2 rounded border p-2 text-sm"><p>v{version.version} · {version.recorded_at} · 归档 {version.journal_date ?? "创建日期"}</p><p className="whitespace-pre-wrap break-words">{version.body}</p></div>)}</details></DialogContent></Dialog>
+  </div>;
 }
 
-function aiAdviceRecordSignature(
-  record: Awaited<ReturnType<typeof fetchAiAdviceCalendar>>["record"]
-) {
-  if (!record) {
-    return "";
-  }
-  const lastMessage = record.messages.at(-1);
-  return [
-    record.date,
-    record.generated_at,
-    record.content,
-    record.messages.length,
-    lastMessage?.role ?? "",
-    lastMessage?.content ?? "",
-  ].join("\n");
+function readDateParam(fallback: string) {
+ if(typeof window==="undefined")return fallback;
+ const value=new URLSearchParams(window.location.search).get("date");
+ return value&&/^\d{4}-\d{2}-\d{2}$/.test(value)?value:fallback;
 }
+function readInstrumentParam() { return typeof window==="undefined"?null:new URLSearchParams(window.location.search).get("instrument"); }
 
-async function getCurrentAiAdviceSignature() {
-  try {
-    const response = await fetchAiAdviceCalendar();
-    return { previousSignature: aiAdviceRecordSignature(response.record) };
-  } catch {
-    return { previousSignature: "" };
-  }
-}
-
-function isRecoverableAiAdviceError(error: unknown) {
-  return (
-    error instanceof Error &&
-    (/^API 5\d\d: \/api\/ai-advice\//.test(error.message) ||
-      error.message === "Failed to fetch" ||
-      error.message === "Load failed")
-  );
-}
-
-function wait(milliseconds: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-const AI_PROMPT_CONTEXT_ITEMS = [
-  "账户摘要：账户规模、现金、持仓成本和当前仓位状态。",
-  "持仓快照：标的、资产类型、股数、成本与建仓日期。",
-  "市场观察：报价、均线、RSI、回撤和日内走势。",
-  "北京时间上下文：当前交易时段。",
-  "用户额外问题：生成日报或追问时输入的补充问题。",
-];
-
-function calendarDays(year: number, month: number) {
-  const last = new Date(year, month, 0);
-  return Array.from({ length: last.getDate() }, (_, index) =>
-    formatDate(year, month, index + 1)
-  );
-}
-
-function shiftMonth(
-  value: { year: number; month: number },
-  offset: number
-) {
-  const next = new Date(value.year, value.month - 1 + offset, 1);
-  return { year: next.getFullYear(), month: next.getMonth() + 1 };
-}
-
-function formatDate(year: number, month: number, day: number) {
-  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
-    2,
-    "0"
-  )}`;
-}
-
-function journalStatusLabel(status?: string) {
-  if (status === "completed") return "查看";
-  if (status === "failed") return "分析失败";
-  if (status === "pending") return "处理中";
-  return "记录";
+function statusLabel(status?: string) {
+  return ({ completed: "已完成 · 点击继续对话", pending: "分析中", failed: "未完成 · 点击查看", succeeded: "已完成" } as Record<string, string>)[status ?? ""] ?? "查看记录";
 }

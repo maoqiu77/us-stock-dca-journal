@@ -84,7 +84,7 @@ export function WatchlistRail({
                         getChangeClass(quote.changePercent)
                       )}
                     >
-                      {quote.change >= 0 ? "+" : ""}
+                      {quote.change !== null && quote.change >= 0 ? "+" : ""}
                       {formatPrice(quote.change)}
                     </div>
                   </div>

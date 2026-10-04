@@ -103,19 +103,34 @@ class JournalStore:
         with self.connect() as db:
             db.execute('update ai_journal_turns set status=?,answer=?,error_code=?,updated_at=? where id=?', ('failed' if error else 'completed', answer, error, now_iso(), turn_id))
 
-    def save_note(self, body, note_id=None):
+    def save_note(self, body, note_id=None, journal_date=None):
         stamp = now_iso()
         with self.connect() as db:
+            db.execute('begin immediate')
             if note_id:
                 if db.execute('update ai_journal_notes set body=?,updated_at=? where id=? and deleted_at is null', (body, stamp, note_id)).rowcount != 1:
                     fail('note_not_found', 404)
             else:
                 note_id = uuid4().hex
                 db.execute('insert into ai_journal_notes values (?,?,?,?,null)', (note_id, body, stamp, stamp))
+            if journal_date:
+                db.execute('insert into ai_journal_note_dates(note_id,journal_date) values (?,?) on conflict(note_id) do update set journal_date=excluded.journal_date', (note_id, journal_date))
+            else:
+                db.execute('delete from ai_journal_note_dates where note_id=?', (note_id,))
+            version = db.execute('select coalesce(max(version),0)+1 from ai_journal_note_versions where note_id=?', (note_id,)).fetchone()[0]
+            db.execute('insert into ai_journal_note_versions values (?,?,?,?,?)', (note_id, version, body, stamp, journal_date))
         return {'id': note_id}
+
+    def note_versions(self, note_id):
+        with self.connect() as db:
+            if not db.execute('select id from ai_journal_notes where id=? and deleted_at is null', (note_id,)).fetchone():
+                fail('note_not_found', 404)
+            return {'versions': [dict(row) for row in db.execute('select * from ai_journal_note_versions where note_id=? order by version desc', (note_id,))]}
 
     def delete_note(self, note_id):
         with self.connect() as db:
             if db.execute('update ai_journal_notes set deleted_at=? where id=? and deleted_at is null', (now_iso(), note_id)).rowcount != 1:
                 fail('note_not_found', 404)
+            # Same U04 policy: frozen evidence is retained, live original revisions are inaccessible.
+            db.execute('delete from ai_journal_note_versions where note_id=?', (note_id,))
         return {'id': note_id, 'deleted': True}

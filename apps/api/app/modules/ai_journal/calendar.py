@@ -22,8 +22,8 @@ def calendar(store, target_date=None):
             label = {'portfolio_review': '持仓分析', 'instrument_research': '标的快研', 'conversation': 'AI 对话'}.get(row['task_type'], 'AI 对话')
             title = f'{label} · {question[:80]}' if question else row['title']
             entries.append({'id': row['id'], 'kind': 'session', 'session_id': row['session_id'], 'title': title, 'status': row['status'], 'question': question, 'date': beijing_date(row['created_at'])})
-        for row in db.execute('select * from ai_journal_notes where deleted_at is null order by created_at desc'):
-            entries.append({'id': row['id'], 'kind': 'note', 'title': row['body'][:80], 'date': beijing_date(row['created_at'])})
+        for row in db.execute('select n.*,d.journal_date from ai_journal_notes n left join ai_journal_note_dates d on d.note_id=n.id where n.deleted_at is null order by coalesce(d.journal_date, n.created_at) desc, n.created_at desc'):
+            entries.append({'id': row['id'], 'kind': 'note', 'title': row['body'][:80], 'date': row['journal_date'] or beijing_date(row['created_at'])})
         for row in db.execute('select l.*,r.status,r.ticker from ai_journal_quant_links l left join quant_analysis_runs r on r.id=l.run_id order by l.created_at desc'):
             entries.append({'id': row['run_id'], 'kind': 'quant', 'session_id': row['session_id'], 'title': '原报告已删除' if row['status'] is None else row['ticker'] + ' · 量化报告', 'status': row['status'], 'deleted': row['status'] is None, 'question': row['question'], 'date': beijing_date(row['created_at'])})
         legacy = db.execute("select payload from app_state where key='ai_advice_v1'").fetchone()

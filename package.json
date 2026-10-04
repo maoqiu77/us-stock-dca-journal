@@ -10,12 +10,14 @@
     "apps/ai-gateway"
   ],
   "scripts": {
-    "setup:api": "python3 -m venv .venv && .venv/bin/pip install -r apps/api/requirements.txt",
+    "setup:api": "python3.12 -m venv storage/local/base-dev-venv && storage/local/base-dev-venv/bin/python -m pip install -r apps/api/requirements.txt",
     "dev": "npm run dev:api",
     "dev:web": "npm --prefix apps/web run dev",
-    "dev:api": ".venv/bin/python -m uvicorn app.main:app --reload --reload-dir apps/api --app-dir apps/api",
+    "dev:api": "storage/local/base-dev-venv/bin/python -m uvicorn app.main:app --reload --reload-dir apps/api --app-dir apps/api",
     "test": "npm run test:api && npm run test:web",
-    "test:api": "PATH=\"$PWD/.venv/bin:$PATH\" PYTHONPATH=apps/api .venv/bin/python -m unittest discover -s apps/api/tests -p 'test_*.py'",
+    "test:api": "npm run test:api:base",
+    "test:api:base": "storage/local/base-dev-venv/bin/python scripts/test_api.py --mode base",
+    "test:api:agent": "storage/local/agent-dev-venv/bin/python scripts/test_api.py --mode agent",
     "test:web": "npm --prefix apps/web run test",
     "check": "npm run test && npm run lint && npm run build && npm run check:public-safety && npm run check:release-readiness && npm run check:weapp",
     "build": "npm --prefix apps/web run build",

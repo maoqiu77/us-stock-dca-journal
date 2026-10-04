@@ -217,7 +217,7 @@ export function QuantAnalysisView() {
           effectiveDate: selectedRun.effectiveDate,
           rating: selectedRun.finalResult.rating,
           position: selectedPosition,
-          latestPrice: selectedQuote?.price,
+          latestPrice: selectedQuote?.price ?? undefined,
         })
       : null;
 

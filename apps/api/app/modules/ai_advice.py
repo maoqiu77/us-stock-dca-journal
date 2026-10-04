@@ -23,6 +23,7 @@ from app.modules.trading_data import (
     derive_positions,
     get_effective_watchlist,
     load_trading_state,
+    LEGACY_HISTORY_WARNING,
 )
 
 
@@ -448,6 +449,12 @@ def build_trade_context(value: Any) -> dict[str, Any]:
     ]
     return {
         "total_count": len(trades),
+        "count_basis": "legacy_ledger_entries_not_verified_executions",
+        "history_coverage": "unverified_legacy",
+        "confirmed_execution_count": None,
+        "confirmed_turnover": None,
+        "realized_pnl": None,
+        "warnings": [LEGACY_HISTORY_WARNING],
         "summary_by_ticker": summary,
         "recent_limit": AI_CONTEXT_RECENT_TRADE_LIMIT,
         "recent": normalized[-AI_CONTEXT_RECENT_TRADE_LIMIT:],

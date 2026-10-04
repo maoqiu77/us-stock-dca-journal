@@ -455,7 +455,9 @@ class SemanticHarnessTest(unittest.TestCase):
             async def call(messages, tools):
                 nonlocal count
                 count+=1
-                if tools:
+                # This fixture deliberately spends four requests in each run;
+                # public research now permits more, but the shared HTTP cap stays eight.
+                if tools and count < 4:
                     raw={'role':'assistant','content':None,'reasoning_content':'ephemeral',
                         'tool_calls':[{'id':f'read-{count}','type':'function','function':{
                             'name':'search_investment_memory','arguments':'{"query":"NVDA"}'}}]}

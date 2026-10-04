@@ -26,6 +26,10 @@ config.local.*
 
 # Private local runtime data
 storage/local/
+storage/local.restore-*/
+storage/local.before-restore-*/
+storage/.local.runtime.lock
+storage/.local.restore-pending.json
 *.db
 *.sqlite
 *.sqlite3

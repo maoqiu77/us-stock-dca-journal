@@ -8,7 +8,7 @@ from typing import Any
 from app.core.settings import DB_PATH, TEMPLATE_HOME
 
 
-CURRENT_DB_SCHEMA_VERSION = 7
+CURRENT_DB_SCHEMA_VERSION = 9
 
 
 def connect() -> sqlite3.Connection:
@@ -30,6 +30,8 @@ def init_db() -> None:
 
 def migrate_db(connection: sqlite3.Connection) -> None:
     version = connection.execute("pragma user_version").fetchone()[0]
+    if version > CURRENT_DB_SCHEMA_VERSION:
+        raise RuntimeError("数据库版本较新，当前程序禁止写入，请使用兼容版本。")
     if version < 1:
         connection.execute(
             """
@@ -174,6 +176,18 @@ def migrate_db(connection: sqlite3.Connection) -> None:
     if version < 7:
         from app.modules.ai_journal.agent.migration import migrate_agent_db
         migrate_agent_db(connection)
+    if version < 8:
+        connection.execute("create table if not exists ledger_revision (id integer primary key check(id=1), revision text not null)")
+        connection.execute("insert or ignore into ledger_revision values (1, lower(hex(randomblob(16))))")
+        connection.execute("create table if not exists ledger_receipts (operation_id text primary key, request_digest text not null, response text not null, created_at text not null default current_timestamp)")
+        for event, ref in (("insert", "new"), ("update", "new"), ("delete", "old")):
+            connection.execute(f"create trigger if not exists ledger_revision_{event} after {event} on app_state when {ref}.key='trading_data_v1' begin update ledger_revision set revision=lower(hex(randomblob(16))) where id=1; end")
+        connection.execute("pragma user_version = 8")
+    if version < 9:
+        # Includes the U04 date table for databases already at schema 8.
+        from app.modules.ai_journal.migration import migrate_journal_db
+        migrate_journal_db(connection)
+        connection.execute("pragma user_version = 9")
 
 
 def seed_watchlist(connection: sqlite3.Connection, template_path: Path) -> None:

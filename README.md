@@ -30,7 +30,7 @@
 这是一款面向美股个股与 ETF 的本地投资研究和交易复盘工具。它将账户概览、K 线、策略信号、回测、AI 建议和多智能体量化分析收进同一个网页工作台，并把每天的操作与对话整理成可回看的投资日历。
 
 > [!NOTE]
-> 项目不是券商客户端，不连接账户执行交易。即使外部行情或研究数据暂时不可用，界面也会降级到明确标注的确定性示例数据，方便继续体验和开发。
+> 项目不是券商客户端，不连接账户执行交易。生产路径在外部行情或研究数据不可用时显示明确的不可用状态或带原始观察时间的真实缓存；确定性示例只通过显式开发/测试注入使用。
 
 > [!WARNING]
 > 本项目不会自动下单，所有量化结果与 AI 内容仅用于研究和复盘，不构成投资建议。请独立判断并自行承担投资风险。
@@ -64,7 +64,7 @@
 - **研究有依据**：量化指标和相对表现可复算，AI 负责解释和讨论，不冒充事实来源。
 - **决策可回看**：交易记录、每日建议和追问按日期归档，方便复盘判断而不只是查看盈亏。
 - **数据有边界**：公开市场研究与私密账户上下文分开处理，发送前有明确提示，密钥只在本机保存。
-- **日常能使用**：外部数据源失败时提供可识别的 sample 降级，避免整个界面不可用。
+- **日常能使用**：外部数据源失败时显示明确不可用状态或带原始观察时间的真实缓存。
 
 ## 下载与运行
 
@@ -129,7 +129,7 @@ AI 建议与量化分析遵循不同的数据范围：
 
 - **AI 建议**可以在用户确认后发送账户、持仓、交易与策略上下文到用户选择的 AI 服务商。
 - **量化分析**只发送标的代码、公开市场数据和公开新闻摘要，不发送账户余额、持仓、现金或交易流水。
-- 外部行情被降级为 `sample` 时只用于界面预览，不会作为真实依据发送给 AI。
+- 合成 fixture 只用于显式开发/测试注入，不作为生产行情或 AI 事实依据。
 
 ## AI 连接设置
 
@@ -167,7 +167,7 @@ flowchart LR
     Web --> API[FastAPI]
     API --> DB[(本地 SQLite)]
     API --> Public[公开市场数据源]
-    Public -. 不可用 .-> Sample[确定性示例数据]
+    Public -. 不可用 .-> Unavailable[明确不可用状态]
 ```
 
 | 目录 | 职责 |
@@ -180,7 +180,15 @@ flowchart LR
 
 ## 开发指南
 
-开发环境需要 **Python 3.12+** 和 **Node.js 24**。
+开发环境需要 **Python 3.12+** 和 **Node.js 24**。桌面运行分为两种模式：基础模式提供本地账本、行情缓存、备份恢复和 Web 工作台；可选 Agent 模式另需 Python 3.12 与 `apps/api/requirements-agent.lock`，仅在完整依赖环境中承诺 Agent 测试。发行包当前声明 `runtimeMode: base`，不会把 Agent 依赖悄悄打进基础包。
+
+| 能力 | 基础模式 | Agent 模式 |
+| --- | --- | --- |
+| Web / 本地 FastAPI / 合成离线备份恢复 | 支持 | 支持 |
+| 公开行情 | 真实观察、真实缓存或不可用 | 同左 |
+| AI Journal Agent 工具执行 | 不启用 | 需本地模型配置和锁定依赖；本地测试不调用模型 |
+
+基础 API 测试使用隔离临时数据目录：`npm run test:api:base`；完整 Agent 环境使用 `npm run test:api:agent`。后者若有任何跳过测试会失败。安装和恢复演练见 [U02 备份恢复说明](优化/U02_备份恢复说明.md)。
 
 ```bash
 python3 -m venv .venv
@@ -226,7 +234,7 @@ The project brings portfolio status, candlestick charts, strategy signals, backt
 - **Reproducible first:** indicators and relative performance are calculated before non-deterministic AI interpretation.
 - **Decisions with history:** trades, daily advice, and follow-up conversations are organized in a browsable calendar.
 - **Local by default:** private runtime data and provider keys stay under the gitignored `storage/local/` directory.
-- **Resilient UI:** external market providers degrade to clearly labeled deterministic sample data when unavailable.
+- **Resilient UI:** production market paths show real observations, timestamped real caches, or an explicit unavailable state; synthetic data is limited to explicit development/test injection.
 
 > [!WARNING]
 > This project is for research and journaling only. It never places trades, and its quantitative or AI-generated output is not investment advice.
@@ -247,9 +255,9 @@ Do not use GitHub's automatically generated `Source code (zip)` archive unless y
 
 ## Privacy model
 
-Public synthetic examples live in `storage/templates/`. Accounts, positions, trades, AI conversations, provider keys, research reports, and local databases belong in `storage/local/` and must never be committed.
+Public synthetic examples live in `storage/templates/` and are never an automatic production fallback. Accounts, positions, trades, AI conversations, provider keys, research reports, and local databases belong in `storage/local/` and must never be committed.
 
-Daily AI advice may send private investment context only after explicit confirmation. Quant Analysis sends public symbol, market, and news data only; it never sends balances, positions, cash, or trade history. Sample fallback data is never presented to AI as real market evidence.
+Daily AI advice may send private investment context only after explicit confirmation. Quant Analysis sends public symbol, market, and news data only; it never sends balances, positions, cash, or trade history. Synthetic fixture data is not a production evidence source.
 
 ## Development
 

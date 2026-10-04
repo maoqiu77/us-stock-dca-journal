@@ -1,7 +1,7 @@
 import type {Instrument} from "../market-board/types";
 export type AgentOptions={engine?:"llm"|"agent";agent_version?:1;market_policy?:"frozen"|"refresh_within_scope";memory_mode?:"selected"|"suggest_related";memory_excluded_ids?:string[];auto_context?:boolean;memory_before?:string|null};
 export type AgentScope={version:1;positions:boolean;plans:boolean;memory:boolean;memory_source_ids:string[];instrument_keys:string[];periods_by_key:Record<string,string[]>;refresh_market:boolean};
-export type AgentEvidence={id:string;kind:"position"|"policy"|"note"|"trade_reason"|"quote"|"series"|"calculation";entity_id:string;revision:string;classification:"user_original"|"observed"|"derived";as_of:string;available_at:string;payload:Record<string,unknown>;content_hash:string;input_source_ids:string[];original_deleted?:boolean;original_changed?:boolean};
+export type AgentEvidence={id:string;kind:"position"|"policy"|"note"|"trade_reason"|"quote"|"series"|"calculation"|"news"|"document";entity_id:string;revision:string;classification:"user_original"|"observed"|"derived";as_of:string;available_at:string;payload:Record<string,unknown>;content_hash:string;input_source_ids:string[];original_deleted?:boolean;original_changed?:boolean};
 export type AgentReport={summary:string;stance:"observe"|"maintain"|"conditional_change"|"insufficient_data";facts:Array<{text:string;source_ids:string[]}>;interpretations:Array<{text:string;source_ids:string[]}>;risks:Array<{text:string;source_ids:string[]}>;missing:string[];next_questions:string[]};
 export type AgentRun={id:string;turn_id:string;snapshot_id:string;engine_version:string;model_fingerprint:string;status:"queued"|"running"|"succeeded"|"failed"|"outcome_unknown"|"cancel_requested"|"cancelled";cancel_requested:boolean;result:AgentReport|null;usage:Record<string,unknown>|null;error_code:string;created_at:string;updated_at:string;events:Array<{tool:string;status:"succeeded"|"failed"|"cached";duration_ms:number;source_count:number}>;source_count:number};
 export type JournalRequest=AgentOptions&{task_type:"portfolio_review"|"instrument_research"|"conversation";question:string;instrument_key:string|null;primary_period:string|null;auxiliary_periods:string[];quantity:string|null;cost:string|null;max_position:string|null;cost_currency:string|null;position_tickers:string[];plan_tickers:string[];trade_ids:string[];note_ids:string[];history_turn_ids:string[];session_id:string|null;reuse_snapshot_id:string|null};
@@ -13,16 +13,19 @@ export type JournalCalendar={dates:string[];items:CalendarEntry[]};
 export type ContextOption={id:string;label:string;length?:number};
 export type ContextOptions={positions:Array<{ticker:string;currency:string;quantity:number;cost:number}>;excluded:Array<{ticker:string;reason:string}>;plans:Array<{ticker:string;targetWeight:number}>;trades:ContextOption[];notes:ContextOption[];history:ContextOption[]};
 export type Capabilities={instrument:Instrument;periods:string[];period_reason:string;quant_eligible:boolean;quant_reason:string};
-export type JournalNote={id:string;body:string;created_at:string};
+export type JournalNote={id:string;body:string;created_at:string;journal_date?:string|null};
 export type QuantPrefill={ticker?:string;question?:string;sessionId?:string;runId?:string};
-const base=(process.env.NEXT_PUBLIC_API_URL??"").replace(/\/$/,"");
+// Long-running completions must bypass Next's short rewrite-proxy timeout.
+const base=(process.env.NEXT_PUBLIC_AI_API_BASE_URL??process.env.NEXT_PUBLIC_API_BASE_URL??process.env.NEXT_PUBLIC_API_URL??"http://127.0.0.1:8000").replace(/\/$/,"");
 export const errors:Record<string,string>={snapshot_expired:"预览已过期，请重新预览并确认。",preview_changed:"模型配置或预览已变化，请重新预览。",ai_not_configured:"请先配置 AI；手记仍可本地保存。",model_failed:"本轮未能完成，问题与快照已保留；再次确认不会重发。",model_output_truncated:"回答达到输出上限，未保存为完整答案；本轮不会重发。",period_not_verified:"该周期尚未验证，暂不可用。",primary_period_unavailable:"主周期没有可靠的已收盘 K 线。",quant_link_conflict:"报告已关联其他会话。"};
 errors.agent_execution_not_ready="自动核对资料尚未启用，请使用现有分析入口。";
+errors.instrument_not_found="暂时没查到这个股票代码，请核对代码，或先在看板中搜索并选中标的。";
+errors.conversation_targets_too_many="一次先研究三只以内的股票，结果会更清楚。";
 errors.agent_memory_selection_not_ready="相关记录自动推荐尚未启用，请手动选择记录。";
 errors.agent_memory_scope_too_large="本轮固定原文超出容量，请减少纳入的记录。";
 Object.assign(errors,{instrument_identity_ambiguous:"标的身份不唯一，请选择交易所和类型后再发送。",private_scope_revoked:"资料已变化，请重新发送以生成新快照。",agent_cancelled:"本轮已取消。",model_outcome_unknown:"结果待核验，请查看原任务；不会自动重发。",access_revoked_repreview:"隐私设置或资料已变化，本轮已停止。",agent_run_limit:"本轮达到本地运行上限，未保存为完整答案；不会自动重发。",agent_run_failed:"本轮未能完成，问题和快照已保留。",confirmation_not_found:"尚未找到确认记录，请稍后查询；不会自动重发。"});
-export class JournalRequestError extends Error {constructor(message:string,readonly status:number){super(message);}}
-async function request<T>(path:string,init?:RequestInit):Promise<T>{const response=await fetch(`${base}/api/ai-journal${path}`,{...init,headers:{"content-type":"application/json",...init?.headers}});if(!response.ok){const data=await response.json().catch(()=>null);const code=data?.detail?.code;throw new JournalRequestError(errors[code]??code??`请求失败（${response.status}）`,response.status);}return response.json();}
+export class JournalRequestError extends Error {readonly status:number;constructor(message:string,status:number){super(message);this.status=status;}}
+export async function request<T>(path:string,init?:RequestInit):Promise<T>{const response=await fetch(`${base}/api/ai-journal${path}`,{...init,headers:{"content-type":"application/json",...init?.headers}});if(!response.ok){const data=await response.json().catch(()=>null);const code=data?.detail?.code;throw new JournalRequestError(errors[code]??code??`请求失败（${response.status}）`,response.status);}return response.json();}
 export const previewJournal=(payload:JournalRequest,signal?:AbortSignal)=>request<JournalPreview>("/preview",{method:"POST",body:JSON.stringify(payload),signal});
 export const confirmJournal=(snapshot:JournalPreview,idempotencyKey:string)=>request<JournalSession>(snapshot.request.session_id?`/sessions/${snapshot.request.session_id}/turns`:"/sessions",{method:"POST",body:JSON.stringify({snapshot_id:snapshot.id,digest:snapshot.digest,idempotency_key:idempotencyKey})});
 export const fetchJournalSession=(id:string)=>request<JournalSession>(`/sessions/${encodeURIComponent(id)}`);
@@ -31,8 +34,9 @@ export const fetchAgentCapabilities=()=>request<{enabled:boolean;runtime_availab
 export const fetchAgentRun=(id:string)=>request<AgentRun>(`/runs/${encodeURIComponent(id)}`);
 export const cancelAgentRun=(id:string)=>request<AgentRun>(`/runs/${encodeURIComponent(id)}/cancel`,{method:"POST"});
 export const fetchAgentSources=(id:string)=>request<{items:AgentEvidence[]}>(`/runs/${encodeURIComponent(id)}/sources`);
-export const saveJournalNote=(body:string,id?:string)=>request<{id:string}>(id?`/notes/${id}`:"/notes",{method:id?"PUT":"POST",body:JSON.stringify({body})});
+export const saveJournalNote=(body:string,id?:string,journalDate?:string)=>request<{id:string}>(id?`/notes/${id}`:"/notes",{method:id?"PUT":"POST",body:JSON.stringify({body,journal_date:journalDate??null})});
 export const fetchJournalNote=(id:string)=>request<JournalNote>(`/notes/${id}`);
+export const fetchNoteVersions=(id:string)=>request<{versions:Array<{version:number;body:string;recorded_at:string;journal_date:string|null}>}>(`/notes/${encodeURIComponent(id)}/versions`);
 export const deleteJournalNote=(id:string)=>request<{deleted:boolean}>(`/notes/${id}`,{method:"DELETE",body:JSON.stringify({confirmed:true})});
 export const fetchJournalCalendar=()=>request<JournalCalendar>("/calendar");
 export const fetchContextOptions=()=>request<ContextOptions>("/context-options");

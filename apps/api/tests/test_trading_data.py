@@ -53,6 +53,7 @@ class LegacyLedgerFixtureTest(unittest.TestCase):
         witness = self.fixture["snapshot"]
         state = deepcopy(witness["before"])
         state["trades"].extend({**row, "ticker": "SYNTH", "date": witness["date"]} for row in witness["expectedAppended"])
+        state["trades"] = [sanitize_trade(trade) for trade in state["trades"]]
         [actual] = derive_positions(state)
         for key, value in witness["expectedPosition"].items():
             self.assertEqual(actual[key], value)
@@ -307,6 +308,7 @@ class TradingDataTest(unittest.TestCase):
                 "trades": [
                     {
                         "date": "2026-06-01",
+                        "id": "fifo-buy-1",
                         "ticker": "VOO",
                         "action": "买入",
                         "shares": 10,
@@ -315,6 +317,7 @@ class TradingDataTest(unittest.TestCase):
                     },
                     {
                         "date": "2026-06-02",
+                        "id": "fifo-buy-2",
                         "ticker": "VOO",
                         "action": "买入",
                         "shares": 10,
@@ -323,6 +326,7 @@ class TradingDataTest(unittest.TestCase):
                     },
                     {
                         "date": "2026-06-03",
+                        "id": "fifo-sell-1",
                         "ticker": "VOO",
                         "action": "卖出",
                         "shares": 10,

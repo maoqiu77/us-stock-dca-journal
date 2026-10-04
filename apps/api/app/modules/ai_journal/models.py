@@ -69,6 +69,7 @@ class AgentCapabilityTestRequest(StrictModel):
 
 class NoteRequest(StrictModel):
     body: str = Field(min_length=1, max_length=12000)
+    journal_date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
 
 
 class DeleteNoteRequest(StrictModel):

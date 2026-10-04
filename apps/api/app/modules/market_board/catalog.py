@@ -2,12 +2,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlencode
+import os
+import sys
 import json, re
 from .models import AssetType, Instrument, Market, Segment
 from .http import PublicHttp
 from .cache import cache_key,cache_window
 
-TEMPLATE = Path(__file__).resolve().parents[5] / 'storage/templates/market-board-instruments.example.json'
+_bundle_root = Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parents[5]))
+TEMPLATE = Path(os.getenv('STOCK_APP_TEMPLATE_HOME', str(_bundle_root / 'storage/templates'))) / 'market-board-instruments.example.json'
 
 def default_instruments():
     data=json.loads(TEMPLATE.read_text())

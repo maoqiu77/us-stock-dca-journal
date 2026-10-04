@@ -1,99 +1,96 @@
-import { LayoutDashboardIcon } from "lucide-react";
+import { ActivityIcon, WalletIcon } from "lucide-react";
 
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
-import { getChangeClass } from "@/features/charts/format";
+import { getChangeBadgeClass, getChangeClass } from "@/features/charts/format";
 import { formatMoney, formatRatio } from "@/features/platform/trading-data";
 import { cn } from "@/lib/utils";
 
 export function OverviewPanel({
-  holdingCost,
   holdingValue,
+  holdingPnl,
+  holdingPnlRatio,
   holdingDayChange,
+  marketCoverage,
+  pnlCoverage,
+  dayChangeCoverage,
 }: {
-  holdingCost?: number;
-  holdingValue?: number;
-  holdingDayChange?: number;
+  holdingValue?: number | null;
+  holdingPnl?: number | null;
+  holdingPnlRatio?: number | null;
+  holdingDayChange?: number | null;
+  marketCoverage?: string;
+  pnlCoverage?: string;
+  dayChangeCoverage?: string;
 }) {
-  const totalReturn =
-    holdingCost && holdingCost > 0 && holdingValue !== undefined
-      ? (holdingValue - holdingCost) / holdingCost
-      : undefined;
-  const totalPnl =
-    holdingCost && holdingCost > 0 && holdingValue !== undefined
-      ? holdingValue - holdingCost
-      : undefined;
   const dayReturn =
     holdingDayChange !== undefined &&
+    holdingDayChange !== null &&
     holdingValue !== undefined &&
+    holdingValue !== null &&
     holdingValue - holdingDayChange > 0
       ? holdingDayChange / (holdingValue - holdingDayChange)
       : undefined;
 
   return (
-    <Card>
-      <CardHeader className="border-b">
-        <CardTitle className="flex items-center gap-2">
-          <LayoutDashboardIcon />
-          资产表现
-        </CardTitle>
-        <CardDescription>当前持仓的累计盈亏与今日变动</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-2 sm:grid-cols-2">
+    <div className="flex flex-col gap-2">
+      <section aria-label="资产表现" className="grid grid-cols-2 gap-3">
         <OverviewMetric
-          label="总资产盈亏"
-          value={formatTotalReturn(totalReturn, totalPnl)}
-          detail="当前持仓市值 - 持仓成本"
-          valueClassName={getChangeClass(totalPnl)}
+          label="持仓浮动盈亏"
+          value={formatMoney(holdingPnl)}
+          ratio={formatRatio(holdingPnlRatio)}
+          detail={pnlCoverage ?? "仅对同时有报价和成本的持仓计算"}
+          valueClassName={getChangeClass(holdingPnl)}
+          badgeClassName={getChangeBadgeClass(holdingPnl)}
+          icon={<WalletIcon className="size-4" />}
         />
         <OverviewMetric
           label="今日变动"
-          value={formatDayChange(holdingDayChange, dayReturn)}
-          detail="持仓数量 x 单股今日变动"
+          value={formatMoney(holdingDayChange)}
+          ratio={formatRatio(dayReturn)}
+          detail={dayChangeCoverage ?? "需要当前价和昨收；不代表完整账户日盈亏"}
           valueClassName={getChangeClass(holdingDayChange)}
+          badgeClassName={getChangeBadgeClass(holdingDayChange)}
+          icon={<ActivityIcon className="size-4" />}
         />
-      </CardContent>
-    </Card>
+      </section>
+      {marketCoverage ? <p className="text-xs text-muted-foreground">市值覆盖：{marketCoverage}</p> : null}
+    </div>
   );
-}
-
-function formatTotalReturn(returnValue?: number, pnl?: number) {
-  if (returnValue === undefined || pnl === undefined || Number.isNaN(returnValue)) {
-    return "--";
-  }
-  return `${formatMoney(pnl)} / ${formatRatio(returnValue)}`;
-}
-
-function formatDayChange(change?: number, returnValue?: number) {
-  if (change === undefined || Number.isNaN(change)) {
-    return "--";
-  }
-  return `${formatMoney(change)} / ${formatRatio(returnValue)}`;
 }
 
 function OverviewMetric({
   label,
   value,
+  ratio,
   detail,
   valueClassName,
+  badgeClassName,
+  icon,
 }: {
   label: string;
   value: string;
+  ratio: string;
   detail: string;
   valueClassName?: string;
+  badgeClassName?: string;
+  icon: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-24 flex-col justify-between gap-2 rounded-lg bg-muted/50 p-3">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("text-2xl font-semibold tabular-nums", valueClassName)}>
-        {value}
-      </div>
-      <div className="text-xs text-muted-foreground">{detail}</div>
-    </div>
+    <Card className="gap-0 py-0 shadow-xs ring-border">
+      <CardContent className="flex flex-col gap-3 p-3 sm:p-4 lg:p-5">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-medium text-muted-foreground">{label}</h2>
+          <span className="hidden size-8 items-center justify-center rounded-lg bg-primary/8 text-primary sm:flex">{icon}</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className={cn("break-all text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl lg:text-4xl", valueClassName)}>{value}</div>
+          <span className={cn("rounded-md bg-muted px-2 py-1 text-sm font-semibold tabular-nums", badgeClassName)}>{ratio}</span>
+        </div>
+        <p className="text-[13px] text-muted-foreground">{detail}</p>
+      </CardContent>
+    </Card>
   );
 }

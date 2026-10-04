@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from app.modules import app_update
 
@@ -98,7 +99,9 @@ class AppUpdateTest(unittest.TestCase):
             (data_home / "updates").mkdir(parents=True)
             (data_home / "backups").mkdir()
             (data_home / "pids").mkdir()
-            (data_home / "app.db").write_text("private db")
+            from app.core import database
+            with patch.object(database, "DB_PATH", data_home / "app.db"):
+                database.init_db()
             (data_home / "api.log").write_text("api log")
             (data_home / "updates" / "download.zip").write_text("download")
             (data_home / "backups" / "old.zip").write_text("backup")
@@ -115,7 +118,8 @@ class AppUpdateTest(unittest.TestCase):
                 names = set(archive.namelist())
 
         self.assertIn("app.db", names)
-        self.assertIn("api.log", names)
+        self.assertNotIn("api.log", names)
+        self.assertIn("manifest.json", names)
         self.assertIn("browser-local-storage.json", names)
         self.assertNotIn("updates/download.zip", names)
         self.assertNotIn("backups/old.zip", names)

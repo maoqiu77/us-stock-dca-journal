@@ -10,10 +10,12 @@ import requests
 ALLOWED_HOSTS = {"query1.finance.yahoo.com", "query2.finance.yahoo.com", "api.nasdaq.com", "push2delay.eastmoney.com", "fund.eastmoney.com", "api.fund.eastmoney.com", "fundf10.eastmoney.com", "qt.gtimg.cn", "gu.qq.com", "searchapi.eastmoney.com"}
 REQUEST_DEADLINE = ContextVar('board_deadline', default=None)
 ALLOWED_HOSTS.update({'www.szse.cn', 'query.sse.com.cn'})
+ALLOWED_HOSTS.add('news.google.com')
 
 class PublicHttp:
-    def __init__(self, requester=None, now=None):
+    def __init__(self, requester=None, now=None, *, allowed_hosts=None):
         self.requester = requester or requests.get
+        self.allowed_hosts = frozenset(ALLOWED_HOSTS if allowed_hosts is None else allowed_hosts)
         self.clock = now or time.monotonic
         self.backoff = {}
         self.hosts = defaultdict(lambda: BoundedSemaphore(3))
@@ -21,7 +23,7 @@ class PublicHttp:
 
     def get(self, url, *, referer=None, max_bytes=4_000_000, deadline=None):
         parsed = urlparse(url)
-        if parsed.scheme != 'https' or parsed.hostname not in ALLOWED_HOSTS or parsed.username or parsed.password or parsed.port not in (None,443):
+        if parsed.scheme != 'https' or parsed.hostname not in self.allowed_hosts or parsed.username or parsed.password or parsed.port not in (None,443):
             raise ValueError('source is not allow-listed')
         end = min(deadline or float('inf'), REQUEST_DEADLINE.get() or float('inf'), self.clock()+4)
         host = parsed.hostname

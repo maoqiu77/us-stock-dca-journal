@@ -1,7 +1,7 @@
 import type { ChartBar } from "@/features/charts/types";
 
-export function formatPrice(value?: number) {
-  if (value === undefined || Number.isNaN(value)) {
+export function formatPrice(value?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";
   }
   return new Intl.NumberFormat("zh-CN", {
@@ -10,8 +10,8 @@ export function formatPrice(value?: number) {
   }).format(value);
 }
 
-export function formatPercent(value?: number) {
-  if (value === undefined || Number.isNaN(value)) {
+export function formatPercent(value?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";
   }
   const sign = value > 0 ? "+" : "";
@@ -31,14 +31,14 @@ export function formatVolume(value?: number | null) {
   return value.toLocaleString("zh-CN");
 }
 
-export function getChangeClass(value?: number) {
+export function getChangeClass(value?: number | null) {
   if (!value) {
     return "text-muted-foreground";
   }
   return value > 0 ? "text-price-up" : "text-price-down";
 }
 
-export function getChangeBadgeClass(value?: number) {
+export function getChangeBadgeClass(value?: number | null) {
   if (!value) {
     return "";
   }

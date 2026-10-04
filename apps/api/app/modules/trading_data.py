@@ -8,14 +8,24 @@ from datetime import date
 from typing import Any
 
 from app.core.database import (
-    delete_state_payload,
     get_state_payload,
     get_watchlist,
-    set_state_payload,
 )
 
 
 APP_STATE_KEY = "trading_data_v1"
+LEGACY_HISTORY_WARNING = "旧记录没有可核验的批次与来源，不能仅根据备注判定为截图导入。全部原样保留；真实成交次数、成交金额和已实现盈亏的历史覆盖未核验。"
+
+
+def preview_legacy_migration(state: dict, revision=None) -> dict:
+    # Legacy v1 never stored reliable import provenance. Text is not evidence.
+    return {
+        "format": "legacy-migration-preview-v1", "revision": revision,
+        "action": "read_only", "autoConvertible": 0,
+        "pending": [{"id": row["id"], "ticker": row["ticker"], "date": row["date"],
+                     "reason": "missing_structured_provenance", "action": "keep"} for row in state.get("trades", [])],
+        "warning": LEGACY_HISTORY_WARNING,
+    }
 
 BALANCED_SETTINGS: dict[str, Any] = {
     "maMedium": 60,
@@ -262,26 +272,22 @@ DEFAULT_TRADING_DATA: dict[str, Any] = {
 
 def load_trading_state() -> dict[str, Any]:
     payload = get_state_payload(APP_STATE_KEY)
-    if not payload:
+    if payload is None:
         state = sanitize_trading_state(DEFAULT_TRADING_DATA)
-        save_trading_state(state)
         return state
-
-    try:
-        return sanitize_trading_state(json.loads(payload))
-    except (json.JSONDecodeError, TypeError):
-        return sanitize_trading_state(DEFAULT_TRADING_DATA)
+    from app.modules.ledger_store import decode_state
+    return sanitize_trading_state(decode_state(payload))
 
 
 def save_trading_state(state: dict[str, Any]) -> dict[str, Any]:
+    # Internal compatibility helper; HTTP writes use explicit compare-and-swap.
+    from app.modules.ledger_store import read_ledger, write_ledger
     sanitized = sanitize_trading_state(state)
-    set_state_payload(APP_STATE_KEY, json.dumps(sanitized, ensure_ascii=False))
-    return sanitized
+    return write_ledger(sanitized, read_ledger()["revision"], str(uuid.uuid4()))["state"]
 
 
 def reset_trading_state() -> dict[str, Any]:
-    delete_state_payload(APP_STATE_KEY)
-    return load_trading_state()
+    return save_trading_state(DEFAULT_TRADING_DATA)
 
 
 def get_effective_watchlist() -> list[dict[str, Any]]:
@@ -302,6 +308,8 @@ def get_effective_watchlist() -> list[dict[str, Any]]:
 
 def derive_positions(state: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     current = state or load_trading_state()
+    from .position_checkpoints import validate_checkpoints, project_checkpoint
+    validate_checkpoints(current)
     target_by_ticker = {
         normalize_ticker(position.get("ticker", "")): position
         for position in current.get("positions", [])
@@ -367,7 +375,7 @@ def derive_positions(state: dict[str, Any] | None = None) -> list[dict[str, Any]
                 "holdingCost": round(max(cost_value, 0.0), 2),
             }
         )
-    return derived
+    return [{**row, **(project_checkpoint(current, row["ticker"]) or {})} for row in derived]
 
 
 def account_summary(state: dict[str, Any] | None = None) -> dict[str, float]:
@@ -525,7 +533,8 @@ def sanitize_trading_state(value: Any) -> dict[str, Any]:
         active_profile = default["activeStrategyProfile"]
 
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2 if value.get("schemaVersion") == 2 else 1,
+        **({"checkpoints": deepcopy(value["checkpoints"])} if "checkpoints" in value else {}),
         "account": sanitize_account(value.get("account")),
         "stockPool": stock_pool,
         "positions": [

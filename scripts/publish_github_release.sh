@@ -30,6 +30,9 @@ fi
 
 npm run check:public-safety
 npm run check:release-readiness
+npm test
+npm run test:api:agent
+npm run check:market-data
 npm run lint
 npm run build
 
@@ -40,12 +43,12 @@ git push "$REMOTE" "$VERSION"
 cat <<EOF
 Release tag $VERSION pushed.
 
-GitHub Actions will build and attach:
+GitHub Actions will validate desktop tests, build all platforms, and assemble a DRAFT:
 - stock-trading-platform-next-$VERSION-windows-x64.zip
 - stock-trading-platform-next-$VERSION-macos-arm64.zip
 - stock-trading-platform-next-$VERSION-macos-x64.zip
 
-Open the Actions tab or the repository Releases page to watch the upload finish.
+Review the draft artifacts and acceptance results before explicitly publishing.
 EOF
 
 if command -v gh >/dev/null 2>&1; then

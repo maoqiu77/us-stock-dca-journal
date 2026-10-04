@@ -1615,8 +1615,8 @@ function metricValue(item: BacktestStrategyResult, key: string) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function numberLabel(value?: number, digits = 2) {
-  if (value === undefined || Number.isNaN(value)) {
+function numberLabel(value?: number | null, digits = 2) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";
   }
   return value.toFixed(digits);

@@ -32,8 +32,8 @@ class ServiceTest(unittest.TestCase):
         self.assertGreaterEqual(len(expected),31)
         board=self.service.board(Segment.US)
         self.assertEqual([r.instrument.key for r in board.rows],[i.key for i in expected])
-        self.assertTrue(all(r.quality=='sample' for r in board.rows))
-        self.assertTrue(all(r.quote.meta.status=='sample' for r in board.rows))
+        self.assertTrue(all(r.quality=='missing' for r in board.rows))
+        self.assertTrue(all(r.quote.meta.status=='missing' and r.quote.price is None for r in board.rows))
         self.assertTrue(all(r.metrics is None for r in board.rows))
     def test_unknown_identity_is_missing_not_fabricated_sample(self):
         item=Instrument(key='US:XNAS:NEW:STOCK',symbol='NEW',name='Fixture',market='US',exchange='XNAS',asset_type='STOCK',currency='USD',timezone='America/New_York')
@@ -61,17 +61,16 @@ class ServiceTest(unittest.TestCase):
             row=self.service._row(item)
         self.assertIsNone(row.nav.value);self.assertEqual(row.nav.meta.status,'missing')
         self.assertEqual(str(row.purchase_limit.amount),'1000')
-    def test_sample_never_written_to_premium_history(self):
+    def test_missing_never_written_to_premium_history(self):
         row=self.service._row(self.catalog.defaults[Segment.ETF][0])
-        self.assertEqual(row.quality,'sample')
+        self.assertEqual(row.quality,'missing')
         self.assertIsNone(row.metrics.premium_pct)
         self.assertEqual(self.store.read_premiums(row.instrument.key,'vendor_reference','2000-01-01'),[])
-    def test_curated_us_chart_has_labelled_sample_when_offline(self):
+    def test_curated_us_chart_is_missing_when_offline(self):
         item=self.catalog.defaults[Segment.US][0]
         series=self.service.series(item.key,'1d','1mo')
-        self.assertEqual(series.meta.status,'sample')
-        self.assertTrue(series.bars)
-        self.assertTrue(all(bar.is_final for bar in series.bars))
+        self.assertEqual(series.meta.status,'missing')
+        self.assertEqual(series.bars, [])
     def test_sample_dates_do_not_advance_with_the_wall_clock(self):
         class FutureDate(date):
             @classmethod

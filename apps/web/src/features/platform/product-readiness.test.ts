@@ -74,53 +74,23 @@ test("AI analysis embeds a unified conversation with server snapshots", () => {
   assert.doesNotMatch(source, /持仓分析|标的快研|确认范围并分析|标的与资料|搜索标的|纳入本轮原文/);
 });
 
-test("AI advice follow-ups use an inline conversation without a confirmation dialog", () => {
+test("AI advice uses one conversation engine and retains legacy records", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 
-  assert.match(source, /AI 对话/);
+  assert.match(source, /AI 投资助手/);
   assert.match(source, /record\.messages\.slice\(1\)/);
-  assert.match(source, /AI 正在回复/);
-  assert.match(source, /chatMutation\.mutate\(prompt\)/);
+  assert.match(source, /EmbeddedJournalComposer/);
+  assert.doesNotMatch(source, /sendAiAdviceChat|chatMutation/);
   assert.doesNotMatch(source, /确认发送追问/);
   assert.doesNotMatch(source, /setConfirmAction\("chat"\)/);
 });
 
-test("AI advice clears a submitted follow-up before waiting for the reply", () => {
-  const source = readSource("./views/ai-advice-view.tsx");
-  const clearIndex = source.indexOf('setChatPrompt("");', source.indexOf("const submitChat"));
-  const submitIndex = source.indexOf("chatMutation.mutate(prompt)", clearIndex);
-
-  assert.ok(clearIndex >= 0);
-  assert.ok(submitIndex > clearIndex);
-});
-
-test("visible market analysis does not advertise hidden strategy inputs", () => {
-  const source = readSource("./views/ai-advice-view.tsx");
-  assert.match(source, /市场观察/);
-  assert.match(source, /基于当前研究继续追问/);
-  assert.match(source, /北京时间上下文：当前交易时段。/);
-  assert.doesNotMatch(source, /策略配置/);
-  assert.doesNotMatch(source, /持仓计划/);
-  assert.doesNotMatch(source, /执行节奏建议/);
-});
-
-test("AI advice view can clear today's follow-up conversation without removing the summary", () => {
-  const source = readSource("./views/ai-advice-view.tsx");
-
-  assert.match(source, /清空今日对话/);
-  assert.match(source, /clearAiAdviceChat/);
-  assert.match(source, /clearChatMutation/);
-  assert.match(source, /record\.messages\.slice\(1\)/);
-});
-
-test("AI advice calendar is full width and research actions live inside AI analysis", () => {
+test("AI advice calendar uses a standard week beside the conversation", () => {
   const source = readSource("./views/ai-advice-view.tsx");
 
   assert.match(source, /AI 分析日历/);
-  assert.match(source, /xl:col-span-2/);
-  assert.match(source, /grid-cols-8/);
-  assert.match(source, /text-base font-medium/);
-  assert.match(source, />\s*AI 分析\s*</);
+  assert.match(source, /grid-cols-7/);
+  assert.match(source, /calendarCells/);
   assert.match(source, /EmbeddedJournalComposer/);
   assert.doesNotMatch(source, /生成每日 AI 分析/);
   assert.doesNotMatch(source, /setConfirmGenerate/);
@@ -134,24 +104,9 @@ test("AI journal sessions appear in the calendar and can be opened", () => {
 
   assert.match(source, /fetchJournalCalendar/);
   assert.match(source, /fetchJournalSession/);
-  assert.match(source, /当天研究记录/);
-  assert.match(source, /openJournalEntry/);
+  assert.match(source, /openEntry/);
   assert.match(source, /invalidateQueries\(\{ queryKey: \["ai-journal-calendar"\] \}\)/);
   assert.match(source, /window\.sessionStorage\.setItem\("ai-journal-session"/);
-});
-
-test("AI advice view shows summarized prompt context without duplicate chat history", () => {
-  const source = readSource("./views/ai-advice-view.tsx");
-
-  assert.match(source, /AI-prompt/);
-  assert.match(source, /AI_PROMPT_CONTEXT_ITEMS/);
-  assert.match(source, /账户摘要/);
-  assert.match(source, /持仓快照/);
-  assert.match(source, /市场观察/);
-  assert.doesNotMatch(source, /新闻标题/);
-  assert.doesNotMatch(source, /保存的新闻/);
-  assert.doesNotMatch(source, /对话记录/);
-  assert.doesNotMatch(source, /AI- prompt/);
 });
 
 test("AI advice generation avoids the Next rewrite proxy", () => {
@@ -164,12 +119,9 @@ test("AI advice generation avoids the Next rewrite proxy", () => {
 });
 
 test("AI advice view recovers saved results after interrupted generation", () => {
-  const source = readSource("./views/ai-advice-view.tsx");
+  const source = readSource("../ai-journal/embedded-composer.tsx");
 
-  assert.match(source, /recoverSavedAiAdvice/);
-  assert.match(source, /setQueryData\(\["ai-advice", "default"\], response\)/);
-  assert.match(source, /setQueryData\(\["ai-advice", nextDate\], response\)/);
-  assert.match(source, /API 5/);
-  assert.match(source, /Failed to fetch/);
-  assert.match(source, /Load failed/);
+  assert.match(source, /recoverJournalSession/);
+  assert.match(source, /ai-journal-pending-snapshot/);
+  assert.match(source, /setQueryData\(\["ai-journal-session", value.id\], value\)/);
 });

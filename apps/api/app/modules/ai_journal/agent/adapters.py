@@ -63,6 +63,10 @@ def frozen_ports(snapshot, check_access):
         check_key(key)
         return [row for row in live_rows() if row.kind == 'quote' and row.payload.get('instrument_key') == key]
 
+    async def read_news(key):
+        check_key(key)
+        return [row for row in live_rows() if row.kind == 'news' and row.payload.get('instrument_key') == key]
+
     async def read_series(key, period):
         check_key(key)
         if period not in scope['periods_by_key'].get(key, []):
@@ -77,4 +81,4 @@ def frozen_ports(snapshot, check_access):
         return retrieve(query, selected, **filters)
 
     return {'read_private': read_private, 'read_market': read_market,
-            'read_series': read_series, 'search_memory': search_memory}
+            'read_series': read_series, 'search_memory': search_memory, 'read_news': read_news}

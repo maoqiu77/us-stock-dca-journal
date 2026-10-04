@@ -13,6 +13,7 @@ const AI_REQUEST_BASE_URL =
   "http://127.0.0.1:8000";
 
 export type TradingStateResponse = {
+  revision: string;
   state: TradingDataState;
   derivedPositions: DerivedPosition[];
   accountSummary: {
@@ -25,23 +26,23 @@ export type TradingStateResponse = {
 
 export type SignalRow = {
   ticker: string;
-  current_price: number;
+  current_price: number | null;
   trend_status: string;
-  drawdown: number;
+  drawdown: number | null;
   drawdown252: number | null;
   high252_date: string | null;
-  rsi: number;
+  rsi: number | null;
   ma20: number | null;
   ma60: number | null;
   ma120: number | null;
   ma200: number | null;
-  market_value: number;
+  market_value: number | null;
   cost_basis: number;
   return_from_cost: number | null;
   take_profit_pct: number;
   stop_loss_pct: number;
-  unrealized_pnl: number;
-  current_weight: number;
+  unrealized_pnl: number | null;
+  current_weight: number | null;
   target_weight: number;
   action: string;
   status: string;
@@ -245,6 +246,10 @@ type ApiList<T> = {
   items: T[];
 };
 
+export class ApiError extends Error {
+  constructor(public status: number, message: string) { super(message); }
+}
+
 async function requestJson<T>(
   path: string,
   init?: RequestInit,
@@ -265,13 +270,13 @@ async function requestJson<T>(
     } catch {
       detail = "";
     }
-    throw new Error(`API ${response.status}: ${path}${detail}`);
+    throw new ApiError(response.status, `API ${response.status}: ${path}${detail}`);
   }
   return response.json() as Promise<T>;
 }
 
 export async function fetchTradingState(): Promise<TradingStateResponse> {
-  const response = await requestJson<TradingStateResponse>("/api/trading-state");
+  const response = await requestJson<TradingStateResponse>("/api/trading-state", { signal: AbortSignal.timeout(10000) });
   return {
     ...response,
     state: sanitizeTradingData(response.state),
@@ -279,16 +284,32 @@ export async function fetchTradingState(): Promise<TradingStateResponse> {
 }
 
 export async function saveTradingState(
-  state: TradingDataState
+  operation: { state: TradingDataState; expectedRevision: string; operationId: string }
 ): Promise<TradingStateResponse> {
   const response = await requestJson<TradingStateResponse>("/api/trading-state", {
     method: "PUT",
-    body: JSON.stringify(state),
+    body: JSON.stringify(operation),
+    signal: AbortSignal.timeout(10000),
   });
   return {
     ...response,
     state: sanitizeTradingData(response.state),
   };
+}
+
+export function fetchTradingReceipt(id: string) {
+  return requestJson<({ status: "committed" } & TradingStateResponse) | { status: "unknown" }>(`/api/trading-state/receipts/${encodeURIComponent(id)}`, { signal: AbortSignal.timeout(10000) });
+}
+
+export async function downloadLocalBackup() {
+  const browserPreferences: Record<string, string> = {};
+  for (const key of ["theme", "stock-platform-active-view-v1", "stock-platform-onboarding-v1"]) {
+    const value = localStorage.getItem(key);
+    if (value !== null) browserPreferences[key] = value;
+  }
+  const response = await fetch(`${API_BASE_URL}/api/local-backup`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ browserPreferences }) });
+  if (!response.ok) throw new Error("备份未通过校验，请保留原库并查看恢复说明。");
+  return response.blob();
 }
 
 export async function resetTradingState(): Promise<TradingStateResponse> {

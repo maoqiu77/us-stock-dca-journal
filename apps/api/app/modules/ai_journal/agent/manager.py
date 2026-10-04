@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
 from app.modules.ai_settings import IncompleteCompletionError, load_ai_settings
 from ..service import model_fingerprint
 from ..store import JournalStore, digest
@@ -12,14 +13,16 @@ from .contracts import EvidenceBook, Report
 from .adapters import private_access, frozen_ports
 from .tools import make_tools
 from .prompts import add_scope_filter_status, initial_messages, render
+from .research import default_research
 
 
 class JournalAgentManager:
     def __init__(self, journal=None, settings=load_ai_settings, model_factory=build_agent_model,
-                 access=private_access, enabled=runtime_available):
+                 access=private_access, enabled=runtime_available, research_factory=default_research):
         self.journal = journal or JournalStore()
         self.store = AgentStore(self.journal)
         self.settings, self.model_factory, self.access, self.enabled = settings, model_factory, access, enabled
+        self.research_factory = research_factory
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
@@ -64,7 +67,7 @@ class JournalAgentManager:
     def execute(self, run_id):
         if self._stop.is_set():
             return
-        token = self.store.claim_queued(run_id)
+        token = self.store.claim_queued(run_id, lease_seconds=180)
         if not token:
             return
         with self._lock:
@@ -79,6 +82,9 @@ class JournalAgentManager:
             if digest(snapshot) != checksum or fingerprint != run['model_fingerprint']:
                 raise ValueError('snapshot_integrity_invalid')
             settings = self.settings()
+            if snapshot['agent_scope'].get('public_research'):
+                budget = Budget(deadline=time.monotonic() + 150, max_model_calls=7, max_tool_calls=14,
+                                max_external_tools=8, max_input_bytes=56000, max_reserved_units=420000)
             budget.max_output_tokens = output_limit_for(settings)
             capability = self.store.capability(fingerprint)
             if model_fingerprint(settings) != fingerprint or not ready(settings, capability) or snapshot.get('agent_endpoint') != capability.endpoint:
@@ -95,7 +101,8 @@ class JournalAgentManager:
             check_access()
             book = EvidenceBook()
             ports = frozen_ports(snapshot, check_access)
-            specs = make_tools(book=book, scope=snapshot['agent_scope'], **ports)
+            research = self.research_factory() if snapshot['agent_scope'].get('public_research') else None
+            specs = make_tools(book=book, scope=snapshot['agent_scope'], research=research, **ports)
             executor = ToolExecutor(specs, book, budget, check_access)
 
             def progress():
@@ -104,7 +111,8 @@ class JournalAgentManager:
             executor.progress = progress
             from .graph import build_graph
             graph = build_graph(model_call=self.model_factory(settings, capability), executor=executor,
-                                book=book, budget=budget, check_access=check_access, progress=progress)
+                                book=book, budget=budget, check_access=check_access, progress=progress,
+                                research_plan=snapshot.get('research_plan'))
             state = asyncio.run(graph.ainvoke({'messages':initial_messages(snapshot), 'result':None,
                                               'repair_count':0, 'stop_code':''}, {'recursion_limit':32}))
             check_access()

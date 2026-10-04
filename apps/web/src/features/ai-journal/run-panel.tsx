@@ -13,9 +13,10 @@ const statuses: Record<AgentRun["status"], string> = { queued: "等待分析", r
   failed: "分析未完成", outcome_unknown: "结果待核验", cancel_requested: "正在取消", cancelled: "已取消" };
 const tools: Record<string, string> = { read_portfolio_snapshot: "持仓", read_investment_policy: "投资计划",
   search_investment_memory: "个人原文", get_market_facts: "市场资料", get_price_series: "已收盘日线",
-  calculate_indicators: "技术指标", calculate_portfolio_exposure: "组合集中度", get_news_and_fundamentals: "新闻与基本面" };
+  calculate_indicators: "量价与技术指标", calculate_portfolio_exposure: "组合集中度", get_news_and_fundamentals: "近期新闻",
+  search_public_news: "追加搜索新闻", get_company_filings: "查找公司公告", read_research_document: "阅读原文", get_market_comparison: "对比大盘表现", review_answer: "核对结论与依据" };
 const kinds: Record<AgentEvidence["kind"], string> = { position: "持仓", policy: "投资计划", note: "手记",
-  trade_reason: "交易理由", quote: "市场观察", series: "已收盘日线", calculation: "计算结果" };
+  trade_reason: "交易理由", quote: "市场观察", series: "已收盘日线", calculation: "计算结果", news: "新闻", document: "公告与原文" };
 const stances = { observe: "观察", maintain: "维持", conditional_change: "条件调整", insufficient_data: "资料不足" };
 const date = (value: string | null) => value ? new Date(value).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) : "未知";
 
@@ -35,22 +36,28 @@ export function JournalRunPanel({ run, onRefresh }: { run: AgentRun; onRefresh: 
   };
   return <section className="grid min-w-0 gap-3 border-t pt-3" aria-label="分析任务">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-sm" role="status">{statuses[run.status]}</span>
+      <span className="text-sm" role="status">{run.status === "running" && run.usage?.answer_review === "in_progress" ? "正在核对结论与依据" : statuses[run.status]}</span>
       <div className="flex items-center gap-1">
         <Button size="icon-sm" variant="ghost" title="查看来源" aria-label="查看来源" onClick={() => show([])}><BookOpenIcon /></Button>
         {runIsActive(run.status) ? <Button size="icon-sm" variant="ghost" disabled={busy} title="取消分析" aria-label="取消分析" onClick={() => void cancel()}><SquareIcon /></Button> : null}
       </div>
     </div>
-    {run.events.length ? <ul className="grid gap-1 text-xs text-muted-foreground">{run.events.map((event, index) => <li key={index}>
-      {tools[event.tool] ?? "资料核对"} · {event.status === "failed" ? "未完成" : event.status === "cached" ? "复用本轮结果" : event.source_count ? "已完成" : "无可用来源"} · {event.source_count} 项来源
-    </li>)}</ul> : null}
+    {run.events.length ? <details open={runIsActive(run.status)}><summary className="cursor-pointer text-xs text-muted-foreground">资料查阅进度 · {run.source_count} 项来源</summary><ul className="grid gap-1 pt-2 text-xs text-muted-foreground">{run.events.map((event, index) => <li key={index}>
+      {tools[event.tool] ?? "资料核对"} · {event.status === "failed" ? "未完成" : event.status === "cached" ? "复用本轮结果" : event.source_count || event.tool === "review_answer" ? "已完成" : "无可用来源"}{event.tool === "review_answer" ? "" : ` · ${event.source_count} 项来源`}
+    </li>)}</ul></details> : null}
     {run.error_code ? <p className="break-words text-xs text-destructive">{errors[run.error_code] ?? statuses[run.status]}</p> : null}
     {run.cancel_requested || run.status === "outcome_unknown" ? <p className="break-words text-xs text-muted-foreground">供应商可能仍在处理并计费，最终用量和费用待核验。</p> : null}
     {error ? <p className="text-xs text-destructive">{error}</p> : null}
     {run.result ? <div className="grid gap-3 text-sm">
       <p className="text-xs text-muted-foreground">{stances[run.result.stance]}</p>
       <p className="break-words leading-relaxed">{run.result.summary}</p>
-      {([ ["依据", run.result.facts], ["判断", run.result.interpretations], ["风险", run.result.risks] ] as const).map(([title, rows]) => rows.length ? <div key={title} className="grid gap-1">
+      {run.result.interpretations.length ? <div className="grid gap-1"><h4 className="text-sm font-medium">接下来怎么做</h4>
+        {run.result.interpretations.map((row, index) => <p key={index} className="break-words leading-relaxed">{row.text}
+          <Button size="icon-sm" variant="ghost" title="查看引用来源" aria-label="查看引用来源" onClick={() => show(row.source_ids)}><BookOpenIcon /></Button>
+        </p>)}
+      </div> : null}
+      <details><summary className="cursor-pointer text-xs text-muted-foreground">展开依据与注意事项</summary><div className="grid gap-3 pt-3">
+      {([ ["为什么这样判断", run.result.facts], ["什么情况需要改变判断", run.result.risks] ] as const).map(([title, rows]) => rows.length ? <div key={title} className="grid gap-1">
         <h4 className="text-sm font-medium">{title}</h4>
         {rows.map((row, index) => <p key={index} className="break-words leading-relaxed">{row.text}
           <Button size="icon-sm" variant="ghost" title="查看引用来源" aria-label="查看引用来源" onClick={() => show(row.source_ids)}><BookOpenIcon /></Button>
@@ -58,8 +65,9 @@ export function JournalRunPanel({ run, onRefresh }: { run: AgentRun; onRefresh: 
       </div> : null)}
       {run.result.missing.length ? <div className="grid gap-1"><h4 className="text-sm font-medium">待确认</h4>{run.result.missing.map((item, index) => <p key={index} className="break-words text-muted-foreground">{item}</p>)}</div> : null}
       {run.result.next_questions.length ? <div className="grid gap-1"><h4 className="text-sm font-medium">进一步问题</h4>{run.result.next_questions.map((item, index) => <p key={index} className="break-words">{item}</p>)}</div> : null}
+      </div></details>
     </div> : null}
-    {sources.data?.items.filter((source) => source.kind === "calculation").map((source) => <Calculation key={source.id} source={source} />)}
+    {sources.data?.items.some((source) => source.kind === "calculation" && "ma5" in source.payload) ? <details><summary className="cursor-pointer text-xs text-muted-foreground">查看技术指标</summary><div className="pt-2">{sources.data.items.filter((source) => source.kind === "calculation").map((source) => <Calculation key={source.id} source={source} />)}</div></details> : null}
     <Sheet open={open} onOpenChange={setOpen}><SheetContent className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-lg">
       <SheetHeader><SheetTitle>本轮来源</SheetTitle><SheetDescription>{run.source_count} 项 · {statuses[run.status]}</SheetDescription></SheetHeader>
       <div className="grid min-w-0 gap-4 p-4">
@@ -71,7 +79,9 @@ export function JournalRunPanel({ run, onRefresh }: { run: AgentRun; onRefresh: 
           <p className="text-xs text-muted-foreground">{source.kind === "calculation" && "ma5" in source.payload
             ? <>指标截至：{date(indicatorObservationTime(source.payload))}</>
             : <>观察 / 原文版本：{date(source.as_of)}</>}<br />本轮取得：{date(source.available_at)}</p>
-          {source.kind === "note" || source.kind === "trade_reason" ? <p className="whitespace-pre-wrap break-words">{String(source.payload.body ?? source.payload.note ?? "")}</p> : <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(source.payload, null, 2)}</pre>}
+          {source.kind === "news" || source.kind === "document" ? <div className="grid gap-2"><a className="underline" href={String(source.payload.url)} target="_blank" rel="noreferrer">{String(source.payload.title)}</a><p className="text-xs text-muted-foreground">{String(source.payload.publisher)} · {source.payload.reading_scope === "excerpts" ? "已读取相关正文片段" : source.payload.reading_scope === "filing_metadata_only" ? "已找到公告，尚未读取正文" : "仅已读取标题"}</p>
+            {Array.isArray(source.payload.excerpts) ? source.payload.excerpts.map((excerpt, index) => <p key={index} className="whitespace-pre-wrap break-words leading-relaxed">{String(excerpt)}</p>) : null}
+          </div> : source.kind === "note" || source.kind === "trade_reason" ? <p className="whitespace-pre-wrap break-words">{String(source.payload.body ?? source.payload.note ?? "")}</p> : <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all text-xs">{JSON.stringify(source.payload, null, 2)}</pre>}
           {source.input_source_ids.length ? <Button variant="ghost" className="justify-start" onClick={() => setSelected(source.input_source_ids)}><BookOpenIcon />计算输入来源</Button> : null}
         </article>)}
         {sources.data && !sources.data.items.length ? <p className="text-sm text-muted-foreground">本轮尚未取得来源。</p> : null}

@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from contextlib import suppress
 from typing import TypedDict
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, messages_to_dict
 from langgraph.graph import StateGraph, START, END
 from ..store import encoded
 from .contracts import insufficient
+from .answer_quality import normalize_report, review_messages, answer_size
 from pydantic import ValidationError
-from .runtime import (MAX_MODEL_INPUT_BYTES, AccessRevoked, LimitReached,
+from .runtime import (AccessRevoked, LimitReached,
                       ModelOutcomeUnknown)
 
 
@@ -18,6 +20,10 @@ class State(TypedDict):
     result: dict | None
     repair_count: int
     stop_code: str
+    review_requested: bool
+    review_tool_rounds: int
+    review_started: float
+    style_repair_count: int
 
 
 def compact_tool_messages(messages):
@@ -100,15 +106,21 @@ def model_input_bytes(messages, tools):
     return len(encoded({'messages': messages_to_dict(messages), 'tools': tools}).encode())
 
 
-def build_graph(*, model_call, executor, book, budget, check_access, progress=lambda: None):
+def build_graph(*, model_call, executor, book, budget, check_access, progress=lambda: None, research_plan=None):
     seen_calls = set()
+    review_enabled = bool(research_plan and research_plan.get('version', 0) >= 2)
 
     async def llm(state):
         check_access()
         messages = compact_tool_messages(state['messages'])
-        final_only = budget.model_calls >= budget.max_model_calls - 1 or budget.tool_calls >= budget.max_tool_calls or budget.remaining() < 10
+        reserve = 2 if review_enabled and not state.get('review_requested') else 1
+        final_only = (budget.model_calls >= budget.max_model_calls - reserve or budget.tool_calls >= budget.max_tool_calls
+                      or budget.remaining() < (35 if reserve == 2 else 10) or state.get('review_tool_rounds', 0) >= 1)
+        if state.get('review_requested') and budget.model_calls >= budget.max_model_calls - 2:
+            # Keep a final slot for repairing the reviewed JSON/citations.
+            final_only = True
         tools = [] if final_only else [spec.wire() for spec in executor.specs.values()]
-        if not final_only and model_input_bytes(messages, tools) > MAX_MODEL_INPUT_BYTES:
+        if not final_only and model_input_bytes(messages, tools) > budget.max_input_bytes:
             # A growing transcript is a local context condition. Finish from
             # already observed evidence before spending another tool turn.
             final_only = True
@@ -172,21 +184,50 @@ def build_graph(*, model_call, executor, book, budget, check_access, progress=la
 
     async def tools(state):
         outputs = [ToolMessage(content=await executor.invoke(call), tool_call_id=call['id']) for call in state['messages'][-1].tool_calls]
-        return {'messages':state['messages'] + outputs}
+        return {'messages':state['messages'] + outputs,
+                'review_tool_rounds': state.get('review_tool_rounds', 0) + int(bool(state.get('review_requested')))}
 
     async def validate(state):
         check_access()
         try:
-            report = book.validate_report(state['messages'][-1].text)
+            report = normalize_report(book.validate_report(state['messages'][-1].text))
+            no_claims = (report.stance == 'insufficient_data' and report.summary == insufficient('').summary
+                         and not report.facts and not report.interpretations and not report.risks)
+            if review_enabled and not state.get('review_requested') and no_claims:
+                budget.answer_review = 'not_needed'
+            elif review_enabled and not state.get('review_requested'):
+                review_inputs = review_messages(state['messages'], report, book, research_plan)
+                review_fits = model_input_bytes(review_inputs, []) <= budget.max_input_bytes - 512
+                if budget.model_calls < budget.max_model_calls and budget.remaining() >= 10 and review_fits:
+                    budget.answer_review = 'in_progress'
+                    progress()
+                    return {'review_requested': True, 'review_started': time.monotonic(),
+                        'messages': review_inputs}
+                budget.answer_review = 'skipped_budget' if review_fits else 'skipped_context'
+            elif state.get('review_requested'):
+                target = research_plan.get('answer_contract', {}).get('target_characters', 700)
+                if (answer_size(report) > target * 1.2 and not state.get('style_repair_count')
+                        and budget.model_calls < budget.max_model_calls and budget.remaining() >= 10):
+                    compression_inputs = state['messages'] + [HumanMessage(content=f'内容已核对，但正文约{answer_size(report)}字，超过用户要求。现在仅做一次精简：总计控制在{target}字以内，结论一句，依据最多两条，行动条件各一句；核实消息或概念题不强行给交易行动。删除各部分重复内容，保留关键数字的日期与口径，不新增事实或工具调用。返回同一报告JSON并保留引用。')]
+                    if model_input_bytes(compression_inputs, []) <= budget.max_input_bytes - 512:
+                        return {'style_repair_count': 1, 'review_tool_rounds': 1,
+                            'messages': compression_inputs}
+                budget.answer_review = 'completed'
+                executor.events.append({'tool': 'review_answer', 'status': 'succeeded', 'source_count': 0,
+                    'duration_ms': int((time.monotonic() - state.get('review_started', time.monotonic())) * 1000)})
+                progress()
             return {'result':report.model_dump(), 'stop_code':'completed'}
         except ValueError as exc:
-            if state['repair_count'] >= 1 or budget.model_calls >= budget.max_model_calls:
-                return {'result':insufficient('回答未通过结构或引用校验。').model_dump(), 'stop_code':'validation_failed'}
             if isinstance(exc, ValidationError):
                 details = [{'field': list(error['loc']), 'type': error['type']}
                     for error in exc.errors(include_input=False, include_context=False, include_url=False)[:8]]
             else:
                 details = [{'type': 'citation_not_observed_or_ungrounded_stance'}]
+            # Retain only schema locations and codes, never provider text or originals.
+            budget.report_validation_errors.append({'call': budget.model_calls, 'errors': details})
+            progress()
+            if state['repair_count'] >= 1 or budget.model_calls >= budget.max_model_calls:
+                return {'result':insufficient('回答未通过结构或引用校验。').model_dump(), 'stop_code':'validation_failed'}
             return {'repair_count':state['repair_count'] + 1, 'messages':state['messages'] + [HumanMessage(
                 content='结构或引用校验失败。只使用已读取来源修复一次，返回规定 JSON，不补造依据。校验项：' + encoded(details))]}
 

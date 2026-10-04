@@ -1,0 +1,18 @@
+{
+  "revision": "synthetic-v1",
+  "trades": [
+    {"id":"manual-1","ticker":"SYNTH","date":"2026-10-01","action":"买入","shares":10,"unitPrice":100,"amount":1000,"note":"券商完整持仓截图覆盖"},
+    {"id":"legacy-2","ticker":"SYNTH","date":"2026-10-02","action":"卖出","shares":2,"unitPrice":110,"amount":220,"note":"手动核对"}
+  ],
+  "expected": {
+    "format":"legacy-migration-preview-v1",
+    "revision":"synthetic-v1",
+    "action":"read_only",
+    "autoConvertible":0,
+    "pending":[
+      {"id":"manual-1","ticker":"SYNTH","date":"2026-10-01","reason":"missing_structured_provenance","action":"keep"},
+      {"id":"legacy-2","ticker":"SYNTH","date":"2026-10-02","reason":"missing_structured_provenance","action":"keep"}
+    ],
+    "warning":"旧记录没有可核验的批次与来源，不能仅根据备注判定为截图导入。全部原样保留；真实成交次数、成交金额和已实现盈亏的历史覆盖未核验。"
+  }
+}

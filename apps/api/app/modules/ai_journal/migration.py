@@ -36,10 +36,14 @@ def migrate_journal_db(connection):
         ]
         for statement in statements:
             connection.execute(statement)
+        connection.execute('create table if not exists ai_journal_note_dates (note_id text primary key, journal_date text not null)')
+        connection.execute("create index if not exists idx_journal_note_date on ai_journal_note_dates(journal_date)")
         if connection.execute('pragma user_version').fetchone()[0] < 6:
             connection.execute('pragma user_version = 6')
         from .agent.migration import migrate_agent_db
         migrate_agent_db(connection)
+        from .decisions import migrate_records
+        migrate_records(connection)
         connection.execute('release journal_upgrade')
     except Exception:
         connection.execute('rollback to journal_upgrade')

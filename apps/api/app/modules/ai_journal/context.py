@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.modules.trading_data import load_trading_state, derive_positions
+from app.modules.trading_data import load_trading_state, derive_positions, LEGACY_HISTORY_WARNING
 from .store import fail
 
 
@@ -61,6 +61,7 @@ def private_context(store, board, request, *, state=None):
     selected = {}
     missing = []
     if request.position_tickers or request.plan_tickers or request.trade_ids:
+        missing.append(LEGACY_HISTORY_WARNING)
         if state is None:
             state = load_trading_state()
         positions, excluded = available_positions(board, state)

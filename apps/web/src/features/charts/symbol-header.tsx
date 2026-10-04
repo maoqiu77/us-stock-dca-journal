@@ -41,7 +41,7 @@ export function SymbolHeader({
           {formatPrice(quote?.price)}
         </div>
         <div className={cn("text-sm font-medium tabular-nums", getChangeClass(change))}>
-          {quote ? `${quote.change >= 0 ? "+" : ""}${formatPrice(quote.change)} ${formatPercent(change)}` : "--"}
+          {quote ? `${quote.change !== null && quote.change >= 0 ? "+" : ""}${formatPrice(quote.change)} ${formatPercent(change)}` : "--"}
         </div>
         <div className="text-xs text-muted-foreground">
           Vol {formatVolume(quote?.volume)}

@@ -29,7 +29,17 @@ def automatic_context(journal, board, request, stamp):
     if request.memory_before:
         missing.append('记忆截止时间仅过滤原文版本；当前持仓和行情不代表过去时点。无版本时间的交易理由不纳入历史记忆。')
     if last:
-        private['history'] = [{'id': last['id'], 'question': last['snapshot']['request']['question'][:4000], 'answer': last['answer'][:8000]}]
+        # Preserve several turns without letting old model prose exhaust the tool budget.
+        history, remaining = [], 8000
+        for turn in reversed([t for t in session['turns'] if t['status'] == 'completed'][-6:]):
+            question = turn['snapshot']['request']['question'].encode('utf-8')[:800].decode('utf-8', errors='ignore')
+            answer = turn['answer'].encode('utf-8')[:1800].decode('utf-8', errors='ignore')
+            size = len((question + answer).encode('utf-8'))
+            if size > remaining:
+                break
+            history.insert(0, {'id': turn['id'], 'question': question, 'answer': answer})
+            remaining -= size
+        private['history'] = history
     return private, missing
 
 
@@ -52,6 +62,19 @@ def conversation_targets(board, request):
         exact = re.search(r'(?<![A-Z0-9])' + re.escape(item.symbol) + r'(?![A-Z0-9])', question)
         if exact or any(len(alias) >= 2 and alias in question for alias in aliases):
             matches.setdefault(item.symbol, []).append(key)
+    # Resolve explicitly typed tickers outside the local watchlist through the existing
+    # exchange-verified directory. Send only the ticker, never the whole question.
+    if request.auto_context and hasattr(board.catalog, 'search'):
+        terms = re.findall(r'(?<![A-Za-z0-9])[A-Z][A-Z0-9.-]{1,14}(?![A-Za-z0-9])', request.question)
+        jargon = {'AI', 'ETF', 'USD', 'CNY', 'RSI', 'MACD', 'MA', 'PE', 'PB', 'EPS', 'ROE', 'GDP', 'CPI', 'PCE', 'FOMC', 'IPO', 'CEO', 'DCF'}
+        unknown = [term for term in dict.fromkeys(terms) if term not in matches and term not in jargon and not re.fullmatch(r'MA\d+', term)]
+        if len(unknown) > 3:
+            fail('conversation_targets_too_many', 422)
+        for symbol in unknown:
+            found = [item for item in board.catalog.search(symbol, 'US', limit=10) if item.symbol == symbol]
+            if not found:
+                fail('instrument_not_found', 422)
+            matches[symbol] = [item.key for item in found]
     for symbol, values in matches.items():
         if len(values) != 1:
             if request.instrument_key in values:

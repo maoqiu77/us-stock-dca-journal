@@ -42,6 +42,8 @@ class Budget:
     max_tool_calls: int = 8
     max_external_tools: int = 3
     max_output_tokens: int = 3072
+    max_input_bytes: int = MAX_MODEL_INPUT_BYTES
+    max_reserved_units: int = MAX_RESERVED_UNITS
     input_tokens: int = 0
     output_tokens: int = 0
     usage_complete: bool = True
@@ -49,6 +51,8 @@ class Budget:
     provider_usage: list = field(default_factory=list)
     limit_reason: str | None = None
     limit_details: dict = field(default_factory=dict)
+    answer_review: str = 'not_requested'
+    report_validation_errors: list = field(default_factory=list)
 
     def remaining(self):
         return max(0.0, self.deadline - time.monotonic())
@@ -61,14 +65,14 @@ class Budget:
             self.limit_reason, self.limit_details = 'model_calls', {'max_model_calls': self.max_model_calls}
             raise LimitReached(self.limit_reason, **self.limit_details)
         reserve = byte_count + self.max_output_tokens + 512
-        if byte_count > MAX_MODEL_INPUT_BYTES:
+        if byte_count > self.max_input_bytes:
             self.limit_reason, self.limit_details = 'model_input_bytes', {
-                'attempted_input_bytes': byte_count, 'max_input_bytes': MAX_MODEL_INPUT_BYTES}
+                'attempted_input_bytes': byte_count, 'max_input_bytes': self.max_input_bytes}
             raise LimitReached(self.limit_reason, **self.limit_details)
-        if self.reserved_units + reserve > MAX_RESERVED_UNITS:
+        if self.reserved_units + reserve > self.max_reserved_units:
             self.limit_reason, self.limit_details = 'reserved_units', {
                 'attempted_reserved_units': self.reserved_units + reserve,
-                'max_reserved_units': MAX_RESERVED_UNITS}
+                'max_reserved_units': self.max_reserved_units}
             raise LimitReached(self.limit_reason, **self.limit_details)
         self.model_calls += 1
         self.reserved_units += reserve
@@ -92,6 +96,8 @@ class Budget:
 
     def usage(self):
         return {'llm_calls': self.model_calls, 'tool_calls': self.tool_calls,
+                'answer_review': self.answer_review,
+                'report_validation_errors': self.report_validation_errors,
                 'max_output_tokens_per_request': self.max_output_tokens,
                 'external_tools': self.external_tools, 'reserved_units': self.reserved_units,
                 'input_tokens': self.input_tokens if self.usage_complete and not self.in_flight else None,
@@ -175,7 +181,8 @@ class ToolExecutor:
             if len(output.encode()) > 14000:
                 raise ValueError('tool_result_too_large')
             self.book.add_batch(result.sources, datetime.now(timezone.utc))
-            count, status = len(result.sources), 'succeeded'
+            count = len(result.sources)
+            status = 'cached' if result.sources and (result.view.get('new_source_count') == 0 or result.view.get('already_observed')) else 'succeeded'
             self.cache[key] = output, count
             return output
         except (LimitReached, ValueError, TimeoutError) as exc:

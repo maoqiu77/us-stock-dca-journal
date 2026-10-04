@@ -10,7 +10,45 @@ permissions:
   contents: write
 
 jobs:
+  desktop-validation:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        mode: [base, agent]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate API before packaging
+        run: |
+          if [ '${{ matrix.mode }}' = agent ]; then
+            python -m pip install -r apps/api/requirements-agent.lock
+          else
+            python -m pip install -r apps/api/requirements.txt
+          fi
+          python -m pip check
+          python scripts/test_api.py --mode '${{ matrix.mode }}'
+      - name: Validate desktop and affected shared contracts
+        if: matrix.mode == 'base'
+        run: |
+          npm ci
+          npm run test:web
+          npm run lint
+          npm run build
+          npm --workspace @portfolio/domain test
+          npm --workspace @portfolio/domain run typecheck
+          npm --workspace @portfolio/ai-context test
+          npm --workspace @portfolio/ai-context run typecheck
+          npm run check:market-data
+          python scripts/check_public_safety.py
+          python scripts/check_release_readiness.py
+
   windows:
+    needs: desktop-validation
     runs-on: windows-latest
 
     steps:
@@ -40,7 +78,11 @@ jobs:
         shell: pwsh
         run: |
           npm --prefix apps/web run build
-          pyinstaller --onefile --name stock-platform-api --paths apps/api scripts/runtime/api_server.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pyinstaller --onefile --name stock-platform-api --paths apps/api --add-data "storage/templates;storage/templates" scripts/runtime/api_server.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & dist/stock-platform-api.exe --self-check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package Windows bundle
         shell: pwsh
@@ -65,6 +107,10 @@ jobs:
           [ordered]@{
             version = $version
             platform = "windows-x64"
+            runtimeMode = "base"
+            agentIncluded = $false
+            signatureStatus = "unsigned_external_required"
+            signer = ""
             repo = "${{ github.repository }}"
             builtAt = (Get-Date).ToUniversalTime().ToString("o")
           } | ConvertTo-Json | Set-Content "$pkg/release.json" -Encoding utf8
@@ -77,15 +123,62 @@ jobs:
             -description "启动本地股票交易平台网页端" `
             -noConsole:$false
           python scripts/verify_release_bundle_layout.py --package "$pkg" --platform "windows-x64"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip" -Force
 
-      - name: Attach Windows bundle to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+      - name: Sign Windows executables when certificate secrets are configured
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERT_B64: ${{ secrets.WINDOWS_SIGNING_CERT_B64 }}
+          WINDOWS_SIGNING_CERT_PASSWORD: ${{ secrets.WINDOWS_SIGNING_CERT_PASSWORD }}
+          WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
+        run: |
+          $manifest = "dist/stock-trading-platform-next-${{ github.ref_name }}-windows-x64/release.json"
+          $pkg = Split-Path $manifest -Parent
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_CERT_B64)) {
+            Write-Host "Windows signing is not configured; retaining an unsigned CI candidate."
+            python scripts/update_release_manifest.py $manifest unsigned_external_required
+            Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip" -Force
+            exit 0
+          }
+          $signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if ($null -eq $signtool) { throw "WINDOWS_SIGNING_CERT_B64 is configured but signtool.exe is unavailable." }
+          $cert = Join-Path $env:RUNNER_TEMP "stock-platform-signing.pfx"
+          [IO.File]::WriteAllBytes($cert, [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERT_B64))
+          $timestamp = if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_TIMESTAMP_URL)) { @() } else { @("/tr", $env:WINDOWS_SIGNING_TIMESTAMP_URL) }
+          & $signtool.Source sign /fd SHA256 /f $cert /p $env:WINDOWS_SIGNING_CERT_PASSWORD @timestamp "$pkg/api/stock-platform-api.exe" "$pkg/runtime/node/node.exe" "$pkg/启动股票交易平台.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $signtool.Source verify /pa "$pkg/api/stock-platform-api.exe" "$pkg/runtime/node/node.exe" "$pkg/启动股票交易平台.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/update_release_manifest.py $manifest signed "${{ vars.WINDOWS_SIGNING_SUBJECT }}"
+          Compress-Archive -Path "$pkg/*" -DestinationPath "$pkg.zip" -Force
+
+      - name: Verify Windows candidate and updater without changing an install
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $pkg = "dist/stock-trading-platform-next-$version-windows-x64"
+          $zip = "$pkg.zip"
+          python scripts/verify_release_artifact.py --package $zip --platform windows-x64
+          $verifyRoot = Join-Path $env:RUNNER_TEMP "stock-platform-install-verification"
+          New-Item -ItemType Directory -Force -Path "$verifyRoot/storage/local" | Out-Null
+          Set-Content -Path "$verifyRoot/storage/local/synthetic-marker.txt" -Value "preserve"
+          & powershell -NoProfile -ExecutionPolicy Bypass -File "$pkg/updater/Install-Update.ps1" -InstallRoot $verifyRoot -PackageZip (Resolve-Path $zip) -LauncherPath "$verifyRoot/启动股票交易平台.exe" -VerifyOnly
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Get-Content "$verifyRoot/storage/local/synthetic-marker.txt" -Raw).Trim() -ne "preserve") { throw "Updater verification touched storage/local." }
+          (Get-FileHash $zip -Algorithm SHA256).Hash | Set-Content "$zip.sha256"
+
+      - name: Retain Windows candidate for validation
+        uses: actions/upload-artifact@v4
         with:
-          files: dist/stock-trading-platform-next-${{ github.ref_name }}-windows-x64.zip
+          name: windows-x64
+          path: |
+            dist/stock-trading-platform-next-${{ github.ref_name }}-windows-x64.zip
+            dist/stock-trading-platform-next-${{ github.ref_name }}-windows-x64.zip.sha256
+          if-no-files-found: error
 
   macos:
+    needs: desktop-validation
     strategy:
       fail-fast: false
       matrix:
@@ -121,7 +214,8 @@ jobs:
       - name: Build web and API
         run: |
           npm --prefix apps/web run build
-          pyinstaller --onefile --name stock-platform-api --paths apps/api scripts/runtime/api_server.py
+          pyinstaller --onefile --name stock-platform-api --paths apps/api --add-data "storage/templates:storage/templates" scripts/runtime/api_server.py
+          dist/stock-platform-api --self-check
 
       - name: Package macOS bundle
         run: |
@@ -145,6 +239,10 @@ jobs:
           {
             "version": "$version",
             "platform": "macos-${{ matrix.arch }}",
+            "runtimeMode": "base",
+            "agentIncluded": false,
+            "signatureStatus": "unsigned_external_required",
+            "signer": "",
             "repo": "${GITHUB_REPOSITORY}",
             "builtAt": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           }
@@ -153,8 +251,92 @@ jobs:
           python scripts/verify_release_bundle_layout.py --package "$pkg" --platform "macos-${{ matrix.arch }}"
           (cd dist && zip -r "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip" "stock-trading-platform-next-${version}-macos-${{ matrix.arch }}")
 
-      - name: Attach macOS bundle to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Sign macOS executables when identity is configured
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_SIGNING_CERT_B64: ${{ secrets.MACOS_SIGNING_CERT_B64 }}
+          MACOS_SIGNING_CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
+        run: |
+          manifest="dist/stock-trading-platform-next-${GITHUB_REF_NAME}-macos-${{ matrix.arch }}/release.json"
+          pkg="$(dirname "$manifest")"
+          if [[ -z "${MACOS_SIGNING_IDENTITY:-}" ]]; then
+            echo "macOS signing is not configured; retaining an unsigned CI candidate."
+            python3 scripts/update_release_manifest.py "$manifest" unsigned_external_required
+          else
+            signing_keychain=""
+            if [[ -n "${MACOS_SIGNING_CERT_B64:-}" ]]; then
+              signing_keychain="$RUNNER_TEMP/stock-platform-signing.keychain-db"
+              cert="$RUNNER_TEMP/stock-platform-signing.p12"
+              printf '%s' "$MACOS_SIGNING_CERT_B64" | base64 --decode > "$cert"
+              security create-keychain -p "" "$signing_keychain"
+              security set-keychain-settings "$signing_keychain"
+              security unlock-keychain -p "" "$signing_keychain"
+              security import "$cert" -k "$signing_keychain" -P "$MACOS_SIGNING_CERT_PASSWORD" -T /usr/bin/codesign
+              security set-key-partition-list -S apple-tool:,apple: -s -k "" "$signing_keychain"
+            fi
+            keychain_args=()
+            if [[ -n "$signing_keychain" ]]; then keychain_args=(--keychain "$signing_keychain"); fi
+            codesign --force --options runtime --timestamp "${keychain_args[@]}" --sign "$MACOS_SIGNING_IDENTITY" "$pkg/api/stock-platform-api" "$pkg/runtime/node/node"
+            codesign --verify --deep --strict "${keychain_args[@]}" "$pkg/api/stock-platform-api" "$pkg/runtime/node/node"
+            python3 scripts/update_release_manifest.py "$manifest" signed --signer "$MACOS_SIGNING_IDENTITY"
+          fi
+
+      - name: Rebuild macOS archive after signing metadata
+        run: |
+          version="${GITHUB_REF_NAME}"
+          pkg="dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}"
+          rm -f "dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip"
+          zip -qr "dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip" "$pkg"
+
+      - name: Verify macOS candidate and updater without changing an install
+        run: |
+          version="${GITHUB_REF_NAME}"
+          pkg="dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}"
+          zip="dist/stock-trading-platform-next-${version}-macos-${{ matrix.arch }}.zip"
+          python3 scripts/verify_release_artifact.py --package "$zip" --platform "macos-${{ matrix.arch }}"
+          verify_root="$RUNNER_TEMP/stock-platform-install-verification"
+          mkdir -p "$verify_root/storage/local"
+          printf '%s' preserve > "$verify_root/storage/local/synthetic-marker.txt"
+          "$pkg/updater/install-update.sh" --install-root "$verify_root" --package-zip "$PWD/$zip" --launcher-path "$verify_root/启动股票交易平台.command" --verify-only
+          test "$(cat "$verify_root/storage/local/synthetic-marker.txt")" = preserve
+          shasum -a 256 "$zip" > "$zip.sha256"
+
+      - name: Retain macOS candidate for validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: |
+            dist/stock-trading-platform-next-${{ github.ref_name }}-macos-${{ matrix.arch }}.zip
+            dist/stock-trading-platform-next-${{ github.ref_name }}-macos-${{ matrix.arch }}.zip.sha256
+          if-no-files-found: error
+
+  draft-release:
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-bundles
+          merge-multiple: true
+      - name: Require signatures before a tagged draft release
+        run: |
+          set -euo pipefail
+          for archive in release-bundles/*.zip; do
+            case "$archive" in
+              *windows-x64.zip) platform=windows-x64 ;;
+              *macos-arm64.zip) platform=macos-arm64 ;;
+              *macos-x64.zip) platform=macos-x64 ;;
+              *) echo "Unknown release archive: $archive" >&2; exit 1 ;;
+            esac
+            python3 scripts/verify_release_artifact.py --package "$archive" --platform "$platform" --require-signed
+          done
+      - name: Assemble draft only after all platforms pass
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/stock-trading-platform-next-${{ github.ref_name }}-macos-${{ matrix.arch }}.zip
+          draft: true
+          fail_on_unmatched_files: true
+          files: |
+            release-bundles/*.zip
+            release-bundles/*.sha256

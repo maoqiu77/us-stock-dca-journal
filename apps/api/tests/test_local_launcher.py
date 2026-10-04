@@ -11,6 +11,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+from packaging.requirements import Requirement  # load before tests mock sys.version_info
+
 
 ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("local_launcher", ROOT / "scripts/runtime/local_launcher.py")

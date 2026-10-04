@@ -6,7 +6,12 @@ import * as React from "react";
 import {
   fetchTradingState,
   saveTradingState,
+  fetchTradingReceipt,
+  downloadLocalBackup,
 } from "@/features/platform/api";
+import { LedgerWriter, changedFields, type SaveStatus, type WriterSnapshot } from "./ledger-writer";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   DEFAULT_TRADING_DATA,
   TRADING_DATA_STORAGE_KEY,
@@ -36,8 +41,9 @@ import {
   type TradingAccount,
   type TradingDataState,
 } from "@/features/platform/trading-data";
+import { applyCheckpoint, type Checkpoint } from "./checkpoints";
 
-type StorageStatus = "loading" | "api" | "saving" | "local" | "error";
+type StorageStatus = SaveStatus;
 type TradingDataContextValue = {
   state: TradingDataState;
   isHydrated: boolean;
@@ -57,6 +63,8 @@ type TradingDataContextValue = {
   importPositions: (inputs: PositionSnapshotInput[], importDate: string) => void;
   applyRecognizedTrades: (inputs: Array<{ ticker: string; action: "买入" | "卖出"; shares: number; unitPrice: number; amount: number; assetType: "ETF" | "STOCK"; date?: string; note?: string }>, date: string) => void;
   replacePositionSnapshot: (inputs: PositionSnapshotInput[], date: string) => void;
+  addCheckpoint: (checkpoint: Checkpoint) => void;
+  checkpointRevision: string | undefined;
   updateTrade: (
     id: string,
     input: TradeInput,
@@ -75,6 +83,11 @@ type TradingDataContextValue = {
 const TradingDataContext = React.createContext<TradingDataContextValue | null>(
   null
 );
+const SaveStatusContext = React.createContext<React.ReactNode>(null);
+
+export function TradingSaveStatus() {
+  return React.useContext(SaveStatusContext);
+}
 
 export function TradingDataProvider({
   children,
@@ -85,11 +98,12 @@ export function TradingDataProvider({
   const [state, setState] = React.useState<TradingDataState>(DEFAULT_TRADING_DATA);
   const [storageStatus, setStorageStatus] =
     React.useState<StorageStatus>("loading");
-  const isHydrated = typeof window !== "undefined";
+  const isHydrated = storageStatus !== "loading";
   const hasLoadedStateRef = React.useRef(false);
-  const remoteSaveEnabledRef = React.useRef(false);
-  const lastSavedPayloadRef = React.useRef<string | null>(null);
-  const saveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateRef = React.useRef(state);
+  const writerRef = React.useRef<LedgerWriter<TradingDataState> | null>(null);
+  const [saveInfo, setSaveInfo] = React.useState<WriterSnapshot<TradingDataState>>({ status: "loading" });
+  const [localWarning, setLocalWarning] = React.useState("");
 
   const invalidateTradingQueries = React.useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["watchlist"] });
@@ -99,94 +113,42 @@ export function TradingDataProvider({
   }, [queryClient]);
 
   React.useEffect(() => {
-    let isCanceled = false;
-
-    fetchTradingState()
-      .then((response) => {
-        if (isCanceled) {
-          return;
-        }
-        const nextState = sanitizeTradingData(response.state);
-        lastSavedPayloadRef.current = JSON.stringify(nextState);
-        hasLoadedStateRef.current = true;
-        remoteSaveEnabledRef.current = true;
-        setState(nextState);
-        persistLocalState(nextState);
-        setStorageStatus("api");
-        invalidateTradingQueries();
-      })
-      .catch(() => {
-        if (!isCanceled) {
-          hasLoadedStateRef.current = true;
-          remoteSaveEnabledRef.current = false;
-          setState(readStoredState());
-          setStorageStatus("local");
-        }
-      });
-
+    const draftKey = `${TRADING_DATA_STORAGE_KEY}:draft:${crypto.randomUUID()}`;
+    const writer = new LedgerWriter<TradingDataState>({ read: fetchTradingState, write: saveTradingState, receipt: fetchTradingReceipt }, (next) => {
+      hasLoadedStateRef.current = next.status !== "loading";
+      if (next.state) { stateRef.current = next.state; setState(next.state); }
+      setStorageStatus(next.status);
+      setSaveInfo(next);
+      if (next.state) {
+        try { localStorage.setItem(draftKey, JSON.stringify({ ...next, updatedAt: Date.now() })); }
+        catch { setLocalWarning("浏览器无法持久保存草稿；当前内容仍在内存中，请立即导出后再关闭窗口。"); }
+      }
+      if (next.status === "api") invalidateTradingQueries();
+    });
+    writerRef.current = writer;
+    let draft: { state: TradingDataState; operation?: WriterSnapshot<TradingDataState>["operation"] } | undefined;
+    try {
+      const candidates = Object.keys(localStorage).filter(key => key.startsWith(`${TRADING_DATA_STORAGE_KEY}:draft:`)).map(key => JSON.parse(localStorage.getItem(key)!)).filter(item => item.state).sort((a, b) => Number(a.status === "api") - Number(b.status === "api") || b.updatedAt - a.updatedAt);
+      const stored = localStorage.getItem(TRADING_DATA_STORAGE_KEY);
+      const candidate = candidates[0] ?? (stored ? { state: JSON.parse(stored) } : undefined);
+      if (candidate) {
+        assertStoredState(candidate.state);
+        draft = candidate;
+      }
+    } catch {
+      queueMicrotask(() => setLocalWarning("发现无法读取的浏览器副本，原始内容已保留，未写回默认数据。请导出所有草稿后检查。"));
+    }
+    void writer.connect(draft);
     return () => {
-      isCanceled = true;
+      writer.close();
       hasLoadedStateRef.current = false;
-      remoteSaveEnabledRef.current = false;
     };
   }, [invalidateTradingQueries]);
 
-  const scheduleRemoteSave = React.useCallback(
-    (nextState: TradingDataState) => {
-      if (!remoteSaveEnabledRef.current) {
-        return;
-      }
-
-      const serialized = JSON.stringify(nextState);
-      if (serialized === lastSavedPayloadRef.current) {
-        return;
-      }
-
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-      }
-
-      setStorageStatus("saving");
-      saveTimerRef.current = setTimeout(() => {
-        saveTradingState(nextState)
-          .then((response) => {
-            const savedState = sanitizeTradingData(response.state);
-            const savedPayload = JSON.stringify(savedState);
-            lastSavedPayloadRef.current = savedPayload;
-            persistLocalState(savedState);
-            setStorageStatus("api");
-            invalidateTradingQueries();
-            if (savedPayload !== serialized) {
-              setState(savedState);
-            }
-          })
-          .catch(() => {
-            setStorageStatus("error");
-          });
-      }, 500);
-    },
-    [invalidateTradingQueries]
-  );
-
-  React.useEffect(() => {
-    if (!hasLoadedStateRef.current) {
-      return;
-    }
-    persistLocalState(state);
-    scheduleRemoteSave(state);
-  }, [scheduleRemoteSave, state]);
-
-  React.useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) {
-        clearTimeout(saveTimerRef.current);
-      }
-    };
-  }, []);
-
   const commitState = React.useCallback(
     (updater: (current: TradingDataState) => TradingDataState) => {
-      setState((current) => sanitizeTradingData(updater(current)));
+      if (!hasLoadedStateRef.current) return;
+      writerRef.current?.edit(sanitizeTradingData(updater(stateRef.current)));
     },
     []
   );
@@ -286,6 +248,7 @@ export function TradingDataProvider({
   );
   const applyRecognizedTrades = React.useCallback((inputs: Parameters<typeof applyTrades>[1], date: string) => commitState((current) => applyTrades(current, inputs, date)), [commitState]);
   const replacePositionSnapshot = React.useCallback((inputs: PositionSnapshotInput[], date: string) => commitState((current) => replaceSnapshot(current, inputs, date)), [commitState]);
+  const addCheckpoint = React.useCallback((checkpoint: Checkpoint) => commitState((current) => applyCheckpoint(current, checkpoint)), [commitState]);
 
   const updateTrade = React.useCallback(
     (
@@ -367,6 +330,8 @@ export function TradingDataProvider({
       importPositions,
       applyRecognizedTrades,
       replacePositionSnapshot,
+      addCheckpoint,
+      checkpointRevision: saveInfo.revision,
       updateTrade,
       removeTrade,
       setActiveStrategyProfile,
@@ -393,16 +358,55 @@ export function TradingDataProvider({
       updateStockPoolText,
       updateStrategyProfile,
       replacePositionSnapshot,
+      addCheckpoint,
+      saveInfo.revision,
       upsertPosition,
       validationIssues,
     ]
   );
 
+  const saveStatusPanel = (
+      <Alert className="rounded-none border-x-0" role="status">
+        <AlertTitle>{SAVE_LABELS[storageStatus]}</AlertTitle>
+        <AlertDescription className="flex flex-col gap-2">
+          {saveInfo.message && <p>{saveInfo.message}</p>}
+          {localWarning && <p>{localWarning}</p>}
+          {saveInfo.remote && <details>
+            <summary>查看差异：{changedFields(state as unknown as Record<string, unknown>, saveInfo.remote.state as unknown as Record<string, unknown>).join("、")}</summary>
+            <div className="grid max-h-64 grid-cols-2 gap-4 overflow-auto">
+              <pre className="text-xs">浏览器候选{JSON.stringify(state, null, 2)}</pre>
+              <pre className="text-xs">数据库候选{JSON.stringify(saveInfo.remote.state, null, 2)}</pre>
+            </div>
+          </details>}
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => exportDrafts(saveInfo)}>导出所有浏览器草稿</Button>
+            {!["loading", "saving", "api"].includes(storageStatus) && <Button size="sm" variant="outline" onClick={() => void writerRef.current?.connect()}>重新连接 / 核验回执</Button>}
+            {saveInfo.remote && <>
+              <Button size="sm" variant="outline" onClick={() => resolveCandidate("remote")}>保留草稿，采用数据库版本</Button>
+              <Button size="sm" variant="outline" onClick={() => resolveCandidate("local")}>确认以浏览器候选替换此数据库版本</Button>
+            </>}
+            <Button size="sm" variant="outline" onClick={async () => {
+              try { downloadBlob(await downloadLocalBackup(), "持仓手记-完整本地备份.zip"); }
+              catch (error) { setLocalWarning(String(error)); }
+            }}>下载数据库完整备份（不含密钥）</Button>
+          </div>
+          {storageStatus !== "api" && <p>仅数据库回执确认后才算写账。完整备份不包含未提交的浏览器草稿，请单独导出。</p>}
+          <details><summary>恢复与损坏诊断说明</summary><p>保留原始数据库。先使用本地恢复工具在新目录校验备份，再停止 API 服务后切换；旧目录会保留为恢复点。操作命令见项目“优化/U02_备份恢复说明.md”。旧热拷贝 ZIP 不会被自动覆盖恢复，未决 AI 请求不会重发。</p></details>
+        </AlertDescription>
+      </Alert>
+  );
   return (
     <TradingDataContext.Provider value={value}>
-      {children}
+      <SaveStatusContext.Provider value={saveStatusPanel}>{children}</SaveStatusContext.Provider>
     </TradingDataContext.Provider>
   );
+
+  function resolveCandidate(choice: "local" | "remote") {
+    // Archive both versions before explicit reconciliation, even when local storage is full.
+    try { localStorage.setItem(`${TRADING_DATA_STORAGE_KEY}:conflict:${crypto.randomUUID()}`, JSON.stringify(saveInfo)); }
+    catch { exportDrafts(saveInfo); }
+    writerRef.current?.resolve(choice);
+  }
 }
 
 export function useTradingData() {
@@ -413,21 +417,21 @@ export function useTradingData() {
   return context;
 }
 
-function readStoredState() {
-  if (typeof window === "undefined") {
-    return DEFAULT_TRADING_DATA;
-  }
-  try {
-    const stored = window.localStorage.getItem(TRADING_DATA_STORAGE_KEY);
-    return stored ? sanitizeTradingData(JSON.parse(stored)) : DEFAULT_TRADING_DATA;
-  } catch {
-    return DEFAULT_TRADING_DATA;
-  }
+const SAVE_LABELS: Record<SaveStatus, string> = { loading: "正在读取账本", api: "已写入本地数据库", saving: "保存中", local: "仅浏览器草稿", error: "保存被拒绝 · 草稿已保留", conflict: "保存冲突 · 两份候选均保留", unknown: "保存结果待核验" };
+
+function assertStoredState(value: TradingDataState) {
+  if (!value || value.schemaVersion !== 1 || !value.account || !Array.isArray(value.trades) || !Array.isArray(value.positions) || !Array.isArray(value.stockPool)) throw new Error("invalid draft");
 }
 
-function persistLocalState(state: TradingDataState) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.setItem(TRADING_DATA_STORAGE_KEY, JSON.stringify(state));
+function downloadBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = name; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportDrafts(current: WriterSnapshot<TradingDataState>) {
+  const copies: Record<string, string | null> = {};
+  try { for (const key of Object.keys(localStorage)) if (key.startsWith(TRADING_DATA_STORAGE_KEY)) copies[key] = localStorage.getItem(key); } catch { /* In-memory candidate is still exportable. */ }
+  downloadBlob(new Blob([JSON.stringify({ format: "ledger-browser-drafts-v1", current, copies }, null, 2)], { type: "application/json" }), "持仓手记-浏览器草稿.json");
 }

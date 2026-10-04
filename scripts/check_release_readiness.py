@@ -56,6 +56,11 @@ def main() -> int:
         "release.json",
         "scripts/windows/Install-Update.ps1",
         "scripts/macos/install-update.sh",
+        "scripts/verify_release_artifact.py",
+        "signatureStatus",
+        "-VerifyOnly",
+        "--verify-only",
+        "--require-signed",
     ]
     for snippet in workflow_snippets:
         if snippet not in workflow:

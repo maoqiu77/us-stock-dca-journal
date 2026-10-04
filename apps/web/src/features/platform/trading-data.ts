@@ -1,6 +1,7 @@
 "use client";
 
 import { deriveLegacyPositions } from "@portfolio/domain/legacy-v1";
+import { projectCheckpoint, validateCheckpoints, type Checkpoint } from "./checkpoints.ts";
 import type { AssetType, TradeAction, PositionPlan, TradeRecord } from "@portfolio/domain/legacy-v1";
 export type { AssetType, TradeAction, PositionPlan, TradeRecord } from "@portfolio/domain/legacy-v1";
 
@@ -21,6 +22,29 @@ export type DerivedPosition = PositionPlan & {
   shares: number;
   costBasis: number;
   holdingCost: number;
+};
+
+export type ValuationObservation = {
+  price?: number | null;
+  previousClose?: number | null;
+  change?: number | null;
+  source?: string | null;
+  status?: string | null;
+  currency?: string | null;
+};
+
+export type HoldingValuation = {
+  marketValue: number | null;
+  marketValueCovered: number;
+  marketValueTotal: number;
+  unrealizedPnl: number | null;
+  unrealizedCovered: number;
+  unrealizedTotal: number;
+  dayChange: number | null;
+  dayChangeCovered: number;
+  dayChangeTotal: number;
+  missingTickers: string[];
+  incompatibleTickers: string[];
 };
 
 export type PositionSnapshotInput = {
@@ -130,7 +154,8 @@ export type StrategyProfile = {
 };
 
 export type TradingDataState = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  checkpoints?: Checkpoint[];
   account: TradingAccount;
   stockPool: string[];
   positions: PositionPlan[];
@@ -437,72 +462,7 @@ export function importPositionSnapshots(
   inputs: PositionSnapshotInput[],
   importDate: string
 ): TradingDataState {
-  const heldTickers = new Set(
-    derivePositions(state)
-      .filter((position) => position.shares > 0)
-      .map((position) => position.ticker)
-  );
-  const seen = new Set<string>();
-  const rows = inputs.filter((input) => {
-    const ticker = normalizeTicker(input.ticker);
-    const valid =
-      ticker &&
-      !seen.has(ticker) &&
-      !heldTickers.has(ticker) &&
-      Number.isFinite(input.shares) &&
-      input.shares > 0 &&
-      Number.isFinite(input.averageCost) &&
-      input.averageCost > 0;
-    seen.add(ticker);
-    return Boolean(valid);
-  });
-  if (!rows.length) {
-    return state;
-  }
-
-  const tickers = rows.map((row) => normalizeTicker(row.ticker));
-  const positionByTicker = new Map(
-    state.positions.map((position) => [normalizeTicker(position.ticker), position])
-  );
-  rows.forEach((row) => {
-    const ticker = normalizeTicker(row.ticker);
-    if (!positionByTicker.has(ticker)) {
-      positionByTicker.set(ticker, {
-        ticker,
-        targetWeight: 0,
-        assetType: row.assetType,
-        takeProfitPct: row.assetType === "ETF" ? 0 : 0.2,
-        stopLossPct: row.assetType === "ETF" ? 0 : 0.08,
-        purchaseDate: importDate,
-      });
-    }
-  });
-  const trades = rows.map((row) =>
-    normalizeTradeInput({
-      date: importDate,
-      ticker: row.ticker,
-      action: "买入",
-      shares: row.shares,
-      unitPrice: row.averageCost,
-      amount: row.shares * row.averageCost,
-      note: "券商截图导入的期初持仓",
-    })
-  );
-
-  const nextState = {
-    ...state,
-    stockPool: uniqueTickers([...state.stockPool, ...tickers]),
-    positions: [...positionByTicker.values()],
-    trades: [...state.trades, ...trades],
-  };
-  const nextHoldingCost = holdingCostValue(derivePositions(nextState));
-  return {
-    ...nextState,
-    account: {
-      ...nextState.account,
-      totalAssets: Math.max(nextState.account.totalAssets, nextHoldingCost),
-    },
-  };
+  return rejectLegacyCalibration(state, inputs, importDate);
 }
 
 export function applyRecognizedTrades(state: TradingDataState, inputs: Array<{ ticker: string; action: TradeAction; shares: number; unitPrice: number; amount: number; assetType: AssetType; date?: string; note?: string }>, date: string): TradingDataState {
@@ -515,13 +475,21 @@ export function applyRecognizedTrades(state: TradingDataState, inputs: Array<{ t
 }
 
 export function replacePositionSnapshot(state: TradingDataState, inputs: PositionSnapshotInput[], date: string): TradingDataState {
-  const rows = inputs.filter((row) => normalizeTicker(row.ticker) && row.shares > 0 && row.averageCost > 0);
-  const positions = rows.map((row) => ({ ticker: normalizeTicker(row.ticker), targetWeight: 0, assetType: row.assetType, takeProfitPct: row.assetType === "ETF" ? 0 : 0.2, stopLossPct: row.assetType === "ETF" ? 0 : 0.08, purchaseDate: date }));
-  const closingTrades = derivePositions(state).filter((row) => row.shares > 0).map((row) => normalizeTradeInput({ date, ticker: row.ticker, action: "卖出", shares: row.shares, unitPrice: row.costBasis, amount: row.shares * row.costBasis, note: "完整持仓截图覆盖：清除旧持仓" }));
-  const trades = rows.map((row) => normalizeTradeInput({ date, ticker: row.ticker, action: "买入", shares: row.shares, unitPrice: row.averageCost, amount: row.shares * row.averageCost, note: "券商完整持仓截图覆盖" }));
-  // A full snapshot is authoritative for current holdings; reset the derived ledger
-  // so positions absent from the screenshot cannot reappear through old lots.
-  return { ...state, stockPool: uniqueTickers([...state.stockPool, ...rows.map((row) => row.ticker)]), positions, trades: [...state.trades, ...closingTrades, ...trades] };
+  return rejectLegacyCalibration(state, inputs, date);
+}
+
+export const POSITION_CALIBRATION_BLOCKED = "持仓截图校准暂不可写入：旧账本不能把期初或校准记成真实买卖。现有流水与遗漏持仓均保持不变。";
+
+function rejectLegacyCalibration(state: TradingDataState, inputs: PositionSnapshotInput[], date: string): never {
+  throw new Error(`${POSITION_CALIBRATION_BLOCKED}（候选 ${inputs.length} 条，日期 ${date}，原流水 ${state.trades.length} 条。）`);
+}
+
+export function previewLegacyMigration(state: TradingDataState, revision: string | null = null) {
+  return {
+    format: "legacy-migration-preview-v1", revision, action: "read_only", autoConvertible: 0,
+    pending: state.trades.map(row => ({ id: row.id, ticker: row.ticker, date: row.date, reason: "missing_structured_provenance", action: "keep" })),
+    warning: "旧记录没有可核验的批次与来源，不能仅根据备注判定为截图导入。全部原样保留；真实成交次数、成交金额和已实现盈亏的历史覆盖未核验。",
+  };
 }
 
 export function removeTrackedTicker(
@@ -717,7 +685,8 @@ function formatCalculatedTradeValue(value: number, digits: number) {
 }
 
 export function derivePositions(state: TradingDataState): DerivedPosition[] {
-  return deriveLegacyPositions(state, balancedSettings.targetWeightDefault ?? 0.1);
+  validateCheckpoints(state);
+  return deriveLegacyPositions(state, balancedSettings.targetWeightDefault ?? 0.1).map(row => ({ ...row, ...projectCheckpoint(state, row.ticker) }));
 }
 
 export function holdingCostValue(positions: DerivedPosition[]) {
@@ -729,15 +698,83 @@ export function holdingCostValue(positions: DerivedPosition[]) {
 
 export function holdingMarketValue(
   positions: DerivedPosition[],
-  priceByTicker: Map<string, number>
+  priceByTicker: Map<string, number | null | undefined>
 ) {
-  return roundNumber(
-    positions.reduce((total, position) => {
-      const price = priceByTicker.get(position.ticker) ?? position.costBasis;
-      return total + position.shares * price;
-    }, 0),
-    2
-  );
+  const observations = new Map<string, ValuationObservation>();
+  for (const [ticker, price] of priceByTicker) {
+    observations.set(ticker, { price });
+  }
+  return calculateHoldingValuation(positions, observations).marketValue;
+}
+
+export function calculateHoldingValuation(
+  positions: DerivedPosition[],
+  observations: Map<string, ValuationObservation>,
+  baseCurrency?: string,
+): HoldingValuation {
+  const held = positions.filter((position) => position.shares > 0);
+  let marketValue = 0;
+  let unrealizedPnl = 0;
+  let dayChange = 0;
+  let marketValueCovered = 0;
+  let unrealizedCovered = 0;
+  let dayChangeCovered = 0;
+  const missingTickers: string[] = [];
+  const incompatibleTickers: string[] = [];
+
+  for (const position of held) {
+    const observation = observations.get(position.ticker);
+    const currencyMismatch = Boolean(
+      baseCurrency && observation?.currency && observation.currency !== baseCurrency,
+    );
+    if (currencyMismatch) {
+      incompatibleTickers.push(position.ticker);
+      continue;
+    }
+    const price = finitePositive(observation?.price);
+    if (
+      price === undefined ||
+      observation?.source === "sample" ||
+      observation?.status === "unavailable" ||
+      observation?.status === "missing"
+    ) {
+      missingTickers.push(position.ticker);
+      continue;
+    }
+
+    marketValue += position.shares * price;
+    marketValueCovered += 1;
+    if (Number.isFinite(position.holdingCost) && position.holdingCost >= 0) {
+      unrealizedPnl += position.shares * price - position.holdingCost;
+      unrealizedCovered += 1;
+    }
+
+    const previousClose = finitePositive(observation?.previousClose);
+    if (previousClose !== undefined) {
+      dayChange += position.shares * (price - previousClose);
+      dayChangeCovered += 1;
+    }
+  }
+
+  return {
+    marketValue: held.length && marketValueCovered ? roundNumber(marketValue, 2) : held.length ? null : 0,
+    marketValueCovered,
+    marketValueTotal: held.length,
+    unrealizedPnl: unrealizedCovered ? roundNumber(unrealizedPnl, 2) : null,
+    unrealizedCovered,
+    unrealizedTotal: held.length,
+    dayChange: dayChangeCovered ? roundNumber(dayChange, 2) : null,
+    dayChangeCovered,
+    dayChangeTotal: held.length,
+    missingTickers,
+    incompatibleTickers,
+  };
+}
+
+function finitePositive(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
 }
 
 export function dynamicCash(totalAssets: number, holdingCost: number) {
@@ -841,8 +878,8 @@ export function validateTradingData(
   return errors;
 }
 
-export function formatMoney(value?: number, currency = "$") {
-  if (value === undefined || Number.isNaN(value)) {
+export function formatMoney(value?: number | null, currency = "$") {
+  if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";
   }
   return `${currency}${new Intl.NumberFormat("zh-CN", {
@@ -851,8 +888,8 @@ export function formatMoney(value?: number, currency = "$") {
   }).format(value)}`;
 }
 
-export function formatRatio(value?: number) {
-  if (value === undefined || Number.isNaN(value)) {
+export function formatRatio(value?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
     return "--";
   }
   return `${(value * 100).toFixed(2)}%`;
@@ -911,7 +948,8 @@ export function sanitizeTradingData(value: unknown): TradingDataState {
     : DEFAULT_TRADING_DATA.activeStrategyProfile;
 
   return {
-    schemaVersion: 1,
+    schemaVersion: input.schemaVersion === 2 ? 2 : 1,
+    ...(input.checkpoints ? { checkpoints: structuredClone(input.checkpoints) } : {}),
     account: {
       totalAssets: cleanNumber(input.account?.totalAssets) || DEFAULT_TRADING_DATA.account.totalAssets,
       baseCurrency: input.account?.baseCurrency ?? DEFAULT_TRADING_DATA.account.baseCurrency,

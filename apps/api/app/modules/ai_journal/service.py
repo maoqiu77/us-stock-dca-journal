@@ -61,6 +61,10 @@ class JournalService:
         if request.task_type == 'conversation':
             from .automatic import conversation_targets
             targets = conversation_targets(self.board, request)
+            if not targets and request.session_id:
+                last = next((turn for turn in reversed(session['turns']) if turn['status'] == 'completed'), None)
+                if last:
+                    targets = last['snapshot'].get('resolved_instrument_keys', [])
         facts, origin = [], None
         if request.reuse_snapshot_id:
             if not request.session_id or request.reuse_snapshot_id not in [turn['snapshot_id'] for turn in session['turns'] if turn['status'] == 'completed']:
@@ -78,9 +82,22 @@ class JournalService:
             if request.task_type == 'conversation':
                 keys = targets + [row['instrument_key'] for row in private.get('positions', [])]
             for key in dict.fromkeys(keys):
-                values, absent = market_facts(self.board, key)
-                facts.extend(values)
-                missing.extend(absent)
+                try:
+                    values, absent = market_facts(self.board, key)
+                    facts.extend(values)
+                    missing.extend(absent)
+                except Exception:
+                    missing.append(key + '：行情暂时读取失败')
+            if request.auto_context:
+                from concurrent.futures import ThreadPoolExecutor
+                from .news import news_facts
+                news_keys = list(dict.fromkeys(targets or keys))[:3]
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    for values, absent in pool.map(lambda key: news_facts(self.board, key, stamp), news_keys):
+                        facts.extend(values)
+                        missing.extend(absent)
+                if len(set(targets or keys)) > 3:
+                    missing.append('本轮新闻覆盖前三个标的，可单独追问其他标的。')
             for period in periods:
                 series = self.board.series(request.instrument_key, period, '3mo').model_dump(mode='json')
                 series['bars'] = [bar for bar in series['bars'] if bar['is_final']]
@@ -110,9 +127,16 @@ class JournalService:
             'created_at': stamp.isoformat(), 'expires_at': (stamp + timedelta(minutes=5)).isoformat(), 'facts_origin': origin,
             'resolved_instrument_keys': targets,
         }
+        if request.auto_context:
+            from .agent.research_plan import research_plan
+            last = next((turn for turn in reversed(session['turns']) if turn['status'] == 'completed'), None) if request.session_id else None
+            payload['research_plan'] = research_plan(request.question, last['snapshot'].get('research_plan') if last else None, task_type=request.task_type)
         if request.engine == 'agent':
             from .agent.scope import build_scope
             payload['agent_scope'], payload['agent_sources'] = build_scope(self.board, request, private, facts, stamp, extra_keys=targets)
+            if request.auto_context:
+                payload['agent_scope']['public_research'] = True
+                payload['agent_scope']['research_plan'] = payload['research_plan']
             # Keep non-source memory filters visible in the model's missing/status channel.
             # They describe what was excluded, never the excluded record contents.
             filter_status = ['检索过滤状态：' + item for item in payload['agent_scope'].get('memory_filter_policy', [])]
@@ -144,7 +168,8 @@ class JournalService:
         settings = self.settings()
         if model_fingerprint(settings) != fingerprint:
             fail('preview_changed')
-        if snapshot['request'].get('auto_context'):
+        # Explicit selections must also still be authorized at send time.
+        if snapshot.get('private_context'):
             from .agent.adapters import private_access
             from .agent.runtime import AccessRevoked
             try:

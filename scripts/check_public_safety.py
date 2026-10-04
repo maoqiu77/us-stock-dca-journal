@@ -22,6 +22,9 @@ BLOCKED_PATH_PARTS = {
     ".p12",
     ".mobileprovision",
     ".env",
+    "output/playwright/",
+    ".playwright-cli/",
+    "storage/图片/",
 }
 SECRET_PATTERNS = [
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -42,14 +45,14 @@ SKIP_PATH_PREFIXES = {
 
 def candidate_files() -> list[Path]:
     result = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode == 0:
-        return [ROOT / line for line in result.stdout.splitlines() if line]
+        return [ROOT / name for name in result.stdout.split('\0') if name]
     return iter_files()
 
 
@@ -71,6 +74,9 @@ def iter_files() -> list[Path]:
 def main() -> int:
     failures: list[str] = []
     for path in candidate_files():
+        if path.is_symlink():
+            failures.append(f"unreviewed symbolic link: {path.relative_to(ROOT).as_posix()}")
+            continue
         if not path.exists():
             continue
         rel = path.relative_to(ROOT).as_posix()

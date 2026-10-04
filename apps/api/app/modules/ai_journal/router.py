@@ -141,14 +141,19 @@ def get_note(note_id: str):
     return note(_store, note_id)
 
 
+@router.get('/notes/{note_id}/versions')
+def note_versions(note_id: str):
+    return _store.note_versions(note_id)
+
+
 @router.post('/notes')
 def create_note(payload: NoteRequest):
-    return _store.save_note(payload.body)
+    return _store.save_note(payload.body, journal_date=payload.journal_date)
 
 
 @router.put('/notes/{note_id}')
 def update_note(note_id: str, payload: NoteRequest):
-    return _store.save_note(payload.body, note_id)
+    return _store.save_note(payload.body, note_id, payload.journal_date)
 
 
 @router.delete('/notes/{note_id}')

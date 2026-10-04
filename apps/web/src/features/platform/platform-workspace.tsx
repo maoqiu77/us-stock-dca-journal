@@ -16,8 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DashboardView } from "@/features/platform/views/dashboard-view";
-import { TradingDataProvider } from "@/features/platform/trading-data-context";
+import { TradingDataProvider, TradingSaveStatus } from "@/features/platform/trading-data-context";
 import type { PlatformView } from "@/features/platform/types";
+import { UserRecordsPanel } from "@/features/ai-journal/user-records-panel";
 
 const ONBOARDING_STORAGE_KEY = "stock-platform-onboarding-v1";
 const ACTIVE_VIEW_STORAGE_KEY = "stock-platform-active-view-v1";
@@ -72,10 +73,10 @@ export function PlatformWorkspace() {
 
   React.useEffect(() => {
     const timer = window.setTimeout(() => {
+      const urlView = new URLSearchParams(window.location.search).get("view");
       const storedView = window.localStorage.getItem(ACTIVE_VIEW_STORAGE_KEY);
-      if (isPlatformView(storedView)) {
-        setActiveView(storedView);
-      }
+      const nextView = isPlatformView(urlView) ? urlView : storedView;
+      if (isPlatformView(nextView)) setActiveView(nextView);
       setShowOnboarding(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "dismissed"
       );
@@ -100,15 +101,26 @@ export function PlatformWorkspace() {
 
   const changeActiveView = React.useCallback((view: PlatformView) => {
     window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, view);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", view);
+    window.history.replaceState({}, "", url);
     setActiveView(view);
   }, []);
   React.useEffect(() => {
-    const onPrefill = () => changeActiveView("ai");
+    const onPrefill = (event: Event) => {
+      const key = (event as CustomEvent<string>).detail;
+      if (key) { const url = new URL(window.location.href); url.searchParams.set("instrument", key); window.history.replaceState({}, "", url); }
+      changeActiveView("ai");
+    };
     window.addEventListener("ai-journal-prefill", onPrefill);
     return () => window.removeEventListener("ai-journal-prefill", onPrefill);
   }, [changeActiveView]);
   React.useEffect(() => {
-    const onPrefill = () => changeActiveView("quant");
+    const onPrefill = (event: Event) => {
+      const key = (event as CustomEvent<string>).detail;
+      if (key) { const url = new URL(window.location.href); url.searchParams.set("instrument", key); window.history.replaceState({}, "", url); }
+      changeActiveView("quant");
+    };
     window.addEventListener("quant-prefill", onPrefill);
     return () => window.removeEventListener("quant-prefill", onPrefill);
   }, [changeActiveView]);
@@ -138,6 +150,8 @@ export function PlatformWorkspace() {
         onMarketRefresh={refreshMarketData}
         onViewChange={changeActiveView}
       >
+        <TradingSaveStatus />
+        <UserRecordsPanel />
         {activeView === "overview" ? (
           <DashboardView marketRefreshKey={marketRefreshKey} />
         ) : null}

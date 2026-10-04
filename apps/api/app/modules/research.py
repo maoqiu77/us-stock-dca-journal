@@ -127,31 +127,38 @@ def build_market_observation_row(
         prices = bars_to_dataframe(chart.get("bars", []))
         indicators = add_indicators(prices) if not prices.empty else prices
         metrics = latest_metrics(indicators) if not indicators.empty else {}
-    price = finite_metric(metrics.get("Close")) or 0.0
+    price = finite_metric(metrics.get("Close"))
+    if price is not None and price <= 0:
+        price = None
     shares = max(float(position.get("shares", 0.0)), 0.0)
     cost_basis = max(float(position.get("costBasis", 0.0)), 0.0)
-    market_value = price * shares
+    market_value = price * shares if price is not None else None
     total_assets = max(float(summary.get("totalAssets", 0.0)), 0.0)
     status, observation, reasons = classify_technical_observation(metrics)
+    return_from_cost = (
+        price / cost_basis - 1 if price is not None and price > 0 and cost_basis > 0 else None
+    )
+    unrealized_pnl = (price - cost_basis) * shares if price is not None else None
+    current_weight = market_value / total_assets if market_value is not None and total_assets > 0 else None
     return {
         "ticker": str(position.get("ticker", "")).upper(),
         "current_price": price,
         "trend_status": status,
-        "drawdown": finite_metric(metrics.get("Drawdown20")) or 0.0,
+        "drawdown": finite_metric(metrics.get("Drawdown20")),
         "drawdown252": finite_metric(metrics.get("Drawdown252")),
         "high252_date": metrics.get("High252Date"),
-        "rsi": finite_metric(metrics.get("RSI14")) or 0.0,
+        "rsi": finite_metric(metrics.get("RSI14")),
         "ma20": finite_metric(metrics.get("MA20")),
         "ma60": finite_metric(metrics.get("MA60")),
         "ma120": finite_metric(metrics.get("MA120")),
         "ma200": finite_metric(metrics.get("MA200")),
         "market_value": market_value,
         "cost_basis": cost_basis,
-        "return_from_cost": price / cost_basis - 1 if price > 0 and cost_basis > 0 else 0.0,
+        "return_from_cost": return_from_cost,
         "take_profit_pct": 0.0,
         "stop_loss_pct": 0.0,
-        "unrealized_pnl": (price - cost_basis) * shares,
-        "current_weight": market_value / total_assets if total_assets > 0 else 0.0,
+        "unrealized_pnl": unrealized_pnl,
+        "current_weight": current_weight,
         "target_weight": 0.0,
         "action": observation,
         "status": status,

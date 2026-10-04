@@ -19,10 +19,19 @@ def technicals(payload):
     closes = [Decimal(str(bar.close)) for bar in bars]
     if any(not value.is_finite() or value <= 0 for value in closes):
         raise ValueError('close_invalid')
+    latest = bars[-1]
+    previous_volumes = [bar.volume for bar in bars[-21:-1]]
+    average_volume = sum(previous_volumes) / 20 if len(previous_volumes) == 20 and all(v is not None for v in previous_volumes) else None
     return {
         'instrument_key': series.instrument_key, 'period': series.period, 'currency': series.currency,
         'adjustment': series.adjustment, 'status': series.meta.status.value,
         'as_of': bars[-1].time.isoformat(), 'bar_count': len(bars),
+        'latest_close': str(latest.close),
+        'return_1d_pct': str((closes[-1] / closes[-2] - 1) * 100) if len(closes) >= 2 else None,
+        'return_5d_pct': str((closes[-1] / closes[-6] - 1) * 100) if len(closes) >= 6 else None,
+        'latest_volume': str(latest.volume) if latest.volume is not None else None,
+        'volume_ratio_vs_previous_20': str(latest.volume / average_volume) if latest.volume is not None and average_volume else None,
+        'close_position_in_day_range': str((latest.close - latest.low) / (latest.high - latest.low)) if latest.high > latest.low else None,
         'method': 'SMA-close-v1; last-20-final-bars-range-v1',
         **{f'ma{n}': str(sum(closes[-n:]) / n) if len(closes) >= n else None for n in (5, 20, 60)},
         'range20': None if len(bars) < 20 else {
@@ -32,6 +41,35 @@ def technicals(payload):
         },
         'missing': [f'MA{n}缺少足够的完整 K 线' for n in (5, 20, 60) if len(bars) < n],
     }
+
+
+def relative_performance(stock_payload, benchmark_payload):
+    stock, benchmark = Series.model_validate(stock_payload), Series.model_validate(benchmark_payload)
+    # Both legs use the same completed exchange dates and adjustment convention.
+    technicals(stock_payload)
+    technicals(benchmark_payload)
+    if stock.period != '1d' or benchmark.period != '1d' or stock.adjustment != benchmark.adjustment or stock.currency != benchmark.currency:
+        raise ValueError('incompatible_comparison')
+    def by_day(series):
+        from zoneinfo import ZoneInfo
+        return {(bar.trading_date or bar.time.astimezone(ZoneInfo(series.timezone)).date()): bar for bar in series.bars if bar.is_final}
+    left, right = by_day(stock), by_day(benchmark)
+    days = sorted(set(left) & set(right))
+    if len(days) < 6 or max(left) != max(right):
+        raise ValueError('benchmark_dates_not_aligned')
+    result = {'instrument_key': stock.instrument_key, 'benchmark_key': benchmark.instrument_key,
+              'through': days[-1].isoformat(), 'adjustment': stock.adjustment,
+              'stock_status': stock.meta.status.value, 'benchmark_status': benchmark.meta.status.value,
+              'method': 'same-exchange-dates-close-return-difference; percentage-points', 'windows': []}
+    for length in (1, 5, 20):
+        if len(days) <= length:
+            continue
+        start, end = days[-length-1], days[-1]
+        a = (left[end].close / left[start].close - 1) * 100
+        b = (right[end].close / right[start].close - 1) * 100
+        result['windows'].append({'observations': length, 'from': start.isoformat(),
+            'stock_return_pct': str(a), 'benchmark_return_pct': str(b), 'excess_percentage_points': str(a-b)})
+    return result
 
 
 def portfolio_exposure(positions, quotes):

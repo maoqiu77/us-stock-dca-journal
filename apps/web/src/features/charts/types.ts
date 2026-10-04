@@ -53,11 +53,14 @@ export type WatchlistItem = {
 };
 
 export type Quote = WatchlistItem & {
-  price: number;
-  change: number;
-  changePercent: number;
+  price: number | null;
+  previousClose?: number | null;
+  change: number | null;
+  changePercent: number | null;
   volume: number | null;
-  source: "yfinance" | "sample" | string;
+  source: "yfinance" | "sample" | "unavailable" | string;
+  status?: "available" | "stale" | "partial" | "missing" | "unavailable" | string;
+  reason?: string | null;
 };
 
 export type ChartBar = {

@@ -13,7 +13,7 @@ from ..store import digest
 
 class Evidence(StrictModel):
     id: str
-    kind: Literal['position', 'policy', 'note', 'trade_reason', 'quote', 'series', 'calculation']
+    kind: Literal['position', 'policy', 'note', 'trade_reason', 'quote', 'series', 'calculation', 'news', 'document']
     entity_id: str
     revision: str
     classification: Literal['user_original', 'observed', 'derived']
@@ -30,7 +30,7 @@ class Evidence(StrictModel):
             raise ValueError('timezone_required')
         if self.content_hash != digest(self.payload):
             raise ValueError('source_hash_mismatch')
-        expected = 'derived' if self.kind == 'calculation' else 'observed' if self.kind in {'quote', 'series'} else 'user_original'
+        expected = 'derived' if self.kind == 'calculation' else 'observed' if self.kind in {'quote', 'series', 'news', 'document'} else 'user_original'
         if self.classification != expected:
             raise ValueError('source_classification_invalid')
         if (self.kind == 'calculation') != bool(self.input_source_ids):
@@ -39,7 +39,7 @@ class Evidence(StrictModel):
 
 
 def make_evidence(kind, entity_id, revision, payload, as_of, available_at, *, parents=()):
-    classification = 'derived' if kind == 'calculation' else 'observed' if kind in {'quote', 'series'} else 'user_original'
+    classification = 'derived' if kind == 'calculation' else 'observed' if kind in {'quote', 'series', 'news', 'document'} else 'user_original'
     return Evidence(id=uuid4().hex, kind=kind, entity_id=entity_id, revision=revision,
                     classification=classification, as_of=as_of, available_at=available_at,
                     payload=payload, content_hash=digest(payload), input_source_ids=list(parents))

@@ -410,30 +410,9 @@ def create_local_backup(
         f"stock-platform-backup-{normalize_file_version(version)}-to-"
         f"{normalize_file_version(next_version)}-{timestamp_for_file()}.zip"
     )
-    with zipfile.ZipFile(backup_path, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
-        if data_home.exists():
-            for file_path in sorted(data_home.rglob("*")):
-                if not file_path.is_file() or is_excluded_backup_path(data_home, file_path):
-                    continue
-                archive.write(file_path, file_path.relative_to(data_home).as_posix())
-        if local_storage_snapshot:
-            archive.writestr(
-                "browser-local-storage.json",
-                json.dumps(local_storage_snapshot, ensure_ascii=False, indent=2),
-            )
-        archive.writestr(
-            "backup-metadata.json",
-            json.dumps(
-                {
-                    "fromVersion": normalize_display_version(version),
-                    "toVersion": normalize_display_version(next_version),
-                    "createdAt": beijing_timestamp(),
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-        )
-    return backup_path
+    from app.modules.local_backup import create_backup
+    db_path = settings.DB_PATH if data_home.resolve() == settings.DATA_HOME.resolve() else data_home / "app.db"
+    return create_backup(data_home, db_path, backup_path, local_storage_snapshot)
 
 
 def is_excluded_backup_path(data_home: Path, file_path: Path) -> bool:

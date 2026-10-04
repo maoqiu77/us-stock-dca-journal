@@ -49,6 +49,7 @@ def get_quotes(
     symbols: list[dict[str, Any]],
     *,
     force_refresh: bool = False,
+    allow_sample: bool = False,
 ) -> list[dict[str, Any]]:
     tickers = [item["ticker"] for item in symbols]
     provider_quotes = _try_yahoo_quotes(tickers, force_refresh=force_refresh)
@@ -65,7 +66,18 @@ def get_quotes(
     for item in symbols:
         ticker = item["ticker"]
         provider_quote = provider_quotes.get(ticker)
-        quote = provider_quote or _sample_quote(ticker)
+        quote = provider_quote or (
+            _sample_quote(ticker) if allow_sample else _unavailable_quote(ticker)
+        )
+        if provider_quote and "previousClose" not in quote:
+            price = _finite_number(quote.get("price"))
+            change = _finite_number(quote.get("change"))
+            quote = {
+                **quote,
+                "previousClose": round(price - change, 6)
+                if price is not None and change is not None and price - change > 0
+                else None,
+            }
         quotes.append(
             {
                 "ticker": ticker,
@@ -83,6 +95,7 @@ def get_chart(
     interval: str,
     *,
     force_refresh: bool = False,
+    allow_sample: bool = False,
 ) -> dict[str, Any]:
     if range_ not in VALID_RANGES:
         range_ = "1y"
@@ -121,7 +134,9 @@ def get_chart(
             "真实五日分时暂不可用",
         )
 
-    return _sample_chart(ticker, range_, interval)
+    if allow_sample:
+        return _sample_chart(ticker, range_, interval)
+    return _unavailable_chart(ticker, range_, interval, "真实行情暂不可用")
 
 
 def _try_yahoo_quotes(
@@ -952,6 +967,19 @@ def _unavailable_chart(
         "lastUpdated": datetime.now(timezone.utc).isoformat(),
         "message": message,
         "bars": [],
+    }
+
+
+def _unavailable_quote(ticker: str) -> dict[str, Any]:
+    return {
+        "price": None,
+        "previousClose": None,
+        "change": None,
+        "changePercent": None,
+        "volume": None,
+        "source": "unavailable",
+        "status": "unavailable",
+        "reason": "真实行情源不可用，未使用示例价格",
     }
 
 

@@ -82,7 +82,7 @@ class PrivacyPolicyTest(unittest.TestCase):
         response = requests.Response()
         response.status_code = 200
         response._content = json.dumps({'choices': [{'message': {'content': 'ok'}}]}).encode()
-        for payload in [json.dumps({'privacyMode': 'external-ai-ready'}), None]:
+        for payload in [json.dumps(trading_data.sanitize_trading_state({'privacyMode': 'external-ai-ready'})), None]:
             if payload is None:
                 database.delete_state_payload('trading_data_v1')
             else:

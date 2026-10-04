@@ -233,6 +233,39 @@ class MemoryPortfolioTest(unittest.TestCase):
         self.assertEqual(error.exception.detail['code'], 'instrument_identity_ambiguous')
         self.assertEqual(conversation_targets(self.board, self.request(instrument_key=KEY)), [KEY])
 
+    def test_short_followups_keep_target_and_multiple_turns_but_explicit_topic_switches(self):
+        preview = self.preview()
+        request = ConfirmRequest(snapshot_id=preview['id'], digest=preview['digest'], idempotency_key='history-first')
+        session_id, turn_id, _ = self.store.claim(request, preview, None)
+        self.store.finish(turn_id, answer='First research answer')
+        second = self.preview(self.request().model_copy(update={'question': '那什么情况需要减仓？', 'session_id': session_id}))
+        self.assertEqual(second['resolved_instrument_keys'], [KEY])
+        request = ConfirmRequest(snapshot_id=second['id'], digest=second['digest'], idempotency_key='history-second')
+        _, turn_id, _ = self.store.claim(request, second, session_id)
+        self.store.finish(turn_id, answer='Second research answer')
+        third = self.preview(self.request().model_copy(update={'question': '按刚才的条件继续', 'session_id': session_id}))
+        self.assertEqual(third['resolved_instrument_keys'], [KEY])
+        self.assertEqual(len(third['private_context']['history']), 2)
+        self.assertEqual(third['private_context']['history'][0]['answer'], 'First research answer')
+        other = self.board.items[KEY].model_copy(update={'key': 'US:XNAS:AAPL:STOCK', 'symbol': 'AAPL', 'name': 'Apple'})
+        self.board.items[other.key] = other
+        with self.store.connect() as db:
+            db.execute('insert into board_instruments values (?)', (other.key,))
+        switched = self.preview(self.request().model_copy(update={'question': '再看看 AAPL', 'session_id': session_id}))
+        self.assertEqual(switched['resolved_instrument_keys'], [other.key])
+
+    def test_new_explicit_ticker_uses_verified_directory_and_unknown_does_not_reuse_old_stock(self):
+        from unittest.mock import Mock
+        item = self.board.items[KEY].model_copy(update={'key': 'US:XNAS:ADBE:STOCK', 'symbol': 'ADBE', 'name': 'Adobe'})
+        self.board.catalog.search = Mock(return_value=[item])
+        req = self.request().model_copy(update={'question': '分析 ADBE 的 AI 业务以及 MA20'})
+        self.assertEqual(conversation_targets(self.board, req), [item.key])
+        self.board.catalog.search.assert_called_once_with('ADBE', 'US', limit=10)
+        self.board.catalog.search.return_value = []
+        with self.assertRaises(HTTPException) as error:
+            conversation_targets(self.board, req)
+        self.assertEqual(error.exception.detail['code'], 'instrument_not_found')
+
     def test_currency_exposure_cost_weights_and_missing_prices(self):
         first, second = self.position(), self.position('US:XNAS:TSLA:STOCK', quantity=5, cost=8)
         result = portfolio_exposure([first, second], [self.quote(), self.quote(second.payload['instrument_key'], 20)])

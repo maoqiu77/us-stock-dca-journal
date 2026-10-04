@@ -21,12 +21,13 @@ export function AppShell({
   onMarketRefresh: () => void;
   children: React.ReactNode;
 }) {
+  const isMarketView = activeView === "overview" || activeView === "market-board";
   return (
     <SidebarProvider defaultOpen>
       <AppSidebar activeView={activeView} onViewChange={onViewChange} />
       <SidebarInset>
         <TopBar activeView={activeView} onMarketRefresh={onMarketRefresh} />
-        <main className="min-h-[calc(100svh-3.5rem)] bg-background p-3 md:p-4">
+        <main className={isMarketView ? "min-h-[calc(100svh-3.5rem)] bg-background p-4 md:p-5 xl:p-6" : "min-h-[calc(100svh-3.5rem)] bg-background p-3 md:p-4"}>
           {children}
         </main>
       </SidebarInset>

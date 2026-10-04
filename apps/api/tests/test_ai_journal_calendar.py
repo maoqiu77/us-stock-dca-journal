@@ -48,6 +48,21 @@ class AiJournalCalendarTest(unittest.TestCase):
             finally:
                 database.DB_PATH = original
 
+    def test_note_can_be_archived_on_selected_business_date(self):
+        original = database.DB_PATH
+        with tempfile.TemporaryDirectory() as temp:
+            database.DB_PATH = Path(temp) / "isolated.db"
+            try:
+                with database.connect() as db:
+                    db.execute("create table app_state(key text primary key,payload text,updated_at text)")
+                    migrate_journal_db(db)
+                    db.execute("create table quant_analysis_runs(id text primary key,status text,ticker text)")
+                JournalStore().save_note("补记旧日期", journal_date="2026-01-15")
+                result = calendar(JournalStore(), "2026-01-15")
+                self.assertEqual(result["items"][0]["date"], "2026-01-15")
+            finally:
+                database.DB_PATH = original
+
 
 if __name__ == "__main__":
     unittest.main()

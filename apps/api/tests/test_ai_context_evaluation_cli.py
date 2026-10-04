@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,7 +61,7 @@ class AiContextEvaluationCliTest(unittest.TestCase):
             )
 
             result = subprocess.run(
-                [str(SCRIPT), str(source), "--output", str(output)],
+                [sys.executable, str(SCRIPT), str(source), "--output", str(output)],
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
@@ -82,7 +83,7 @@ def run_cli(dataset: dict[str, object], *arguments: str) -> subprocess.Completed
             encoding="utf-8",
         )
         return subprocess.run(
-            [str(SCRIPT), str(source), *arguments],
+            [sys.executable, str(SCRIPT), str(source), *arguments],
             cwd=ROOT,
             capture_output=True,
             text=True,

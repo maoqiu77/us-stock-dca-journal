@@ -90,6 +90,29 @@ class MarketCacheTest(unittest.TestCase):
         nasdaq_quotes.assert_called_once_with(["NVDA"], force_refresh=True)
         self.assertEqual([quote["source"] for quote in quotes], ["yahoo", "nasdaq"])
 
+    def test_get_quotes_returns_unavailable_instead_of_sample_when_all_sources_fail(self) -> None:
+        with (
+            patch.object(market, "_try_yahoo_quotes", return_value={}),
+            patch.object(market, "_try_yfinance_quotes", return_value={}),
+            patch.object(market, "_try_nasdaq_quotes", return_value={}),
+        ):
+            quotes = market.get_quotes([{"ticker": "UNKNOWN", "name": "Unknown", "market": "US"}])
+
+        self.assertEqual(quotes[0]["source"], "unavailable")
+        self.assertIsNone(quotes[0]["price"])
+        self.assertNotIn("sample", quotes[0]["source"])
+
+    def test_get_chart_returns_unavailable_instead_of_sample_when_all_sources_fail(self) -> None:
+        with (
+            patch.object(market, "_try_yahoo_chart", return_value=None),
+            patch.object(market, "_try_yfinance_chart", return_value=None),
+            patch.object(market, "_try_nasdaq_chart", return_value=None),
+        ):
+            chart = market.get_chart("UNKNOWN", "1y", "1d")
+
+        self.assertEqual(chart["source"], "unavailable")
+        self.assertEqual(chart["bars"], [])
+
     def test_yahoo_quote_http_response_is_parsed_as_yahoo_source(self) -> None:
         payload = {
             "quoteResponse": {

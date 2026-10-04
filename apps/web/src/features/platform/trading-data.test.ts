@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   comparePositionReturnsDescending,
+  calculateHoldingValuation,
   DEFAULT_TRADING_DATA,
   derivePositions,
   etfInvestmentPool,
@@ -15,6 +16,7 @@ import {
   removeTrackedTicker,
   replaceStockPool,
   replacePositionSnapshot,
+  previewLegacyMigration,
   sortPositionPlans,
   sortTradesNewestFirst,
   trackTickerForObservation,
@@ -46,14 +48,14 @@ test("legacy fixture preserves Web entry precision independently of Python", () 
   assert.notEqual(legacyFixture.rounding.webAmount, legacyFixture.rounding.pythonAmount);
 });
 
-test("snapshot replacement appends synthetic closing and opening trades", () => {
+test("snapshot replacement is blocked without altering old trades or holdings", () => {
   const example = legacyFixture.snapshot;
   const state = { ...testState(), stockPool: ["SYNTH"], positions: [], trades: example.before.trades.map(normalizeTradeInput) };
   const before = structuredClone(state);
-  const next = replacePositionSnapshot(state, example.inputs, example.date);
-  assert.deepEqual(next.trades.slice(state.trades.length).map(({ action, shares, unitPrice, amount }) => ({ action, shares, unitPrice, amount })), example.expectedAppended);
-  const [actual] = derivePositions(next);
-  assert.deepEqual({ shares: actual.shares, costBasis: actual.costBasis, holdingCost: actual.holdingCost }, example.expectedPosition);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    assert.throws(() => replacePositionSnapshot(state, example.inputs, example.date), /持仓截图校准暂不可写入/);
+    assert.throws(() => replacePositionSnapshot(state, [], example.date), /持仓截图校准暂不可写入/);
+  }
   assert.deepEqual(state, before);
 });
 
@@ -146,7 +148,7 @@ test("trade records sort from newest to oldest without mutating state order", ()
   );
 });
 
-test("importPositionSnapshots creates plans and opening trades without overwriting holdings", () => {
+test("opening position import cannot fabricate a buy or change account budget", () => {
   const current = testState();
   current.trades = [
     {
@@ -161,20 +163,26 @@ test("importPositionSnapshots creates plans and opening trades without overwriti
     },
   ];
 
-  const next = importPositionSnapshots(
+  const before = structuredClone(current);
+  assert.throws(() => importPositionSnapshots(
     current,
     [
       { ticker: "voo", assetType: "ETF", shares: 2, averageCost: 410 },
       { ticker: "nvda", assetType: "STOCK", shares: 3, averageCost: 100 },
     ],
     "2026-08-14"
-  );
+  ), /持仓截图校准暂不可写入/);
+  assert.deepEqual(current, before);
+  assert.equal(derivePositions(current).find((item) => item.ticker === "VOO")?.shares, 1);
+});
 
-  assert.equal(next.trades.length, 2);
-  assert.equal(next.trades.at(-1)?.ticker, "NVDA");
-  assert.equal(next.trades.at(-1)?.amount, 300);
-  assert.equal(next.positions.find((item) => item.ticker === "NVDA")?.targetWeight, 0);
-  assert.equal(derivePositions(next).find((item) => item.ticker === "VOO")?.shares, 1);
+test("legacy migration preview preserves all records regardless of Chinese import notes", () => {
+  const fixture = JSON.parse(readFileSync(new URL("../../../../../contracts/fixtures/legacy-migration-preview-v1.json", import.meta.url), "utf8"));
+  const state = { ...testState(), trades: fixture.trades };
+  const before = structuredClone(state);
+  const preview = previewLegacyMigration(state, fixture.revision);
+  assert.deepEqual(preview, fixture.expected);
+  assert.deepEqual(state, before);
 });
 
 test("removeTrackedTicker removes a ticker from positions and stock pool", () => {
@@ -418,6 +426,54 @@ test("trade calculation uses the two most recently edited fields", () => {
 
   assert.deepEqual(draft, { amount: "160", unitPrice: "40", shares: "4" });
   assert.deepEqual(recentFields, ["unitPrice", "shares"]);
+});
+
+test("holding valuation keeps missing quotes unknown and uses previous close for day change", () => {
+  const positions = [
+    { ...testState().positions[0], ticker: "KNOWN" },
+    { ...testState().positions[0], ticker: "MISSING" },
+  ].map((position, index) => ({
+    ...position,
+    shares: 10,
+    costBasis: 100,
+    holdingCost: 1000,
+    ...(index === 1 ? { ticker: "MISSING" } : {}),
+  }));
+  const result = calculateHoldingValuation(
+    positions,
+    new Map([
+      ["KNOWN", { price: 110, previousClose: 100, source: "yahoo" }],
+      ["MISSING", { price: null, source: "unavailable", status: "unavailable" }],
+    ]),
+  );
+
+  assert.deepEqual(
+    {
+      marketValue: result.marketValue,
+      marketValueCovered: result.marketValueCovered,
+      unrealizedPnl: result.unrealizedPnl,
+      dayChange: result.dayChange,
+      missingTickers: result.missingTickers,
+    },
+    {
+      marketValue: 1100,
+      marketValueCovered: 1,
+      unrealizedPnl: 100,
+      dayChange: 100,
+      missingTickers: ["MISSING"],
+    },
+  );
+});
+
+test("holding valuation does not add incompatible currencies", () => {
+  const position = { ...testState().positions[0], ticker: "CNY", shares: 10, costBasis: 100, holdingCost: 1000 };
+  const result = calculateHoldingValuation(
+    [position],
+    new Map([["CNY", { price: 120, currency: "CNY", source: "real" }]]),
+    "USD",
+  );
+  assert.equal(result.marketValue, null);
+  assert.deepEqual(result.incompatibleTickers, ["CNY"]);
 });
 
 test("trade calculation rounds fractional shares and avoids non-finite results", () => {

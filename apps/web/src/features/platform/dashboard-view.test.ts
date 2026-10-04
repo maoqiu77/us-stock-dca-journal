@@ -24,7 +24,7 @@ test("dashboard includes observed tickers and sorts rows by displayed return", (
 });
 
 test("dashboard only keeps the requested asset metrics and status fields", () => {
-  assert.match(overviewSource, /总资产盈亏/);
+  assert.match(overviewSource, /持仓浮动盈亏/);
   assert.match(overviewSource, /今日变动/);
   assert.doesNotMatch(overviewSource, /领涨|领跌|自选数量/);
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api_models import (
@@ -51,13 +51,18 @@ from app.modules.trading_data import (
     get_effective_watchlist,
     infer_market,
     load_trading_state,
-    reset_trading_state,
-    save_trading_state,
     validate_trading_state,
+    preview_legacy_migration,
 )
 from app.modules.market_board.router import router as market_board_router
 from app.modules.ai_journal.router import router as ai_journal_router
+from app.modules.ai_journal.decisions import router as user_records_router
 from app.modules.ai_journal.agent.manager import journal_agent_manager
+from app.modules.ledger_store import read_ledger, write_ledger, read_receipt
+from app.modules.local_backup import runtime_lock, create_backup
+from app.core import settings
+from fastapi.responses import FileResponse
+import uuid
 
 
 app = FastAPI(title="Stock Trading Platform API", version=get_runtime_info().version)
@@ -76,10 +81,15 @@ app.add_middleware(
 )
 app.include_router(market_board_router)
 app.include_router(ai_journal_router)
+app.include_router(user_records_router)
+_runtime_lock = None
 
 
 @app.on_event("startup")
 def on_startup() -> None:
+    global _runtime_lock
+    _runtime_lock = runtime_lock(settings.DATA_HOME.resolve())
+    _runtime_lock.__enter__()
     init_db()
     quant_analysis_manager.start()
     journal_agent_manager.start()
@@ -89,6 +99,20 @@ def on_startup() -> None:
 def on_shutdown() -> None:
     quant_analysis_manager.stop()
     journal_agent_manager.stop()
+    # Hold until process exit: in-flight worker threads may outlive stop()'s
+    # bounded join. Offline restoration requires the API process fully stopped.
+
+
+@app.post("/api/local-backup")
+def download_local_backup(payload: Optional[dict] = Body(default=None)):
+    path = settings.DATA_HOME / "backups" / ("local-" + uuid.uuid4().hex + ".zip")
+    try:
+        preferences = (payload or {}).get("browserPreferences", {})
+        allowed = {key: value for key, value in preferences.items() if key in {"theme", "stock-platform-active-view-v1", "stock-platform-onboarding-v1"} and isinstance(value, str)} if isinstance(preferences, dict) else {}
+        create_backup(settings.DATA_HOME, settings.DB_PATH, path, allowed)
+    except Exception as exc:
+        raise HTTPException(503, "备份校验失败，原库未修改。请使用恢复工具诊断数据或关联来源。") from exc
+    return FileResponse(path, media_type="application/zip", filename=path.name)
 
 
 @app.get("/health")
@@ -155,8 +179,10 @@ def chart(
 
 @app.get("/api/trading-state")
 def trading_state() -> dict[str, object]:
-    state = load_trading_state()
+    result = read_ledger()
+    state = result["state"]
     return {
+        **result,
         "state": state,
         "derivedPositions": derive_positions(state),
         "accountSummary": account_summary(state),
@@ -166,8 +192,13 @@ def trading_state() -> dict[str, object]:
 
 @app.put("/api/trading-state")
 def update_trading_state(payload: TradingStateRequest) -> dict[str, object]:
-    state = save_trading_state(payload.model_dump(mode="python"))
+    data = payload.model_dump(mode="python")
+    if not isinstance(data.get("state"), dict):
+        raise HTTPException(428, "保存需要 state、expectedRevision、operationId，请升级客户端。")
+    result = write_ledger(data["state"], data.get("expectedRevision", ""), data.get("operationId", ""))
+    state = result["state"]
     return {
+        **result,
         "state": state,
         "derivedPositions": derive_positions(state),
         "accountSummary": account_summary(state),
@@ -177,13 +208,18 @@ def update_trading_state(payload: TradingStateRequest) -> dict[str, object]:
 
 @app.post("/api/trading-state/reset")
 def reset_state() -> dict[str, object]:
-    state = reset_trading_state()
-    return {
-        "state": state,
-        "derivedPositions": derive_positions(state),
-        "accountSummary": account_summary(state),
-        "validationIssues": validate_trading_state(state),
-    }
+    raise HTTPException(428, "无版本重置已停用；请先备份，再通过带版本的保存操作明确替换账本。")
+
+
+@app.get("/api/trading-state/receipts/{operation_id}")
+def trading_receipt(operation_id: str) -> dict:
+    return read_receipt(operation_id)
+
+
+@app.get("/api/trading-state/migration-preview")
+def legacy_migration_preview() -> dict:
+    current = read_ledger()
+    return preview_legacy_migration(current["state"], current["revision"])
 
 
 @app.get("/api/signals")

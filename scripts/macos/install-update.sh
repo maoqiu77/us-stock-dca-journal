@@ -8,6 +8,7 @@ LAUNCHER_PATH=""
 API_PID=""
 WEB_PID=""
 DRY_RUN=0
+VERIFY_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       DRY_RUN=1
       shift
       ;;
+    --verify-only)
+      VERIFY_ONLY=1
+      shift
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 2
@@ -59,6 +64,32 @@ echo "Preserve: $INSTALL_ROOT/storage/local"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "Dry run only. No files will be changed."
+  exit 0
+fi
+
+if [[ "$VERIFY_ONLY" -eq 1 ]]; then
+  VERIFY_DIR="$(mktemp -d "${TMPDIR:-/tmp}/stock-platform-verify.XXXXXX")"
+  cleanup_verify() { rm -rf "$VERIFY_DIR"; }
+  trap cleanup_verify EXIT
+  unzip -q "$PACKAGE_ZIP" -d "$VERIFY_DIR"
+  shopt -s nullglob
+  verify_entries=("$VERIFY_DIR"/*)
+  VERIFY_ROOT="$VERIFY_DIR"
+  if [[ "${#verify_entries[@]}" -eq 1 && -d "${verify_entries[0]}" ]]; then
+    VERIFY_ROOT="${verify_entries[0]}"
+  fi
+  [[ -f "$VERIFY_ROOT/release.json" ]] || { echo "The downloaded package is missing release.json." >&2; exit 1; }
+  python3 - "$VERIFY_ROOT/release.json" <<'PY'
+import json, sys
+from pathlib import Path
+manifest = json.loads(Path(sys.argv[1]).read_text())
+if manifest.get("platform") not in {"macos-arm64", "macos-x64"}:
+    raise SystemExit("release.json platform is not a macOS candidate")
+for item in ("api/stock-platform-api", "runtime/node/node", "启动股票交易平台.command", "updater/install-update.sh"):
+    if not (Path(sys.argv[1]).parent / item).exists():
+        raise SystemExit(f"Missing package path: {item}")
+print(f"Package verification passed: {manifest.get('version')}")
+PY
   exit 0
 fi
 

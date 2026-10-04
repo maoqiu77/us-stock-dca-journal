@@ -45,8 +45,9 @@ import {
   type RecognizedPosition,
   type RecognizedTrade,
 } from "@/features/platform/api";
-import { normalizeTicker, todayIsoDate } from "@/features/platform/trading-data";
+import { normalizeTicker, todayIsoDate, previewLegacyMigration } from "@/features/platform/trading-data";
 import { useTradingData } from "@/features/platform/trading-data-context";
+import type { Checkpoint } from "@/features/platform/checkpoints";
 
 type EditablePosition = RecognizedPosition & { id: string };
 type EditableTrade = RecognizedTrade & { id: string; date: string; note: string };
@@ -192,7 +193,8 @@ export function PositionScreenshotImport() {
   const [resultMessage, setResultMessage] = React.useState("");
   const [recognitionProgress, setRecognitionProgress] = React.useState({ completed: 0, total: 0 });
   const tableViewportRef = React.useRef<HTMLDivElement>(null);
-  const { derivedPositions, importPositions, applyRecognizedTrades, replacePositionSnapshot } = useTradingData();
+  const { state, derivedPositions, applyRecognizedTrades, addCheckpoint, checkpointRevision } = useTradingData();
+  const migrationPreview = React.useMemo(() => previewLegacyMigration(state), [state]);
   const heldTickers = React.useMemo(
     () => new Set(derivedPositions.filter((item) => item.shares > 0).map((item) => item.ticker)),
     [derivedPositions]
@@ -213,15 +215,13 @@ export function PositionScreenshotImport() {
       }
       if (!results.length) throw new Error(failures.join("；") || "没有成功识别任何截图。");
       const modes = new Set(results.map((result) => result.mode));
-      const positionsByTicker = new Map<string, RecognizedPosition>();
-      results.flatMap((result) => result.positions).forEach((position) => {
-        positionsByTicker.set(normalizeTicker(position.ticker), position);
-      });
+      const positions = results.flatMap((result) => result.positions);
+      const duplicateTickers = positions.filter((row, index) => positions.findIndex(other => normalizeTicker(other.ticker) === normalizeTicker(row.ticker)) !== index).map(row => row.ticker);
       return {
         mode: modes.size === 1 ? results[0].mode : "portfolio",
-        positions: [...positionsByTicker.values()],
+        positions,
         trades: results.flatMap((result) => result.trades),
-        warnings: [...results.flatMap((result) => result.warnings), ...failures],
+        warnings: [...results.flatMap((result) => result.warnings), ...failures, ...(duplicateTickers.length ? [`重复标的需核对：${duplicateTickers.join("、")}`] : [])],
         endpoint: results.map((result) => result.endpoint).filter(Boolean).join(", "),
         mixed: modes.size > 1,
       };
@@ -306,7 +306,7 @@ export function PositionScreenshotImport() {
             <ImageUpIcon />
             AI 截图导入
           </CardTitle>
-          <CardDescription>识别券商交易或完整持仓截图，确认后再写入本地流水</CardDescription>
+          <CardDescription>交易截图经确认可记入流水；持仓截图校准暂不可写入</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
           <input
@@ -337,8 +337,18 @@ export function PositionScreenshotImport() {
           </Button>
           <Select value={mode} onValueChange={(value) => setMode(value as typeof mode)}>
             <SelectTrigger aria-label="截图类型"><SelectValue placeholder="自动判断截图类型" /></SelectTrigger>
-            <SelectContent><SelectItem value="auto">自动判断截图类型</SelectItem><SelectItem value="trades">今日交易记录截图</SelectItem><SelectItem value="portfolio">完整持仓截图</SelectItem></SelectContent>
+            <SelectContent><SelectItem value="auto">自动判断截图类型</SelectItem><SelectItem value="trades">今日交易记录截图</SelectItem><SelectItem value="portfolio">持仓截图（建立校准检查点）</SelectItem></SelectContent>
           </Select>
+          <Alert><AlertTriangleIcon /><AlertTitle>持仓截图写入校准检查点</AlertTitle><AlertDescription>截图只建立带来源、观察时间和账本版本的持仓检查点，不会生成买入/卖出流水或已实现盈亏。识别到的遗漏不会自动卖出。</AlertDescription></Alert>
+          <details>
+            <summary>旧记录迁移预览（只读）：{migrationPreview.pending.length} 条待核验，自动转换 0 条</summary>
+            <p className="py-2 text-sm text-muted-foreground">{migrationPreview.warning} 迁移前请先下载完整备份。本次不删除或重算历史。</p>
+            <Button size="sm" variant="outline" onClick={() => {
+              const url = URL.createObjectURL(new Blob([JSON.stringify(migrationPreview, null, 2)], { type: "application/json" }));
+              const link = document.createElement("a"); link.href = url; link.download = "旧账本迁移预览-只读.json"; link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}>导出只读迁移预览</Button>
+          </details>
           <p className="text-xs text-muted-foreground">
             PNG、JPEG 或 WebP。可按住 Mac 的 Command 或 Windows 的 Ctrl 多选；图片会逐张发送到已配置的 AI 接口识别，不在本地保存。
           </p>
@@ -365,9 +375,9 @@ export function PositionScreenshotImport() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-6xl">
           <DialogHeader>
-            <DialogTitle>{detectedMode === "trades" ? "确认识别到的交易记录" : "确认识别到的完整持仓"}</DialogTitle>
+            <DialogTitle>{detectedMode === "trades" ? "确认识别到的交易记录" : "持仓截图核对（未写入）"}</DialogTitle>
             <DialogDescription>
-              {detectedMode === "trades" ? "确认后只追加截图中的买入、卖出记录，不影响其他标的。" : "确认后将以截图为准覆盖整个账户持仓，截图中不存在的原有持仓会被清除。"}
+              {detectedMode === "trades" ? "确认后只追加截图中的买入、卖出记录，不影响其他标的。" : "确认后建立持仓校准检查点；原流水保持不变。"}
             </DialogDescription>
           </DialogHeader>
           {previewItems.length ? (
@@ -446,7 +456,7 @@ export function PositionScreenshotImport() {
                       <TableCell className="tabular-nums">{Math.round(row.confidence * 100)}%</TableCell>
                       <TableCell>
                           <Badge variant={alreadyHeld && detectedMode !== "portfolio" ? "destructive" : "secondary"}>
-                          {alreadyHeld && detectedMode !== "portfolio" ? "将跳过" : "覆盖后写入"}
+                          {alreadyHeld ? "已有持仓，仅核对" : "仅预览，未写入"}
                         </Badge>
                       </TableCell>
                       <TableCell>
@@ -462,32 +472,40 @@ export function PositionScreenshotImport() {
             <PersistentHorizontalScrollbar viewportRef={tableViewportRef} label="持仓横向滚动条" />
           </div>}
           {detectedMode === "trades" && tradeConflicts.size ? <Alert variant="destructive"><AlertTriangleIcon /><AlertTitle>交易与当前流水持仓存在矛盾</AlertTitle><AlertDescription>请修正标红交易后再写入，系统不会自动制造负持仓。</AlertDescription></Alert> : null}
+          {detectedMode !== "trades" && <Alert><AlertTitle>整批候选待校准</AlertTitle><AlertDescription>
+            候选 {rows.length} 条，可核对数量和成本 {validRows.length} 条；遗漏的现有持仓：{derivedPositions.filter(item => item.shares > 0 && !rows.some(row => normalizeTicker(row.ticker) === item.ticker)).map(item => item.ticker).join("、") || "无"}。遗漏不代表卖出，已有成交和持仓不变。
+          </AlertDescription></Alert>}
           <Field>
-            <FieldLabel htmlFor="snapshot-date">期初持仓日期</FieldLabel>
+            <FieldLabel htmlFor="snapshot-date">{detectedMode === "trades" ? "录入日期" : "核对日期（仅预览）"}</FieldLabel>
             <Input id="snapshot-date" type="date" defaultValue={todayIsoDate()} readOnly />
-            <FieldDescription>截图没有历史成交日期，因此使用今天作为导入日期。首次使用完整持仓截图时，这会初始化当前账户持仓。</FieldDescription>
+            <FieldDescription>截图不能证明历史成交日期。交易请逐条核实日期；持仓只记录观察时点，不初始化或覆盖账户。</FieldDescription>
           </Field>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>取消</Button>
             <Button
-              disabled={detectedMode === "trades" ? !tradeRows.length || Boolean(tradeConflicts.size) : !validRows.length}
+              disabled={(detectedMode === "trades" && (!tradeRows.length || Boolean(tradeConflicts.size))) || (detectedMode !== "trades" && (!validRows.length || !checkpointRevision))}
               onClick={() => {
                 if (detectedMode === "trades") {
                   applyRecognizedTrades(tradeRows, todayIsoDate());
-                } else if (detectedMode === "portfolio") {
-                  replacePositionSnapshot(validRows.map((row) => ({ ticker: row.ticker, assetType: row.assetType, shares: row.shares, averageCost: row.averageCost ?? 0 })), todayIsoDate());
-                } else importPositions(validRows.map((row) => ({
-                  ticker: row.ticker,
-                  assetType: row.assetType,
-                  shares: row.shares,
-                  averageCost: row.averageCost ?? 0,
-                })), todayIsoDate());
+                } else {
+                  const now = new Date().toISOString();
+                  const market = (ticker: string) => ticker.endsWith(".HK") ? "HKEX" : ticker.endsWith(".SS") || ticker.endsWith(".SZ") ? "CN" : "US";
+                  const rowsForCheckpoint = validRows.map(row => {
+                    const normalized = normalizeTicker(row.ticker);
+                    const m = market(normalized) as "US" | "HKEX" | "CN";
+                    const currency = ({ US: "USD", HKEX: "HKD", CN: "CNY" } as const)[m];
+                    return { ticker: normalized, market: m, currency, assetType: row.assetType, shareClass: "ordinary", instrumentId: `${m}:${normalized}:${row.assetType}:${currency}:ordinary`, quantity: String(row.shares), totalCost: String(row.shares * (row.averageCost ?? 0)) };
+                  });
+                  const checkpoint: Checkpoint = { id: crypto.randomUUID(), kind: "position_checkpoint", observedAt: now, recordedAt: now, throughDate: todayIsoDate(), baseRevision: checkpointRevision!, scope: "complete", historyComplete: false, source: { kind: "screenshot", reference: previewItems.map(item => item.name).join(",") || "browser-screenshot" }, rows: rowsForCheckpoint, retainedTickers: derivedPositions.filter(item => item.shares > 0 && !rowsForCheckpoint.some(row => row.ticker === item.ticker)).map(item => item.ticker), baseline: state.trades.map(trade => ({ ...trade })) };
+                  addCheckpoint(checkpoint);
+                  setResultMessage(`已建立 ${rowsForCheckpoint.length} 条持仓校准检查点，未新增成交流水。`);
+                }
                 setOpen(false);
                 setRows([]);
-                setResultMessage(detectedMode === "trades" ? `已添加 ${tradeRows.length} 条交易流水。` : `已覆盖 ${validRows.length} 个持仓。`);
+                setResultMessage(`已加入 ${tradeRows.length} 条交易草稿，数据库保存状态见页面顶部。`);
               }}
             >
-              {detectedMode === "trades" ? `写入 ${tradeRows.length} 条交易` : `覆盖 ${validRows.length} 个持仓`}
+              {detectedMode === "trades" ? `写入 ${tradeRows.length} 条交易` : `建立 ${validRows.length} 条校准检查点`}
             </Button>
           </DialogFooter>
         </DialogContent>

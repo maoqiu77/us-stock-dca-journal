@@ -52,7 +52,7 @@ def build_scope(board, request, private, facts, stamp, *, extra_keys=()):
             continue
         if observed.tzinfo is None or observed > stamp:
             continue
-        kind = 'series' if fact['kind'] == '已收盘 K 线' else 'quote'
+        kind = 'news' if fact['kind'] == '新闻' else 'series' if fact['kind'] == '已收盘 K 线' else 'quote'
         if kind == 'series':
             from app.modules.market_board.models import Series
             series = Series.model_validate(value)
