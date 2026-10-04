@@ -2,6 +2,8 @@
 >
 > 下方中文和英文正文均为既有桌面版文档。其中 sample 降级、安装包和密钥本机保存等描述不适用于当前小程序，不应直接用于小程序审核、隐私说明或运行手册。
 
+> **桌面源码发布候选：`v1.3.2-rc.1`。** 本候选提供可审查、可本地开发的源码压缩包；它不是 Windows 或 macOS 一键运行安装包。跨平台安装包仍以对应 Releases 条目和签名状态为准。
+
 <a id="中文"></a>
 
 <h1 align="center">美股定投交易日记 · 量化分析</h1>
@@ -68,7 +70,7 @@
 
 ## 下载与运行
 
-前往 [Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载当前稳定版。请不要下载 GitHub 自动生成的 `Source code (zip)`，那是源码，不是一键运行包。
+前往 [Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases) 下载当前候选或稳定版。当前候选源码包可直接下载：[v1.3.2-rc.1 源码归档](https://github.com/maoqiu77/us-stock-dca-journal/releases/download/v1.3.2-rc.1/stock-trading-platform-next-v1.3.2-rc.1.zip)。该包用于源码审查和本地开发，不是一键运行包；请不要把 GitHub 自动生成的 `Source code (zip)` 当作安装包。
 
 | 系统 | v1.3.2 安装包 | 启动方式 |
 | --- | --- | --- |
@@ -89,6 +91,15 @@
 - 在“AI 模型配置”页增加 GitHub 版本检查和软件更新入口。
 - 发现新版本时会弹出确认框，可选择立即更新或暂不更新；无新版本时会明确显示当前已是最新版。
 - 保留更新前本地数据备份、安装包 SHA-256 校验、失败保护和自动重启机制。
+
+</details>
+
+<details>
+<summary><strong>v1.3.2-rc.1 发布候选</strong></summary>
+
+- 提供本地源码归档，固定对应候选提交，便于审查和离线开发。
+- 源码包不包含 `storage/local`、真实账本、API Key、Cookie 或本地数据库。
+- Windows/macOS 一键运行包、签名、公证和真机验收不由该源码归档代替。
 
 </details>
 
@@ -241,7 +252,7 @@ The project brings portfolio status, candlestick charts, strategy signals, backt
 
 ## Download
 
-Get a ready-to-run package from [GitHub Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases):
+Get the current candidate or a ready-to-run package from [GitHub Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases). The current `v1.3.2-rc.1` candidate includes a [source archive](https://github.com/maoqiu77/us-stock-dca-journal/releases/download/v1.3.2-rc.1/stock-trading-platform-next-v1.3.2-rc.1.zip) for review and local development. It is not a one-click installer.
 
 | Platform | v1.3.2 package |
 | --- | --- |
