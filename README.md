@@ -1,11 +1,10 @@
-> **版本说明：** 本 README 描述 `main` 分支的源码现状。已发布的稳定版 `v1.3.2` 和源码候选 `v1.3.2-rc.1` 固定于各自发布时的代码，界面和功能可能与主线不同；源码候选不是一键安装包。
-
 <a id="中文"></a>
 
 <h1 align="center">持仓手记 · 量化分析</h1>
 
 <p align="center">
-  <strong>把持仓、行情、策略、AI 研究与交易复盘留在自己电脑上的本地投资工作台</strong>
+  <strong>把投资研究和决策过程，留在自己的工作台。</strong><br>
+  持仓 · 行情 · AI 研究 · 交易复盘
 </p>
 
 <p align="center">
@@ -20,59 +19,59 @@
 <p align="center">
   <a href="#中文">中文</a> · <a href="#english">English</a>
   <br>
-  <a href="#核心能力">核心能力</a> · <a href="#产品界面">产品界面</a> · <a href="#下载与运行">下载与运行</a> · <a href="#量化分析">量化分析</a> · <a href="#开发指南">开发指南</a>
+  <a href="#产品界面">界面预览</a> · <a href="#核心能力">功能介绍</a> · <a href="#下载与运行">下载安装</a> · <a href="#隐私与数据边界">隐私</a> · <a href="#开发指南">开发指南</a>
 </p>
 
 ---
 
-这是一款面向美股个股与 ETF 的本地投资研究和交易复盘工具。桌面工作台将持仓概览、多市场自选、交易记录、AI 投资助手和多角色量化分析集中在一起，并按日期保存研究与手记。仓库还包含开发中的微信小程序和独立股票轮动回测原型。
+这是一款面向美股个股与 ETF 的本地投资研究和交易复盘工具。从观察市场、记录持仓，到提出问题、保存判断，每一步都可以在同一个工作台完成。
+
+<p align="center">
+  <a href="docs/screenshots/overview.png"><img src="docs/screenshots/overview.png" alt="持仓手记总览界面" width="100%"></a>
+</p>
+<p align="center"><sub>桌面工作台 · 总览、市场看板、AI 日历和量化分析</sub></p>
 
 > [!NOTE]
-> 项目不是券商客户端，不连接账户执行交易。生产路径在外部行情或研究数据不可用时显示明确的不可用状态或带原始观察时间的真实缓存；确定性示例只通过显式开发/测试注入使用。
+> 本 README 描述 `main` 分支的源码现状。发布版界面与功能可能不同；`v1.3.2-rc.1` 是源码候选，不是一键安装包。
 
 > [!WARNING]
-> 本项目不会自动下单，所有量化结果与 AI 内容仅用于研究和复盘，不构成投资建议。请独立判断并自行承担投资风险。
+> 本项目用于研究与复盘，不连接券商账户执行交易，也不会自动下单。量化结果与 AI 内容不构成投资建议。
 
 ## 核心能力
 
-| | 能力 | 你可以做什么 |
-| --- | --- | --- |
-| 📊 | **资产总览** | 汇总持仓成本、浮动盈亏、今日变动、技术指标与观察标的状态 |
-| 📈 | **多市场看板** | 管理美股、场内 ETF 与场外基金自选，查看行情、涨跌、溢价、份额和数据来源 |
-| ✨ | **AI 日历与投资助手** | 提问前预览发送范围，按日期回看研究、追问与个人手记；可选 Agent 模式按范围查找资料 |
-| 🧠 | **量化分析** | 组合技术面、基本面、新闻、情绪与宏观研究，经过多角色研判和风险复核形成报告 |
-| 🧾 | **交易记录与复盘** | 录入交易流水、导入持仓截图，维护成本、目标仓位、投资政策与到期复盘 |
-| 🔒 | **本地数据管理** | 管理 AI Provider、备份恢复和浏览器草稿；私有运行数据默认只写入本机 |
+| 观察与记录 | 研究与复盘 |
+| --- | --- |
+| **📊 资产总览**<br>查看持仓成本、盈亏、今日变动与技术状态。 | **✨ AI 投资助手**<br>围绕持仓、标的与新闻提问，发送前预览资料范围。 |
+| **📈 多市场看板**<br>管理美股、场内 ETF 和场外基金自选，查看来源与行情。 | **🧠 量化分析**<br>结合公开数据、多角色研判和风险复核生成研究报告。 |
+| **🧾 交易记录**<br>录入交易流水或导入持仓截图，维护成本和目标仓位。 | **🗓️ AI 日历与复盘**<br>按日期回看研究、追问、手记和投资判断。 |
+
+私有运行数据默认存放在本机；公开行情不可用时，页面显示明确的不可用状态或带原始观察时间的真实缓存。示例数据仅用于显式开发或测试。
 
 ## 产品界面
 
-以下截图采集自当前主线的本地工作台，使用隔离的空账本和默认自选；行情是截图时的公开数据，可能变化或不可用。
+截图来自当前主线，使用隔离的空账本和默认自选。行情是截图时的公开数据，可能变化或不可用。
 
-### 总览
+<table>
+  <tr>
+    <td width="50%"><strong>多市场看板</strong><br><sub>自选、行情与数据来源集中查看</sub></td>
+    <td width="50%"><strong>AI 日历</strong><br><sub>研究、对话和手记按日期回看</sub></td>
+  </tr>
+  <tr>
+    <td><a href="docs/screenshots/market-board.png"><img src="docs/screenshots/market-board.png" alt="多市场看板"></a></td>
+    <td><a href="docs/screenshots/ai-calendar.png"><img src="docs/screenshots/ai-calendar.png" alt="AI 日历"></a></td>
+  </tr>
+</table>
 
-![资产总览：持仓盈亏、今日变动与标的状态](docs/screenshots/overview.png)
+**量化分析** · 选择研究深度和分析师，查看多角色研判与历史报告。可选的结果反思在第 5 个后续交易日后手动生成。
 
-### 看板
+[![量化分析：研究配置、分析师开关与历史报告](docs/screenshots/quant-analysis.png)](docs/screenshots/quant-analysis.png)
 
-![多市场看板：美股、场内 ETF 与场外基金行情](docs/screenshots/market-board.png)
+## 从观察到复盘
 
-### AI 日历
-
-![AI 日历：按日期回看分析、连续对话与投资手记](docs/screenshots/ai-calendar.png)
-
-### 量化分析
-
-![量化分析：研究配置、分析师开关与历史报告](docs/screenshots/quant-analysis.png)
-
-
-## 为什么做这个项目
-
-多数行情工具擅长展示价格，却很难保存“当时为什么做这个决定”；通用 AI 又往往缺少持仓、策略和历史对话的连续上下文。本项目把两部分连在一起：
-
-- **研究有依据**：量化指标和相对表现可复算，AI 负责解释和讨论，不冒充事实来源。
-- **决策可回看**：交易记录、每日建议和追问按日期归档，方便复盘判断而不只是查看盈亏。
-- **数据有边界**：公开市场研究与私密账户上下文分开处理，发送前有明确提示，密钥只在本机保存。
-- **日常能使用**：外部数据源失败时显示明确不可用状态或带原始观察时间的真实缓存。
+1. **建立观察清单**：在总览和看板中查看标的、行情与技术状态。
+2. **记录自己的决策**：维护持仓、交易和投资政策；截图导入需要支持图片的模型。
+3. **开展研究**：在 AI 日历提问并预览发送范围，或使用量化分析研究公开市场信息。
+4. **回看与调整**：按日期查阅研究、对话和手记，结合到期复盘重新检查判断。
 
 ## 下载与运行
 
@@ -91,42 +90,11 @@
 如果 macOS 首次阻止运行，请右键启动文件，选择“打开”，再确认一次。发布版仅在本机 `127.0.0.1:3000` 提供服务，不向局域网开放私有交易数据。
 
 <details>
-<summary><strong>v1.3.2 更新摘要</strong></summary>
+<summary><strong>查看版本说明</strong></summary>
 
-- Windows 启动时仅保留主启动终端，后端 API 和 Next.js 子窗口改为隐藏运行。
-- 在“AI 模型配置”页增加 GitHub 版本检查和软件更新入口。
-- 发现新版本时会弹出确认框，可选择立即更新或暂不更新；无新版本时会明确显示当前已是最新版。
-- 保留更新前本地数据备份、安装包 SHA-256 校验、失败保护和自动重启机制。
-
-</details>
-
-<details>
-<summary><strong>v1.3.2-rc.1 发布候选</strong></summary>
-
-- 提供本地源码归档，固定对应候选提交，便于审查和离线开发。
-- 源码包不包含 `storage/local`、真实账本、API Key、Cookie 或本地数据库。
-- Windows/macOS 一键运行包、签名、公证和真机验收不由该源码归档代替。
-
-</details>
-
-<details>
-<summary><strong>v1.3.1 更新摘要</strong></summary>
-
-- 首次示例仅保留 QQQ、SPY，均为仅观察状态，不含示例持仓或交易记录。
-- 删除全部观察标的后会保持空列表，刷新或重启不会恢复示例。
-- 发布包兼容 Next.js 的嵌套 standalone 目录，并在压缩前校验启动入口与静态资源。
-- 启动器仅监听本机地址，重复启动会复用已有健康实例。
-
-</details>
-
-<details>
-<summary><strong>v1.3.0 更新摘要</strong></summary>
-
-- AI 连接改为服务商配置，支持第三方 API、DeepSeek、Kimi、GLM、OpenAI、Claude、通义千问、MiniMax 和硅基流动。
-- 不同服务商分别保存本地配置与密钥，支持 Chat Completions、Responses 和 Anthropic Messages 协议。
-- 连接测试返回的模型会加入输入建议，同时保留未知模型的手动输入能力。
-- 左侧导航将“数据管理”更名为“交易记录”，并将“AI 日历”调整到“量化分析”之前。
-- 发布包继续只包含示例数据，不包含真实账户、交易记录、密钥或本地数据库。
+- **v1.3.2 稳定版**：提供 Windows 和 macOS 运行包；包含应用内版本检查、更新前备份与安装包校验。
+- **v1.3.2-rc.1 源码候选**：用于审查和本地开发，不包含私有运行数据，也不替代安装包的签名、公证和真机验收。
+- 更早版本的改动和下载文件见 [Releases](https://github.com/maoqiu77/us-stock-dca-journal/releases)。
 
 </details>
 
@@ -261,15 +229,7 @@ The desktop workspace combines portfolio status, market watchlists, trade record
 
 ## Product interface
 
-The screenshots show the current main branch with an isolated empty ledger and default watchlists; public quotes are snapshots and may change or be unavailable:
-
-| Overview | Market board |
-| --- | --- |
-| ![Portfolio overview](docs/screenshots/overview.png) | ![Market board](docs/screenshots/market-board.png) |
-
-| AI calendar | Quant analysis |
-| --- | --- |
-| ![AI calendar](docs/screenshots/ai-calendar.png) | ![Quant analysis](docs/screenshots/quant-analysis.png) |
+See the [screenshots above](#产品界面) for the current main-branch desktop interface. They use an isolated empty ledger and default watchlists; quotes are point-in-time public data.
 
 > [!WARNING]
 > This project is for research and journaling only. It never places trades, and its quantitative or AI-generated output is not investment advice.
