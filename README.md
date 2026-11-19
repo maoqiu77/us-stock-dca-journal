@@ -1,4 +1,4 @@
-> **桌面源码发布候选：`v1.3.2-rc.1`。** 本候选提供可审查、可本地开发的源码压缩包；它不是 Windows 或 macOS 一键运行安装包。跨平台安装包仍以对应 Releases 条目和签名状态为准。
+> **版本说明：** 本 README 描述 `main` 分支的源码现状。已发布的稳定版 `v1.3.2` 和源码候选 `v1.3.2-rc.1` 固定于各自发布时的代码，界面和功能可能与主线不同；源码候选不是一键安装包。
 
 <a id="中文"></a>
 
@@ -25,7 +25,7 @@
 
 ---
 
-这是一款面向美股个股与 ETF 的本地投资研究和交易复盘工具。它将账户概览、K 线、策略信号、回测、AI 建议和多智能体量化分析收进同一个网页工作台，并把每天的操作与对话整理成可回看的投资日历。
+这是一款面向美股个股与 ETF 的本地投资研究和交易复盘工具。桌面工作台将持仓概览、多市场自选、交易记录、AI 投资助手和多角色量化分析集中在一起，并按日期保存研究与手记。仓库还包含开发中的微信小程序和独立股票轮动回测原型。
 
 > [!NOTE]
 > 项目不是券商客户端，不连接账户执行交易。生产路径在外部行情或研究数据不可用时显示明确的不可用状态或带原始观察时间的真实缓存；确定性示例只通过显式开发/测试注入使用。
@@ -39,14 +39,14 @@
 | --- | --- | --- |
 | 📊 | **资产总览** | 汇总持仓成本、浮动盈亏、今日变动、技术指标与观察标的状态 |
 | 📈 | **多市场看板** | 管理美股、场内 ETF 与场外基金自选，查看行情、涨跌、溢价、份额和数据来源 |
-| ✨ | **AI 日历** | 按日期回看 AI 分析、连续对话和投资手记，自动保留每次研究上下文 |
+| ✨ | **AI 日历与投资助手** | 提问前预览发送范围，按日期回看研究、追问与个人手记；可选 Agent 模式按范围查找资料 |
 | 🧠 | **量化分析** | 组合技术面、基本面、新闻、情绪与宏观研究，经过多角色研判和风险复核形成报告 |
-| 🧾 | **交易记录** | 录入交易流水、导入持仓截图，维护持仓成本和目标仓位 |
+| 🧾 | **交易记录与复盘** | 录入交易流水、导入持仓截图，维护成本、目标仓位、投资政策与到期复盘 |
 | 🔒 | **本地数据管理** | 管理 AI Provider、备份恢复和浏览器草稿；私有运行数据默认只写入本机 |
 
 ## 产品界面
 
-以下截图来自本地运行的当前前端页面，展示新版工作台的四个主要入口：
+以下截图采集自当前主线的本地工作台，使用隔离的空账本和默认自选；行情是截图时的公开数据，可能变化或不可用。
 
 ### 总览
 
@@ -64,12 +64,6 @@
 
 ![量化分析：研究配置、分析师开关与历史报告](docs/screenshots/quant-analysis.png)
 
-<p align="center">
-  总览、看板、AI 日历与量化分析共享同一套本地数据<br>
-  <a href="https://github.com/user-attachments/assets/d07989b2-8ad5-490d-a9b6-327f87805320"><strong>▶ 在线观看演示</strong></a>
-  ·
-  <a href="docs/screenshots/demo.mp4">下载 MP4 录屏</a>
-</p>
 
 ## 为什么做这个项目
 
@@ -173,7 +167,7 @@ flowchart LR
     C --> D[多空辩论]
     D --> E[风险审查]
     E --> F[结构化结论]
-    F --> G[第 5 个后续交易日反思]
+    F --> G[可选：第 5 个后续交易日后手动生成反思]
 ```
 
 可复算层包括均线、RSI、MACD、布林带、ATR、VWMA、回撤和相对 SPY 收益。AI 层可以组合技术面、基本面或 ETF 结构、新闻、社交情绪和宏观事件，再经过多空讨论与风险评估形成研究结论。
@@ -199,6 +193,9 @@ flowchart LR
 | `apps/api` | FastAPI、本地数据、行情适配、指标、回测与 AI 工作流 |
 | `storage/templates` | 可公开的合成示例和配置模板 |
 | `storage/local` | 被 Git 忽略的私有运行数据 |
+| `apps/miniprogram` | 开发中的微信小程序，发布与真机验收状态见其文档 |
+| `packages` | 桌面端与小程序使用的共享领域、上下文和行情代码 |
+| `stock_rotation_v1` | 独立的股票轮动研究与回测原型，不接入桌面交易流程 |
 | `scripts` | 启动、迁移、发布与公开安全检查 |
 
 ## 开发指南
@@ -214,10 +211,8 @@ flowchart LR
 基础 API 测试使用隔离临时数据目录：`npm run test:api:base`；完整 Agent 环境使用 `npm run test:api:agent`。后者若有任何跳过测试会失败。安装和恢复演练见 [U02 备份恢复说明](优化/U02_备份恢复说明.md)。
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r apps/api/requirements.txt
 npm ci
+npm run setup:api
 ```
 
 分别启动 API 和网页端：
@@ -227,13 +222,18 @@ npm run dev:api
 npm run dev:web
 ```
 
-网页端默认位于 <http://127.0.0.1:3000/>，API 默认位于 <http://127.0.0.1:8000/>。提交前运行完整检查：
+`setup:api` 使用 `python3.12` 创建 `storage/local/base-dev-venv`，与 `dev:api` 使用的路径一致。网页端默认位于 <http://127.0.0.1:3000/>，API 默认位于 <http://127.0.0.1:8000/>。本仓库的 `一键打开股票交易平台.command` 使用单独的 Agent 环境；准备方法见 [Agent 运行环境](docs/implementation/ai-journal-agent/RUNTIME_PY312.md)。提交前运行完整检查：
 
 ```bash
 npm run check
 ```
 
 离线 AI 投资上下文评测包含 20 个虚构案例，使用方式见 [评测指南](docs/ai-context-evaluation.md)。参与开发前请阅读 [贡献指南](CONTRIBUTING.md)；安全问题请按照 [安全策略](SECURITY.md) 私密报告。
+
+## 其他项目与研究原型
+
+- **微信小程序**：源码位于 `apps/miniprogram`，包含本地持仓、个人手记和备份恢复；云端 AI 与行情依赖独立配置。尚未完成上线验收，参见 [小程序说明](docs/miniprogram/README.md) 和 [验收记录](docs/implementation/chicang-slim/ACCEPTANCE.md)。
+- **股票轮动回测 V1**：[研究说明](stock_rotation_v1/README.md) 包含运行方法、数据口径、成本与偏差。它是独立研究脚本，不会自动下单，也不保证回撤上限。
 
 ## 维护与许可
 
@@ -249,7 +249,7 @@ npm run check
 
 [中文](#中文) | [English](#english)
 
-The project brings portfolio status, candlestick charts, strategy signals, backtests, daily AI conversations, and multi-agent quantitative research into one local web application. It does not connect to a broker or place trades.
+The desktop workspace combines portfolio status, market watchlists, trade records, an AI journal, and multi-role quantitative research. The repository also contains an in-development WeChat mini program and a standalone stock rotation backtest. It does not place trades. The main branch may differ from published releases.
 
 ## Highlights
 
@@ -261,7 +261,7 @@ The project brings portfolio status, candlestick charts, strategy signals, backt
 
 ## Product interface
 
-The current frontend is organized around four primary workspace views:
+The screenshots show the current main branch with an isolated empty ledger and default watchlists; public quotes are snapshots and may change or be unavailable:
 
 | Overview | Market board |
 | --- | --- |
@@ -299,13 +299,13 @@ Daily AI advice may send private investment context only after explicit confirma
 Python 3.12+ and Node.js 24 are required.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r apps/api/requirements.txt
 npm ci
+npm run setup:api
 npm run dev:api
 npm run dev:web
 ```
+
+`setup:api` requires `python3.12` and creates the environment used by `dev:api`. The optional journal Agent uses a separate environment; see [runtime setup](docs/implementation/ai-journal-agent/RUNTIME_PY312.md). The [mini program](docs/miniprogram/README.md) has not completed release acceptance. The [rotation backtest](stock_rotation_v1/README.md) is a separate research prototype.
 
 Run `npm run check` before submitting a pull request. See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for contribution, security, and attribution details.
 
